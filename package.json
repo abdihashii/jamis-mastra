@@ -20,8 +20,5 @@
 	"devDependencies": {
 		"@antfu/eslint-config": "^9.2.0",
 		"eslint": "^10.8.0"
-	},
-	"dependencies": {
-		"@mastra/mcp": "^1.15.0"
 	}
 }
