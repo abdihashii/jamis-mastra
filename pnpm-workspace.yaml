@@ -5,3 +5,6 @@ trustPolicy: no-downgrade
 packages:
   - 'apps/*'
   - 'packages/*'
+
+allowBuilds:
+  esbuild: set this to true or false
