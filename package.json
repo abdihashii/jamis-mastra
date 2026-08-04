@@ -2,12 +2,14 @@
   "name": "jamis-mastra",
   "version": "1.0.0",
   "description": "JAMIS (Mastra) Monorepo",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
   "author": "",
   "license": "ISC",
+  "keywords": [],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix"
+  },
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
