@@ -2,17 +2,26 @@ import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
 
 export const weatherTool = createTool({
-  id: 'get-weather',
-  description: 'Get current weather for a location',
+  id: 'weather-tool',
+  description: 'Fetches weather for a location',
   inputSchema: z.object({
-    location: z.string().describe('City name'),
+    location: z.string().describe('Location name'),
   }),
   outputSchema: z.object({
-    output: z.string(),
+    location: z.string(),
+    temperatureCelcius: z.number(),
+    conditions: z.string(),
   }),
-  execute: async ({ location }) => {
+  execute: async ({ location }, { abortSignal }) => {
+    const response = await fetch(`https://wttr.in/${location}?format=j1`, {
+      signal: abortSignal
+    })
+    const data = await response.json()
+
     return {
-      output: `The weather in ${location} is sunny`,
+      location,
+      temperatureCelcius: Number(data.current_condition[0].temp_C),
+      conditions: data.current_condition[0].weatherDesc[0].value,
     }
   },
 })
