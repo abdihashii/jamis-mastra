@@ -1,6 +1,7 @@
 {
 	"name": "jamis-mastra",
 	"version": "1.0.0",
+	"packageManager": "pnpm@11.17.0",
 	"description": "JAMIS (Mastra) Monorepo",
 	"author": "",
 	"license": "ISC",
