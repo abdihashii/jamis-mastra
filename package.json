@@ -18,7 +18,6 @@
 		}
 	},
 	"dependencies": {
-		"@mastra/mcp": "^1.15.1",
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
