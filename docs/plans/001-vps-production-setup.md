@@ -26,12 +26,16 @@ All repo files live in `infra/` at the repo root.
 
 Goal: first boot takes a fresh Ubuntu 26.04 to a hardened, Docker+Tailscale-ready box. Declarative `#cloud-config`:
 
-- `users:` non-root sudo user `jamis` with `ssh_authorized_keys` (your public key, committed, public keys are not secrets), `lock_passwd: true`
+- `users:` two accounts, split by privilege:
+  - `root` is the operator login, carrying your public key (committed, public keys are not secrets). Key only: `PermitRootLogin prohibit-password`, `disable_root: false`.
+  - `jamis` is the agent's unprivileged host account: `lock_passwd: true`, no SSH key yet, **not** in the `docker` group (that group is root-equivalent), and no general sudo. It gets `systemd-journal` for journal reads and a pinned-argument sudoers allowlist (`docker ps`, `ps -a`, `stats --no-stream`, `compose ls`, `logs *`). `docker inspect` is excluded, it prints container env vars.
 - `write_files:` sshd hardening drop-in (`PasswordAuthentication no`, `PermitRootLogin no`), 4GB swapfile entry, ClickHouse-ready sysctl nothing (skip, ponytail)
 - `packages:` via Docker's official apt repo (`apt: sources:` + `packages: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]`), plus `tailscale` from Tailscale's apt repo
-- `runcmd:` mkswap/swapon + fstab line, `usermod -aG docker jamis`, ufw: default deny incoming, allow in on `tailscale0`, allow ssh (temporary, removed in A4), `tailscale up --auth-key="$TS_AUTH_KEY" --advertise-tags=tag:server` (key injected at create time, see A2)
+- `runcmd:` mkswap/swapon + fstab line, `visudo -cf` guard on the sudoers drop-in, ufw: default deny incoming, allow in on `tailscale0`, allow `41641/udp`, allow ssh (temporary, removed in A4), `tailscale up --auth-key="$TS_AUTH_KEY" --advertise-tags=tag:server` (key injected at create time, see A2)
+- Docker and Tailscale apt repos are written in `runcmd`, not the `apt:` block: both publish per Ubuntu codename and a brand-new release may not be there yet, so the script probes for `$VERSION_CODENAME` and falls back to `noble`. cloud-init only runs once, a 404 here would leave a dead box.
+- Line 1 must be exactly `#cloud-config`. ESLint's yaml comment-spacing rule rewrites it to `# cloud-config`, which silently disables the whole file, so `infra/cloud-init.yaml` is in `ignores` in `eslint.config.mjs`.
 
-Prereq (one-time, manual): Tailscale admin console → create tag `tag:server` in ACLs → generate a **reusable auth key** tagged `tag:server`. Store it in your local password manager, never in git.
+Prereq (one-time, manual): Tailscale admin console → Access controls → add `"tagOwners": {"tag:server": ["autogroup:admin"]}`. An auth key is optional, see A2.
 
 - Verify locally: `cloud-init schema --config-file infra/cloud-init.yaml` (brew install cloud-init) passes.
 
@@ -53,27 +57,47 @@ hcloud server ip jamis-prod
 
 Provider switch = swap the `hcloud` line for `doctl compute droplet create jamis-prod --size s-2vcpu-4gb --region nyc3 --image ubuntu-24-04-x64 --user-data-file ...` (comment in the script). ponytail: support the provider you use, document the alternative, don't build a provider abstraction.
 
-- Verify: script exits printing a public IP; `ssh jamis@<ip> 'cloud-init status --wait'` → `done`; `docker run hello-world` works; `tailscale ip -4` prints the tailnet IP.
+`TS_AUTH_KEY` is optional and better left unset. An auth key pasted into user-data becomes a standing tailnet credential readable from the Hetzner console and API for the life of the box. Skipping it costs one interactive step instead:
+
+```bash
+ssh -t root@<public-ip> 'tailscale up --advertise-tags=tag:server'   # prints a login URL, approve in browser
+```
+
+The tag matters: tagged nodes never expire, while an untagged personal node needs reauthentication every 180 days, and that lapse would cost you the only route to the box once public SSH is closed.
+
+- Verify: script exits printing a public IP; `ssh root@<ip> 'cloud-init status --wait'` → `done`; `docker run hello-world` works; `tailscale ip -4` prints the tailnet IP.
 
 ### A3. Secrets + repo on the box (manual, one-time per box)
 
+The repo is private, so the box needs its own read-only deploy key:
+
 ```bash
-ssh jamis@<public-ip>
-git clone git@github.com:<org>/jamis-mastra.git ~/jamis-mastra   # deploy key if repo private
-cd ~/jamis-mastra/apps/agent && cp .env.prod.example .env.prod && chmod 600 .env.prod
+# on the box
+ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N "" -C "jamis-prod deploy key"
+ssh-keyscan -t ed25519 github.com >> /root/.ssh/known_hosts
+ssh-keygen -lf /root/.ssh/known_hosts   # must show SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU
+
+# from your Mac, read-only on purpose (no --allow-write)
+gh repo deploy-key add <pubkey-file> --title 'jamis-prod (read-only)' --repo abdihashii/jamis-mastra
+
+# back on the box
+git clone git@github.com:abdihashii/jamis-mastra.git /root/jamis-mastra
+cd /root/jamis-mastra/apps/agent && cp .env.prod.example .env.prod && chmod 600 .env.prod
 # edit .env.prod: FIREWORKS_API_KEY, API_TOKEN (openssl rand -hex 32), DB passwords, TAILSCALE_IP=<from tailscale ip -4>
 ```
 
 - Verify: `.env.prod` filled, `git log --oneline -1` shows HEAD.
 
-### A4. First deploy + close public SSH
+### A4. Close public SSH
+
+The plan originally deferred this until after the first deploy. Do it as soon as tailnet SSH is proven instead: everything after this point runs over the tailnet, so there is no reason to leave port 22 facing the internet while Track B is still being written.
 
 ```bash
-./infra/deploy.sh   # from your Mac; see Track B
-ssh jamis@<tailscale-ip> 'sudo ufw delete allow ssh && sudo ufw reload'
+ssh root@<tailscale-ip> 'ufw delete allow ssh && ufw reload'
 ```
 
-- Verify: public `ssh jamis@<public-ip>` refused; tailnet ssh works; full Track B smoke green.
+- Verify: `ssh root@<public-ip>` times out (ufw drops rather than refuses); `ssh root@<tailscale-ip>` still works.
+- If tailscaled ever dies on the box, the only way back in is Hetzner rescue mode. `tailscaled` is enabled at boot, so reboots are fine.
 
 **Track A boundary smoke:** fresh box → `provision.sh` → A3 → A4 → API answers over tailnet with a valid token.
 
@@ -206,7 +230,7 @@ Goal: deploys are one non-interactive command from your Mac.
 #!/usr/bin/env bash
 set -euo pipefail
 HOST="${JAMIS_HOST:?set JAMIS_HOST to the VPS tailscale IP or hostname}"
-ssh "jamis@${HOST}" 'cd ~/jamis-mastra && git pull && cd apps/agent && docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --build'
+ssh "root@${HOST}" 'cd /root/jamis-mastra && git pull --ff-only && cd apps/agent && docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --build'
 ```
 
 - Verify: run it, then `curl -H "Authorization: Bearer $API_TOKEN" http://$JAMIS_HOST:4111/api/agents` → agent JSON; `curl http://$JAMIS_HOST:4111/api/agents` (no token) → 401; Studio loads at `http://$JAMIS_HOST:4111` and works after entering the token.
