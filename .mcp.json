@@ -3,7 +3,7 @@
 		"mastra": {
 			"type": "stdio",
 			"command": "pnpm",
-			"args": ["dlx", "@mastra/mcp-docs-server@latest"]
+			"args": ["dlx", "@mastra/mcp-docs-server@1.2.14"]
 		}
 	}
 }
