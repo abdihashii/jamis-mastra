@@ -1,6 +1,8 @@
 # 001 — VPS production setup & agent productionalization
 
-Status: Track A done, the box is live. Track B in progress. Decisions final per ADRs 0001-0003, the grilling session, and open question 6, do not reopen.
+Status: Track A done, the box is live. B1-B4 done and pushed; nothing is deployed yet. What is left is B5 (first deploy) and B6 (Cloudflare dashboard), both of which need a human at the keyboard. Decisions final per ADRs 0001-0003, the grilling session, and open question 6, do not reopen.
+
+Before B5 can run, on the box: fill `.env.prod` (including `API_TOKEN`, which is just `openssl rand -hex 32`, no external service) and run `tailscale serve --bg --http=4111 localhost:4111`. See A3.
 
 ## Current box
 
@@ -105,9 +107,18 @@ ssh root@<tailscale-ip> 'ufw delete allow ssh && ufw reload'
 
 ## Track B — Productionalization (repo changes)
 
-Do B1-B4 locally, commit each; B5-B6 use the VPS. B1's gitignore half and B5's script are already done, see below.
+B1-B4 are done, one commit each, pushed to `feat/part-1-mastra-setup`:
 
-### B1. Secrets plumbing
+| stage | commit | what landed |
+| --- | --- | --- |
+| B1 | `21dd72d` | `.env.prod.example` (gitignore half was `33d2c90`) |
+| B2 | `6aecdb9` | Dockerfile, `.dockerignore`, pnpm pin, zod install fix |
+| B3 | `7a9f66f` | compose overlay, ClickHouse memory cap, deploy.sh guard removal |
+| B4 | `4e4eacb` | SimpleAuth on every `/api/*` route |
+
+Decisions behind them are in `092365b`. B5 and B6 remain, both on the VPS. The stages below keep their full detail because the first deploy is likely to send you back to them.
+
+### B1. Secrets plumbing (done, `21dd72d`)
 
 Goal: `.env.prod` ignored, template committed.
 - ~~`.gitignore`~~ done in `33d2c90`, as `.env*` with `!.env.example` and `!.env.prod.example`. The original `.env` pattern matched only that exact name, so it never covered `.env.prod`.
@@ -127,7 +138,7 @@ CLICKHOUSE_PASSWORD=
 - Verify: `git check-ignore apps/agent/.env.prod` exits 0 (already true), and `git check-ignore apps/agent/.env.prod.example` exits 1.
 - Commit: `chore: add prod env template`
 
-### B2. Dockerfile + .dockerignore
+### B2. Dockerfile + .dockerignore (done, `6aecdb9`)
 
 Goal: self-contained prod image of the agent.
 - `apps/agent/package.json`: build script → `"build": "mastra build --studio"` (ponytail: one-word change; `--studio` on a dev build is harmless).
@@ -168,7 +179,7 @@ Node 24, not the 22 this plan first specified: 22 dropped to maintenance (securi
 - Verify locally: `docker build -f apps/agent/Dockerfile -t jamis-agent .` succeeds; `docker run --rm jamis-agent node --version` works; `docker run --rm jamis-agent sh -c 'ls /app/studio'` lists `index.html`; a bare `docker run` reaches `Missing required env var: DATABASE_URL`, which proves `index.mjs` is executing rather than the image merely existing.
 - Commit: `feat(agent): two-stage prod Dockerfile with studio bundle`
 
-### B3. Prod compose overlay
+### B3. Prod compose overlay (done, `7a9f66f`)
 
 Goal: app + cloudflared join the existing `jamis` stack; nothing host-exposed publicly.
 - New `apps/agent/docker-compose.prod.yml`:
@@ -219,7 +230,7 @@ services:
   - `cloudflared` restart-loops until B6 supplies `TUNNEL_TOKEN`. Expected, and it does not affect the rest of the stack.
 - Commit: `feat(agent): prod compose overlay with app, cloudflared, CH memory cap`
 
-### B4. SimpleAuth wiring
+### B4. SimpleAuth wiring (done, `4e4eacb`)
 
 Goal: API requires bearer token everywhere it's served.
 - `apps/agent/src/mastra/index.ts`:
@@ -254,11 +265,14 @@ server: {
   Known gaps, both accepted: `/` has to serve the Studio shell unauthenticated or there is nowhere to paste the token, and the studio-only `POST /__refresh` and `GET /refresh-events` answer 200 without a token. They trigger a UI refresh and expose no data. Everything here is tailnet-only, with Cloudflare Access in front of the public hostname.
 - Commit: `feat(agent): protect API with SimpleAuth bearer token`
 
-### B5. First deploy
+### B5. First deploy (next, not started)
 
-**Do not run this before B4 lands.** B2 bakes the Studio UI into the image while auth arrives only in B4, so between those stages anything that reaches port 4111 gets full agent, tool, and memory control through the UI, plus the studio-only unauthenticated `/refresh-events` and `POST /__refresh` routes. B3's loopback binding and B4's token both have to be in place first.
+The B4-before-B5 ordering warning that used to sit here is satisfied: loopback binding and the token both landed. Two prerequisites are still open, both on the box and both manual:
 
-`infra/deploy.sh` is already written and committed in `31312a3`, ahead of B1-B3. It cannot succeed until `docker-compose.prod.yml` and `.env.prod` exist, so the remaining work in this stage is running it, not writing it.
+1. `.env.prod` filled in, `chmod 600`. `API_TOKEN` is a value you generate (`openssl rand -hex 32`), not something issued by a service. Leave `TUNNEL_TOKEN` blank until B6.
+2. `tailscale serve --bg --http=4111 localhost:4111`. Compose binds loopback only, so without this nothing on the tailnet can reach the app.
+
+`infra/deploy.sh` is already written and committed in `31312a3`, ahead of B1-B3. `docker-compose.prod.yml` now exists, so the remaining work in this stage is running it, not writing it. It deploys `JAMIS_BRANCH`, which defaults to `main`, while this work sits on `feat/part-1-mastra-setup`: either pass the branch or merge first.
 
 Goal: deploys are one non-interactive command from your Mac. `JAMIS_HOST=100.105.239.41 ./infra/deploy.sh` connects as root, fetches, checks out `JAMIS_BRANCH` (default `main`), and runs `docker compose up -d --build` with both compose files.
 
@@ -267,7 +281,7 @@ It shipped with a guard refusing to deploy unless `.env.prod` had `TAILSCALE_IP=
 - Verify: run it, then `curl -H "Authorization: Bearer $API_TOKEN" http://$JAMIS_HOST:4111/api/agents` → agent JSON; `curl http://$JAMIS_HOST:4111/api/agents` (no token) → 401; Studio loads at `http://$JAMIS_HOST:4111` and works after entering the token. All three go through `tailscale serve`, so a connection refused here means the A3 serve step is missing, not that the app is down.
 - No commit: the script already landed in `31312a3`. The guard removal rides with B3; any other fix the first real deploy surfaces gets its own commit.
 
-### B6. Cloudflare dashboard (no repo changes)
+### B6. Cloudflare dashboard (not started, no repo changes)
 
 Goal: public hostname live behind Access.
 1. Zero Trust → Networks → Tunnels → create remotely-managed tunnel → copy token into `.env.prod` as `TUNNEL_TOKEN` → recreate cloudflared (`up -d --force-recreate cloudflared`).
