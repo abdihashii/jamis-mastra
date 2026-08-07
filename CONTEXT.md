@@ -5,8 +5,12 @@ Monorepo for the Jamis agent system, built on Mastra. `apps/agent` is the Mastra
 ## Language
 
 **Jamis**:
-The master agent (to be built in `apps/agent`, `id: 'jamis'`). Also the Docker Compose project name and the VPS user name.
+The master agent (to be built in `apps/agent`, `id: 'jamis'`). Also the Docker Compose project name, and the name of the agent's unprivileged account on the VPS.
 _Avoid_: master agent, main agent (use "Jamis")
+
+**Operator**:
+You, logging in as `root` over the tailnet. The only account with privilege on the box. The `jamis` account is the agent's, and holds read-only inspection rights, never `sudo` in general and never the `docker` group.
+_Avoid_: admin user, deploy user
 
 **Public ingress**:
 Cloudflare Tunnel exposing only the Mastra API at `mastra-agent.jamis.xyz`, with Cloudflare Access in front. The only public path into production.

@@ -13,7 +13,15 @@ The production VPS is a Hetzner Cloud **CX23** (2 vCPU, 4GB RAM, 40GB SSD, **$6.
 
 One cloud-init file plus two small shell scripts in `infra/`. `provision.sh` wraps `hcloud` server create with the cloud-init file (a doctl alternative sits in a comment). `deploy.sh` wraps the SSH git-pull-and-compose-up deploy. We chose this over Terraform or Ansible: one box, one operator, and the scripts make the box replaceable. Switching providers or upgrading size means re-running the script, not migrating anything.
 
-Docker comes from its official apt repository, not the get.docker.com script (that script says itself it is not for production).
+Docker comes from its official apt repository, not the get.docker.com script (that script says itself it is not for production). The repo line is written in `runcmd` rather than cloud-init's `apt:` block, because Docker and Tailscale publish per Ubuntu codename and a brand-new release may not be there on day one. The script probes and falls back to `noble`, since cloud-init runs once and a 404 would leave a dead box.
+
+## Host accounts
+
+`root` is the operator account and the only privileged one. It carries the operator's SSH key, accepts keys only (`PermitRootLogin prohibit-password`, password auth off), and after stage A4 is reachable only over the tailnet. `deploy.sh` connects as root and the repo lives at `/root/jamis-mastra`.
+
+`jamis` is the agent's host account, unprivileged on purpose. No SSH key until the agent actually needs one, `lock_passwd: true`, and deliberately **not** in the `docker` group: socket access to the Docker daemon is root, so that group is not a lesser privilege. What it does get is enough to look at the box and change nothing: the `systemd-journal` group (journal reads with no sudo at all) and a sudoers allowlist that pins arguments, so `docker ps`, `ps -a`, `stats --no-stream`, `compose ls`, and `logs *` work while `docker run` does not. `docker inspect` is excluded because it prints container env vars, which is where the secrets are.
+
+Why split at all when the agent runs in a container as `USER node` with no host mount: the container is the real boundary today, and the account matters the day the agent gets any way to run commands on the host. cloud-init runs once, so the split is cheaper to make now than to retrofit.
 
 ## Consequences
 
