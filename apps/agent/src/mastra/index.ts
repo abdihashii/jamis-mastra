@@ -2,6 +2,7 @@ import process from 'node:process';
 
 import { ObservabilityStorageClickhouseVNext } from '@mastra/clickhouse';
 import { Mastra } from '@mastra/core';
+import { SimpleAuth } from '@mastra/core/server';
 import { MastraCompositeStore } from '@mastra/core/storage';
 import {
 	MastraStorageExporter,
@@ -27,6 +28,14 @@ function requireEnv(name: string): string {
 
 export const mastra = new Mastra({
 	agents: { weatherAgent },
+	server: {
+		// One token, one operator. SimpleAuth checks Authorization and
+		// X-Playground-Access by default, so Studio authenticates by pasting the
+		// same token into its access-token field. No public path exceptions.
+		auth: new SimpleAuth({
+			tokens: { [requireEnv('API_TOKEN')]: { id: 'admin', name: 'admin' } },
+		}),
+	},
 	storage: new MastraCompositeStore({
 		id: 'composite-storage',
 		default: new PostgresStore({
