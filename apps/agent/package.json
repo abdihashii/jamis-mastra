@@ -9,7 +9,7 @@
 	"main": "index.js",
 	"scripts": {
 		"dev": "mastra dev",
-		"build": "mastra build",
+		"build": "mastra build --studio",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
