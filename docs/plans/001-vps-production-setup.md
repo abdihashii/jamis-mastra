@@ -1,6 +1,6 @@
 # 001 — VPS production setup & agent productionalization
 
-Status: Track A done, the box is live. Track B not started. Decisions final per ADRs 0001-0003 and grilling session, do not reopen.
+Status: Track A done, the box is live. Track B in progress. Decisions final per ADRs 0001-0003, the grilling session, and open question 6, do not reopen.
 
 ## Current box
 
@@ -12,12 +12,12 @@ Status: Track A done, the box is live. Track B not started. Decisions final per 
 ## Architecture recap
 
 - Public ingress: Cloudflare Tunnel only, hostname `mastra-agent.jamis.xyz` → Mastra API (`app:4111`). Cloudflare Access policy at the edge.
-- Private ops: Tailscale: SSH, Studio (`http://<tailscale-ip>:4111`), nothing else.
+- Private ops: Tailscale: SSH, Studio (`http://<tailscale-ip>:4111`), nothing else. The stack publishes loopback only; `tailscale serve` forwards the tailnet IP to it (open question 6, resolved).
 - Auth in app: `SimpleAuth` bearer token (`API_TOKEN` env). Studio authenticates by pasting the same token into Studio's access-token field (SimpleAuth checks `X-Playground-Access` by default, no `public:` path exceptions needed).
 - Deploy: build on VPS from git via `infra/deploy.sh` (non-interactive SSH: git pull + compose up --build). No registry, no CI, no nginx.
 - Secrets: `.env.prod` on VPS, gitignored, `chmod 600`, consumed via `--env-file`.
 - VPS: Hetzner CX23 (2 vCPU / 4GB, $6.49/mo), Falkenstein fsn1, Ubuntu 26.04 (ADR 0003). Provisioned by cloud-init user-data + `infra/provision.sh`. 4GB swapfile. ClickHouse memory capped at ~1.5GB. Escape hatch: re-run provision on a bigger type, or resize.
-- Portability: the box is disposable. New box = `./infra/provision.sh`, `tailscale up --advertise-tags=tag:server`, a deploy key for the private repo, `.env.prod`, then `./infra/deploy.sh`. Four manual steps, not one, because no standing credentials are baked into the image.
+- Portability: the box is disposable. New box = `./infra/provision.sh`, `tailscale up --advertise-tags=tag:server`, a deploy key for the private repo, `.env.prod`, `tailscale serve --bg --http=4111 localhost:4111`, then `./infra/deploy.sh`. Five manual steps, not one, because no standing credentials are baked into the image.
 
 ## Out of scope
 
@@ -79,10 +79,14 @@ gh repo deploy-key add <pubkey-file> --title 'jamis-prod (read-only)' --repo abd
 # back on the box
 git clone git@github.com:abdihashii/jamis-mastra.git /root/jamis-mastra
 cd /root/jamis-mastra/apps/agent && cp .env.prod.example .env.prod && chmod 600 .env.prod
-# edit .env.prod: FIREWORKS_API_KEY, API_TOKEN (openssl rand -hex 32), DB passwords, TAILSCALE_IP=<from tailscale ip -4>
+# edit .env.prod: FIREWORKS_API_KEY, API_TOKEN (openssl rand -hex 32), DB passwords
+
+# publish the app to the tailnet. Compose binds 127.0.0.1 only, so without this
+# Studio is unreachable. --bg survives reboots and tailscaled restarts.
+tailscale serve --bg --http=4111 localhost:4111
 ```
 
-- Verify: `.env.prod` filled, `git log --oneline -1` shows HEAD.
+- Verify: `.env.prod` filled, `git log --oneline -1` shows HEAD, `tailscale serve status` lists the 4111 proxy.
 
 ### A4. Close public SSH
 
@@ -113,7 +117,6 @@ Goal: `.env.prod` ignored, template committed.
 FIREWORKS_API_KEY=
 API_TOKEN=            # openssl rand -hex 32
 TUNNEL_TOKEN=         # from Cloudflare dashboard (B6)
-TAILSCALE_IP=         # tailscale ip -4 on the VPS
 POSTGRES_PASSWORD=
 DATABASE_URL=postgresql://postgres:CHANGE_ME@postgres:5432/mastra
 CLICKHOUSE_URL=http://clickhouse:8123
@@ -153,7 +156,7 @@ CMD ["node", "index.mjs"]
 **Two things will break this build as written, fix them in this stage:**
 
 1. `zod` is declared in the **root** `package.json` but imported only by `apps/agent/src/mastra/tools/weather-tool.ts`. It works locally because pnpm hoists it to the root `node_modules` and Node resolves upward. `pnpm install --filter @jamis-mastra/agent...` installs that package and its workspace deps, not the root project, so the build stage fails while bundling. Move `zod` into `apps/agent/package.json`.
-2. `packageManager: "pnpm@11.17.0"` conflicts with `devEngines.packageManager: "^11.17.0"`. Every install prints a warning and ignores `packageManager`, but `corepack enable` in this Dockerfile honors it, so the image would run a different pnpm than your Mac against the same lockfile. Pick one source of truth before adding the corepack line.
+2. `packageManager: "pnpm@11.17.0"` conflicts with `devEngines.packageManager: "^11.17.0"`. pnpm reads `devEngines` and warns that it is ignoring `packageManager`; corepack reads `packageManager` first and only falls back to `devEngines` (which then needs an exact version, not a range). `corepack enable` in this Dockerfile would therefore run 11.17.0 in the image while the Mac runs 11.20.0 against one lockfile. **Resolved:** set `packageManager` to `pnpm@11.20.0`, the version actually in use, and delete the `devEngines` block. One field, both readers agree. Side effect: `devEngines` is what makes npm and npx fail in-repo with `EBADDEVENGINES`, so removing it unblocks npx-based tooling. Loses `onFail: download`, which corepack provides anyway.
 - Verify locally: `docker build -f apps/agent/Dockerfile -t jamis-agent .` succeeds; `docker run --rm jamis-agent node --version` works.
 - Commit: `feat(agent): two-stage prod Dockerfile with studio bundle`
 
@@ -178,8 +181,7 @@ services:
     env_file: .env.prod
     depends_on: [postgres, clickhouse]   # ponytail: no healthchecks; restart policy covers cold-start races
     ports:
-      - '${TAILSCALE_IP}:4111:4111'      # tailnet-only host exposure (Studio + direct API)
-      # DECIDE BEFORE WRITING THIS FILE, see open question 6.
+      - '127.0.0.1:4111:4111'            # loopback only; tailscale serve fronts the tailnet (A3)
     restart: unless-stopped
     logging:
       driver: json-file
@@ -192,6 +194,7 @@ services:
 ```
 
   (cloudflared reaches `http://app:4111` over the compose network; no host port needed for the tunnel. `!reset []` drops the dev `127.0.0.1` bindings entirely, defense in depth, two lines.)
+- Also in this stage: drop the `TAILSCALE_IP=100.` guard from `infra/deploy.sh`. It defended a variable no compose file reads any more, so leaving it in would only mislead the next reader.
 - New `apps/agent/clickhouse/memory.xml`:
 
 ```xml
@@ -229,10 +232,10 @@ server: {
 
 Goal: deploys are one non-interactive command from your Mac. `JAMIS_HOST=100.105.239.41 ./infra/deploy.sh` connects as root, fetches, checks out `JAMIS_BRANCH` (default `main`), and runs `docker compose up -d --build` with both compose files.
 
-Before the compose call it refuses to deploy unless `.env.prod` has `TAILSCALE_IP=100.`, because an empty value silently turns the `${TAILSCALE_IP}:4111:4111` binding into a public one. See B3.
+It shipped with a guard refusing to deploy unless `.env.prod` had `TAILSCALE_IP=100.`. B3 removes that guard along with the variable it protected.
 
-- Verify: run it, then `curl -H "Authorization: Bearer $API_TOKEN" http://$JAMIS_HOST:4111/api/agents` → agent JSON; `curl http://$JAMIS_HOST:4111/api/agents` (no token) → 401; Studio loads at `http://$JAMIS_HOST:4111` and works after entering the token.
-- No commit: the script already landed in `31312a3`. Any fix the first real deploy surfaces gets its own commit.
+- Verify: run it, then `curl -H "Authorization: Bearer $API_TOKEN" http://$JAMIS_HOST:4111/api/agents` → agent JSON; `curl http://$JAMIS_HOST:4111/api/agents` (no token) → 401; Studio loads at `http://$JAMIS_HOST:4111` and works after entering the token. All three go through `tailscale serve`, so a connection refused here means the A3 serve step is missing, not that the app is down.
+- No commit: the script already landed in `31312a3`. The guard removal rides with B3; any other fix the first real deploy surfaces gets its own commit.
 
 ### B6. Cloudflare dashboard (no repo changes)
 
@@ -254,8 +257,8 @@ Goal: public hostname live behind Access.
 3. Backups: off-box `pg_dump` cron → object storage. Not scheduled.
 4. `agent.jamis.xyz` cutover from v1 agent, separate plan.
 5. Memory headroom: watch `docker stats` during first `up --build`; CX23 has 4GB, resize to CX33 (8GB, $8.99) if the build OOMs even with swap.
-6. **Open decision for B3.** Docker bypasses ufw for published ports, and compose treats an empty `${TAILSCALE_IP}` as "bind everywhere": `':4111:4111'` renders as `published: "4111"` with no host IP, which is `0.0.0.0`. That would put the Mastra API on the public internet with neither ufw nor Cloudflare Access in front, leaving only the SimpleAuth bearer token. `.env.prod.example` ships that variable blank, so the failure mode is one forgotten line. Two ways out, pick one before writing `docker-compose.prod.yml`:
-   - Keep `${TAILSCALE_IP}:4111:4111` and rely on the `deploy.sh` guard. Guards only the path that goes through the script, not a manual `docker compose up` on the box.
-   - Bind `127.0.0.1:4111:4111` and publish to the tailnet with `tailscale serve --bg 4111`. Nothing is ever bound to a public interface and there is no variable to get wrong. Less config than the first option.
+6. ~~Open decision for B3~~ **resolved: bind `127.0.0.1:4111:4111`, front it with `tailscale serve --bg --http=4111 localhost:4111`.** The problem: docker bypasses ufw for published ports, and compose treats an empty `${TAILSCALE_IP}` as "bind everywhere" (`':4111:4111'` renders as `published: "4111"` with no host IP, which is `0.0.0.0`), which would put the API on the public internet with neither ufw nor Cloudflare Access in front. `.env.prod.example` shipped that variable blank, so the failure mode was one forgotten line.
+   The rejected alternative was making it mandatory as `${TAILSCALE_IP:?...}`. Verified with compose v5.1.4: that does fail closed on blank and unset, on every path including a manual `up`. But it also fails `ps`, `down`, and `logs` unless each carries `--env-file .env.prod`, and it still lets a wrong-but-non-empty value through.
+   The serve route removes the variable instead of guarding it, so no value can expose the box. `--http` serves plain HTTP on the tailnet IP, so the Studio URL is unchanged and no tailnet TLS certs are needed; `--bg` survives reboots. Cost: one manual step per box (A3), and its state lives on the box rather than in the repo. It fails safe, an unset serve means Studio is unreachable, never exposed.
 7. ~~Tailscale auth key rotation~~ moot: no auth key is used. The box joined interactively as a tagged node, and tagged nodes do not expire. Reintroducing `TS_AUTH_KEY` for unattended provisioning brings the rotation problem back.
 8. Data migration when switching boxes: PG/ClickHouse volumes don't move by themselves. New box = fresh databases unless you pg_dump/restore. Acceptable (deferred with backups), call it out before any provider switch.
