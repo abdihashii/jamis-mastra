@@ -17,7 +17,7 @@ Status: Track A done, the box is live. Track B not started. Decisions final per 
 - Deploy: build on VPS from git via `infra/deploy.sh` (non-interactive SSH: git pull + compose up --build). No registry, no CI, no nginx.
 - Secrets: `.env.prod` on VPS, gitignored, `chmod 600`, consumed via `--env-file`.
 - VPS: Hetzner CX23 (2 vCPU / 4GB, $6.49/mo), Falkenstein fsn1, Ubuntu 26.04 (ADR 0003). Provisioned by cloud-init user-data + `infra/provision.sh`. 4GB swapfile. ClickHouse memory capped at ~1.5GB. Escape hatch: re-run provision on a bigger type, or resize.
-- Portability: the box is disposable. New box = `./infra/provision.sh` + one secrets step + `./infra/deploy.sh`.
+- Portability: the box is disposable. New box = `./infra/provision.sh`, `tailscale up --advertise-tags=tag:server`, a deploy key for the private repo, `.env.prod`, then `./infra/deploy.sh`. Four manual steps, not one, because no standing credentials are baked into the image.
 
 ## Out of scope
 
@@ -101,13 +101,13 @@ ssh root@<tailscale-ip> 'ufw delete allow ssh && ufw reload'
 
 ## Track B — Productionalization (repo changes)
 
-Do B1-B4 locally, commit each; B5-B6 use the VPS.
+Do B1-B4 locally, commit each; B5-B6 use the VPS. B1's gitignore half and B5's script are already done, see below.
 
 ### B1. Secrets plumbing
 
 Goal: `.env.prod` ignored, template committed.
-- `.gitignore` (root): add `.env.prod`.
-- New `apps/agent/.env.prod.example`:
+- ~~`.gitignore`~~ done in `33d2c90`, as `.env*` with `!.env.example` and `!.env.prod.example`. The original `.env` pattern matched only that exact name, so it never covered `.env.prod`.
+- Remaining: new `apps/agent/.env.prod.example`:
 
 ```
 FIREWORKS_API_KEY=
@@ -121,8 +121,8 @@ CLICKHOUSE_USERNAME=default
 CLICKHOUSE_PASSWORD=
 ```
 
-- Verify: `git check-ignore apps/agent/.env.prod` exits 0.
-- Commit: `chore: gitignore .env.prod and add prod env template`
+- Verify: `git check-ignore apps/agent/.env.prod` exits 0 (already true), and `git check-ignore apps/agent/.env.prod.example` exits 1.
+- Commit: `chore: add prod env template`
 
 ### B2. Dockerfile + .dockerignore
 
@@ -149,6 +149,11 @@ CMD ["node", "index.mjs"]
 ```
 
 - New root `.dockerignore`: `node_modules`, `**/node_modules`, `.mastra`, `**/.mastra`, `.env`, `.env.prod`, `.git`, `docs`.
+
+**Two things will break this build as written, fix them in this stage:**
+
+1. `zod` is declared in the **root** `package.json` but imported only by `apps/agent/src/mastra/tools/weather-tool.ts`. It works locally because pnpm hoists it to the root `node_modules` and Node resolves upward. `pnpm install --filter @jamis-mastra/agent...` installs that package and its workspace deps, not the root project, so the build stage fails while bundling. Move `zod` into `apps/agent/package.json`.
+2. `packageManager: "pnpm@11.17.0"` conflicts with `devEngines.packageManager: "^11.17.0"`. Every install prints a warning and ignores `packageManager`, but `corepack enable` in this Dockerfile honors it, so the image would run a different pnpm than your Mac against the same lockfile. Pick one source of truth before adding the corepack line.
 - Verify locally: `docker build -f apps/agent/Dockerfile -t jamis-agent .` succeeds; `docker run --rm jamis-agent node --version` works.
 - Commit: `feat(agent): two-stage prod Dockerfile with studio bundle`
 
@@ -218,14 +223,16 @@ server: {
 - Verify locally: `mastra dev`, then `curl localhost:4111/api/agents` → 401; `curl -H "Authorization: Bearer $API_TOKEN" localhost:4111/api/agents` → agent JSON.
 - Commit: `feat(agent): protect API with SimpleAuth bearer token`
 
-### B5. `infra/deploy.sh` + first deploy
+### B5. First deploy
+
+`infra/deploy.sh` is already written and committed in `31312a3`, ahead of B1-B3. It cannot succeed until `docker-compose.prod.yml` and `.env.prod` exist, so the remaining work in this stage is running it, not writing it.
 
 Goal: deploys are one non-interactive command from your Mac. `JAMIS_HOST=100.105.239.41 ./infra/deploy.sh` connects as root, fetches, checks out `JAMIS_BRANCH` (default `main`), and runs `docker compose up -d --build` with both compose files.
 
 Before the compose call it refuses to deploy unless `.env.prod` has `TAILSCALE_IP=100.`, because an empty value silently turns the `${TAILSCALE_IP}:4111:4111` binding into a public one. See B3.
 
 - Verify: run it, then `curl -H "Authorization: Bearer $API_TOKEN" http://$JAMIS_HOST:4111/api/agents` → agent JSON; `curl http://$JAMIS_HOST:4111/api/agents` (no token) → 401; Studio loads at `http://$JAMIS_HOST:4111` and works after entering the token.
-- Commit: `feat(infra): provision + deploy scripts with cloud-init`
+- No commit: the script already landed in `31312a3`. Any fix the first real deploy surfaces gets its own commit.
 
 ### B6. Cloudflare dashboard (no repo changes)
 
