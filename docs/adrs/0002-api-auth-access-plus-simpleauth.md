@@ -1,5 +1,5 @@
-# API auth: Cloudflare Access at the edge + SimpleAuth bearer token in the app
+# API auth: Cloudflare Access plus a bearer token in the app
 
-The publicly exposed Mastra API is protected twice. Cloudflare Access sits in front of the tunnel hostname as the edge front door. Inside the app, Mastra's `SimpleAuth` middleware (from `@mastra/core/server`) checks a static bearer token loaded from an env var, which also covers direct calls over the tailnet that bypass the tunnel.
+The public Mastra API is protected in two places. Cloudflare Access sits in front of the tunnel hostname and checks callers before traffic reaches the VPS. Inside the app, Mastra's `SimpleAuth` middleware checks a static bearer token loaded from an env var. The token check also covers calls made over the tailnet, which skip the tunnel.
 
-Chosen over edge-only (tailnet access would be unauthenticated) and app-only (no edge defense in depth). Tokens are static and never expire; acceptable for a single-operator deployment, upgrade path is the JWT or an identity-provider adapter if external users ever appear.
+We chose this over Access alone (tailnet calls would be unauthenticated) and over the token alone (nothing stops strangers at the edge). The tokens are static and never expire. That is fine for a single operator. If outside users ever appear, we can switch to JWT or a login provider.
