@@ -1,6 +1,8 @@
 # Jamis Mastra
 
-Monorepo for the Jamis agent system, built on Mastra. `apps/agent` is the Mastra server hosting the agents. The same Docker stack (Postgres + ClickHouse) runs in dev and prod.
+Monorepo for the Jamis agent system, built on Mastra. `apps/agent` is the Mastra server hosting the agents.
+
+Docker Compose runs Postgres and ClickHouse in both dev and prod. In dev that is all it runs: the agent itself runs on the host with `pnpm -F @jamis-mastra/agent dev`, pointed at the two containers over `localhost`. Prod adds `docker-compose.prod.yml`, which puts the agent in the stack as the `app` service alongside `cloudflared` and drops the databases' host port bindings.
 
 ## Language
 
