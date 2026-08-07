@@ -1,5 +1,5 @@
-# Public ingress via Cloudflare Tunnel, private ops via Tailscale
+# Public access via Cloudflare Tunnel, private access via Tailscale
 
-The production VPS runs the Jamis Mastra stack in Docker. Two network layers with distinct roles: Cloudflare Tunnel is the only public ingress and exposes only the Mastra API (TLS terminates at Cloudflare's edge, no ports open on the VPS). Tailscale is the private ops layer: SSH, Mastra Studio, and direct Postgres/ClickHouse access are reachable only on the tailnet.
+The production VPS runs the Jamis stack in Docker. Two network layers with separate jobs. Cloudflare Tunnel is the only way in from the public internet, and it exposes only the Mastra API. TLS ends at Cloudflare, so no ports are open on the VPS. Tailscale is the private layer for us: SSH, Mastra Studio, and direct Postgres/ClickHouse access only work on the tailnet.
 
-Chosen over nginx + Let's Encrypt + open ports (more moving parts, requires firewall discipline) and over Tailscale-only (no public endpoint for external clients). Consequence: no nginx container exists anywhere in the stack; VPS firewall can deny all inbound.
+We chose this over nginx plus Let's Encrypt plus open ports (more parts to run, more firewall rules to get right) and over Tailscale alone (no public endpoint for outside clients). Result: no nginx anywhere, and the VPS firewall can block all inbound traffic.
