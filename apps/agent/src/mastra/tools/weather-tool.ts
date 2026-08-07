@@ -16,12 +16,25 @@ export const weatherTool = createTool({
 		const response = await fetch(`https://wttr.in/${location}?format=j1`, {
 			signal: abortSignal,
 		});
-		const data = await response.json();
+
+		if (!response.ok) {
+			throw new Error(`Weather lookup for "${location}" failed: wttr.in returned ${response.status}.`);
+		}
+
+		// wttr.in answers 200 with a plain-text error body for locations it cannot
+		// resolve, so the parse and the shape both have to be checked.
+		const data = await response.json().catch(() => null);
+		const current = data?.current_condition?.[0];
+		const temperatureCelcius = Number(current?.temp_C);
+
+		if (!current || !Number.isFinite(temperatureCelcius)) {
+			throw new Error(`No weather data for "${location}". Try a city name like "Berlin".`);
+		}
 
 		return {
 			location,
-			temperatureCelcius: Number(data.current_condition[0].temp_C),
-			conditions: data.current_condition[0].weatherDesc[0].value,
+			temperatureCelcius,
+			conditions: current.weatherDesc?.[0]?.value ?? 'Unknown',
 		};
 	},
 });
