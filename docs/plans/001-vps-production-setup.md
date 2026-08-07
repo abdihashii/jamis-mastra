@@ -9,7 +9,7 @@ Status: proposed. Decisions final per ADRs 0001-0003 and grilling session, do no
 - Auth in app: `SimpleAuth` bearer token (`API_TOKEN` env). Studio authenticates by pasting the same token into Studio's access-token field (SimpleAuth checks `X-Playground-Access` by default, no `public:` path exceptions needed).
 - Deploy: build on VPS from git via `infra/deploy.sh` (non-interactive SSH: git pull + compose up --build). No registry, no CI, no nginx.
 - Secrets: `.env.prod` on VPS, gitignored, `chmod 600`, consumed via `--env-file`.
-- VPS: Hetzner CX23 (2 vCPU / 4GB, $6.49/mo), Falkenstein fsn1, Ubuntu 24.04 (ADR 0003). Provisioned by cloud-init user-data + `infra/provision.sh`. 4GB swapfile. ClickHouse memory capped at ~1.5GB. Escape hatch: re-run provision on a bigger type, or resize.
+- VPS: Hetzner CX23 (2 vCPU / 4GB, $6.49/mo), Falkenstein fsn1, Ubuntu 26.04 (ADR 0003). Provisioned by cloud-init user-data + `infra/provision.sh`. 4GB swapfile. ClickHouse memory capped at ~1.5GB. Escape hatch: re-run provision on a bigger type, or resize.
 - Portability: the box is disposable. New box = `./infra/provision.sh` + one secrets step + `./infra/deploy.sh`.
 
 ## Out of scope
@@ -24,7 +24,7 @@ All repo files live in `infra/` at the repo root.
 
 ### A1. `infra/cloud-init.yaml` (the provisioning logic)
 
-Goal: first boot takes a fresh Ubuntu 24.04 to a hardened, Docker+Tailscale-ready box. Declarative `#cloud-config`:
+Goal: first boot takes a fresh Ubuntu 26.04 to a hardened, Docker+Tailscale-ready box. Declarative `#cloud-config`:
 
 - `users:` non-root sudo user `jamis` with `ssh_authorized_keys` (your public key, committed, public keys are not secrets), `lock_passwd: true`
 - `write_files:` sshd hardening drop-in (`PasswordAuthentication no`, `PermitRootLogin no`), 4GB swapfile entry, ClickHouse-ready sysctl nothing (skip, ponytail)
@@ -46,7 +46,7 @@ set -euo pipefail
 : "${TS_AUTH_KEY:?}"   # reusable tagged auth key from A1 prereq
 envsubst '${TS_AUTH_KEY}' < "$(dirname "$0")/cloud-init.yaml" > /tmp/jamis-cloud-init.yaml
 hcloud server create --name jamis-prod --type cx23 --location fsn1 \
-  --image ubuntu-24.04 --ssh-key <your-key-name> --user-data-from-file /tmp/jamis-cloud-init.yaml
+  --image ubuntu-26.04 --ssh-key <your-key-name> --user-data-from-file /tmp/jamis-cloud-init.yaml
 rm /tmp/jamis-cloud-init.yaml
 hcloud server ip jamis-prod
 ```

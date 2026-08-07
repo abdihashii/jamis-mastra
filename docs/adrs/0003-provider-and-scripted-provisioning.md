@@ -1,6 +1,6 @@
 # Provider: Hetzner CX23 in Falkenstein, provisioning by script
 
-The production VPS is a Hetzner Cloud **CX23** (2 vCPU, 4GB RAM, 40GB SSD, **$6.49/mo**) in **Falkenstein, Germany (fsn1)**, running Ubuntu 24.04.
+The production VPS is a Hetzner Cloud **CX23** (2 vCPU, 4GB RAM, 40GB SSD, **$6.49/mo**) in **Falkenstein, Germany (fsn1)**, running Ubuntu 26.04.
 
 ## Why this configuration
 
