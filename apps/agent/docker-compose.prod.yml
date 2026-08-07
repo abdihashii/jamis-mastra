@@ -1,0 +1,43 @@
+# Prod overlay. Always applied on top of docker-compose.yml, never alone:
+#
+#   docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# infra/deploy.sh is the only thing that should run that by hand.
+name: jamis
+
+services:
+  postgres:
+    # Drops the dev 127.0.0.1 binding. Nothing outside the compose network
+    # needs to reach the databases in prod.
+    ports: !reset []
+
+  clickhouse:
+    ports: !reset []
+    volumes:
+      - ./clickhouse/memory.xml:/etc/clickhouse-server/config.d/memory.xml:ro
+
+  app:
+    build:
+      context: ../..
+      dockerfile: apps/agent/Dockerfile
+    env_file: .env.prod
+    depends_on: [postgres, clickhouse]
+    # Loopback only. tailscale serve publishes this to the tailnet, so no host
+    # interface is ever bound and no env var can widen it. See plan 001, Q6.
+    ports:
+      - '127.0.0.1:4111:4111'
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.7.3
+    # Reaches the app as http://app:4111 over the compose network, so the tunnel
+    # needs no published port. Until B6 fills in TUNNEL_TOKEN this container
+    # restart-loops; the rest of the stack is unaffected.
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    depends_on: [app]
+    restart: unless-stopped
