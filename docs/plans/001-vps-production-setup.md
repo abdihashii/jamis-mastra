@@ -134,30 +134,38 @@ Goal: self-contained prod image of the agent.
 - New `apps/agent/Dockerfile`:
 
 ```dockerfile
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 RUN corepack enable
 WORKDIR /app
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/agent/package.json apps/agent/
-RUN pnpm install --filter @jamis-mastra/agent... --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 COPY apps/agent apps/agent
 ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN pnpm -F @jamis-mastra/agent build
 
-FROM node:22-alpine
+FROM node:24-alpine
 WORKDIR /app
-COPY --from=build /app/apps/agent/.mastra/output ./
+COPY --from=build --chown=node:node /app/apps/agent/.mastra/output ./
 USER node
+EXPOSE 4111
 CMD ["node", "index.mjs"]
 ```
 
-- New root `.dockerignore`: `node_modules`, `**/node_modules`, `.mastra`, `**/.mastra`, `.env`, `.env.prod`, `.git`, `docs`.
+Node 24, not the 22 this plan first specified: 22 dropped to maintenance (security fixes only) in October 2025, while 24 is the Active LTS through October 2026 and supported to April 2028. It also matches the Mac's v24. Revisit when 26 becomes LTS in October 2026.
 
-**Two things will break this build as written, fix them in this stage:**
+`mastra build` emits a self-contained `.mastra/output`: `index.mjs`, its own installed `node_modules`, and the `--studio` assets under `studio/`. The runtime stage copies it and nothing else. No `MASTRA_STUDIO_PATH` needed: it defaults to `<dir of index.mjs>/studio`, which is already `/app/studio`. Final image is 460MB.
 
-1. `zod` is declared in the **root** `package.json` but imported only by `apps/agent/src/mastra/tools/weather-tool.ts`. It works locally because pnpm hoists it to the root `node_modules` and Node resolves upward. `pnpm install --filter @jamis-mastra/agent...` installs that package and its workspace deps, not the root project, so the build stage fails while bundling. Move `zod` into `apps/agent/package.json`.
+`--max-old-space-size` is 2048, not the 4096 first written here. Deploys build on the box with postgres and clickhouse already running, and a cap equal to the whole 4GB invites the OOM killer to pick the largest process, which is clickhouse, taking the database down mid-deploy.
+
+- New root `.dockerignore`: `node_modules`, `**/node_modules`, `.mastra`, `**/.mastra`, `.env*`, `**/.env*`, `.git`, `.github`, `docs`, `infra`, plus the `*.db` / `*.duckdb` families. The database patterns are not optional: `apps/agent/src/mastra/public/` holds 616KB of local LibSQL/DuckDB files from the pre-Postgres setup, `mastra build` copies `src/mastra/public/**` verbatim into the output root, and the image was shipping `/app/mastra.db` with local agent memory. It also made the local image differ from the on-box one, since `deploy.sh` builds from a fresh clone where those gitignored files do not exist.
+
+**Three things will break this build as written, fix them in this stage:**
+
+1. `zod` is declared in the **root** `package.json` but imported only by `apps/agent/src/mastra/tools/weather-tool.ts`. It works locally because pnpm puts it in the root `node_modules` and Node resolves upward. `pnpm install --filter @jamis-mastra/agent...` installs that package and its workspace deps, not the root project, so the build stage fails while bundling. **Resolved:** `zod` stays at the root, and the Dockerfile installs the whole workspace with a bare `pnpm install --frozen-lockfile` instead of filtering. Root dependencies stay centralized; the cost is that the build stage also installs the root devDependencies (eslint, typescript). The runtime stage is unaffected, it only copies `.mastra/output`, so the final image is the same 460MB either way. Every new workspace package needs its own `COPY <pkg>/package.json` line in the Dockerfile.
 2. `packageManager: "pnpm@11.17.0"` conflicts with `devEngines.packageManager: "^11.17.0"`. pnpm reads `devEngines` and warns that it is ignoring `packageManager`; corepack reads `packageManager` first and only falls back to `devEngines` (which then needs an exact version, not a range). `corepack enable` in this Dockerfile would therefore run 11.17.0 in the image while the Mac runs 11.20.0 against one lockfile. **Resolved:** set `packageManager` to `pnpm@11.20.0`, the version actually in use, and delete the `devEngines` block. One field, both readers agree. Side effect: `devEngines` is what makes npm and npx fail in-repo with `EBADDEVENGINES`, so removing it unblocks npx-based tooling. Loses `onFail: download`, which corepack provides anyway.
-- Verify locally: `docker build -f apps/agent/Dockerfile -t jamis-agent .` succeeds; `docker run --rm jamis-agent node --version` works.
+3. `pnpm-workspace.yaml` shipped `allowBuilds: { esbuild: set this to true or false }`, pnpm's unanswered prompt placeholder. Locally that is a warning; in the container `pnpm install` exits 1 with `ERR_PNPM_IGNORED_BUILDS`. Set it to `false`: esbuild's postinstall only fetches the platform binary that pnpm already installs as an optional dependency, and the local build has been running with that script skipped all along.
+- Verify locally: `docker build -f apps/agent/Dockerfile -t jamis-agent .` succeeds; `docker run --rm jamis-agent node --version` works; `docker run --rm jamis-agent sh -c 'ls /app/studio'` lists `index.html`; a bare `docker run` reaches `Missing required env var: DATABASE_URL`, which proves `index.mjs` is executing rather than the image merely existing.
 - Commit: `feat(agent): two-stage prod Dockerfile with studio bundle`
 
 ### B3. Prod compose overlay
@@ -227,6 +235,8 @@ server: {
 - Commit: `feat(agent): protect API with SimpleAuth bearer token`
 
 ### B5. First deploy
+
+**Do not run this before B4 lands.** B2 bakes the Studio UI into the image while auth arrives only in B4, so between those stages anything that reaches port 4111 gets full agent, tool, and memory control through the UI, plus the studio-only unauthenticated `/refresh-events` and `POST /__refresh` routes. B3's loopback binding and B4's token both have to be in place first.
 
 `infra/deploy.sh` is already written and committed in `31312a3`, ahead of B1-B3. It cannot succeed until `docker-compose.prod.yml` and `.env.prod` exist, so the remaining work in this stage is running it, not writing it.
 
