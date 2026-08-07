@@ -1,6 +1,13 @@
 # 001 — VPS production setup & agent productionalization
 
-Status: proposed. Decisions final per ADRs 0001-0003 and grilling session, do not reopen.
+Status: Track A done, the box is live. Track B not started. Decisions final per ADRs 0001-0003 and grilling session, do not reopen.
+
+## Current box
+
+- `jamis-prod`, Hetzner CX23 fsn1. Public `159.69.119.203`, tailnet `100.105.239.41`.
+- Public SSH is closed. Reach it at `root@100.105.239.41` over the tailnet only.
+- Repo cloned to `/root/jamis-mastra`, pulling through a read-only GitHub deploy key held at `/root/.ssh/id_ed25519`.
+- Created through Hetzner's web form with the cloud-init pasted in, so `provision.sh` has not been exercised end to end.
 
 ## Architecture recap
 
@@ -29,10 +36,11 @@ Goal: first boot takes a fresh Ubuntu 26.04 to a hardened, Docker+Tailscale-read
 - `users:` two accounts, split by privilege:
   - `root` is the operator login, carrying your public key (committed, public keys are not secrets). Key only: `PermitRootLogin prohibit-password`, `disable_root: false`.
   - `jamis` is the agent's unprivileged host account: `lock_passwd: true`, no SSH key yet, **not** in the `docker` group (that group is root-equivalent), and no general sudo. It gets `systemd-journal` for journal reads and a pinned-argument sudoers allowlist (`docker ps`, `ps -a`, `stats --no-stream`, `compose ls`, `logs *`). `docker inspect` is excluded, it prints container env vars.
-- `write_files:` sshd hardening drop-in (`PasswordAuthentication no`, `PermitRootLogin no`), 4GB swapfile entry, ClickHouse-ready sysctl nothing (skip, ponytail)
-- `packages:` via Docker's official apt repo (`apt: sources:` + `packages: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]`), plus `tailscale` from Tailscale's apt repo
-- `runcmd:` mkswap/swapon + fstab line, `visudo -cf` guard on the sudoers drop-in, ufw: default deny incoming, allow in on `tailscale0`, allow `41641/udp`, allow ssh (temporary, removed in A4), `tailscale up --auth-key="$TS_AUTH_KEY" --advertise-tags=tag:server` (key injected at create time, see A2)
+- `write_files:` sshd hardening drop-in (`PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `PermitRootLogin prohibit-password`, since root is the operator login) and the `jamis` sudoers allowlist at `0440`
+- `packages:` only the small stuff cloud-init needs up front (`ca-certificates`, `curl`, `gnupg`, `ufw`)
+- `runcmd:` `visudo -cf` guard on the sudoers drop-in, mkswap/swapon + fstab line, apt repos + Docker/Tailscale install, ufw (default deny incoming, allow in on `tailscale0`, allow `41641/udp`, allow ssh temporarily, removed in A4), `sshd -t && systemctl restart ssh`, then the Tailscale join
 - Docker and Tailscale apt repos are written in `runcmd`, not the `apt:` block: both publish per Ubuntu codename and a brand-new release may not be there yet, so the script probes for `$VERSION_CODENAME` and falls back to `noble`. cloud-init only runs once, a 404 here would leave a dead box.
+- The Tailscale join tolerates an absent key: an empty or unsubstituted `${TS_AUTH_KEY}` skips it and leaves the daemon installed for a manual `tailscale up`. That is the path we actually used, see A2.
 - Line 1 must be exactly `#cloud-config`. ESLint's yaml comment-spacing rule rewrites it to `# cloud-config`, which silently disables the whole file, so `infra/cloud-init.yaml` is in `ignores` in `eslint.config.mjs`.
 
 Prereq (one-time, manual): Tailscale admin console → Access controls → add `"tagOwners": {"tag:server": ["autogroup:admin"]}`. An auth key is optional, see A2.
@@ -41,19 +49,7 @@ Prereq (one-time, manual): Tailscale admin console → Access controls → add `
 
 ### A2. `infra/provision.sh`
 
-Goal: one command creates a ready box. Thin wrapper, no abstraction layer:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-: "${HCLOUD_TOKEN:?}"  # or: doctl auth init
-: "${TS_AUTH_KEY:?}"   # reusable tagged auth key from A1 prereq
-envsubst '${TS_AUTH_KEY}' < "$(dirname "$0")/cloud-init.yaml" > /tmp/jamis-cloud-init.yaml
-hcloud server create --name jamis-prod --type cx23 --location fsn1 \
-  --image ubuntu-26.04 --ssh-key <your-key-name> --user-data-from-file /tmp/jamis-cloud-init.yaml
-rm /tmp/jamis-cloud-init.yaml
-hcloud server ip jamis-prod
-```
+Goal: one command creates a ready box. Thin wrapper, no abstraction layer. See `infra/provision.sh` for the real thing; the shape is `HCLOUD_TOKEN=... ./infra/provision.sh`, which renders the cloud-init through `envsubst` into a `mktemp` file (removed by a trap), calls `hcloud server create --type cx23 --location fsn1 --image ubuntu-26.04`, and prints the public IP. Name, type, location, image, and SSH key name are all env-overridable.
 
 Provider switch = swap the `hcloud` line for `doctl compute droplet create jamis-prod --size s-2vcpu-4gb --region nyc3 --image ubuntu-24-04-x64 --user-data-file ...` (comment in the script). ponytail: support the provider you use, document the alternative, don't build a provider abstraction.
 
@@ -178,6 +174,7 @@ services:
     depends_on: [postgres, clickhouse]   # ponytail: no healthchecks; restart policy covers cold-start races
     ports:
       - '${TAILSCALE_IP}:4111:4111'      # tailnet-only host exposure (Studio + direct API)
+      # DECIDE BEFORE WRITING THIS FILE, see open question 6.
     restart: unless-stopped
     logging:
       driver: json-file
@@ -223,15 +220,9 @@ server: {
 
 ### B5. `infra/deploy.sh` + first deploy
 
-Goal: deploys are one non-interactive command from your Mac.
-- New `infra/deploy.sh`:
+Goal: deploys are one non-interactive command from your Mac. `JAMIS_HOST=100.105.239.41 ./infra/deploy.sh` connects as root, fetches, checks out `JAMIS_BRANCH` (default `main`), and runs `docker compose up -d --build` with both compose files.
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-HOST="${JAMIS_HOST:?set JAMIS_HOST to the VPS tailscale IP or hostname}"
-ssh "root@${HOST}" 'cd /root/jamis-mastra && git pull --ff-only && cd apps/agent && docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --build'
-```
+Before the compose call it refuses to deploy unless `.env.prod` has `TAILSCALE_IP=100.`, because an empty value silently turns the `${TAILSCALE_IP}:4111:4111` binding into a public one. See B3.
 
 - Verify: run it, then `curl -H "Authorization: Bearer $API_TOKEN" http://$JAMIS_HOST:4111/api/agents` → agent JSON; `curl http://$JAMIS_HOST:4111/api/agents` (no token) → 401; Studio loads at `http://$JAMIS_HOST:4111` and works after entering the token.
 - Commit: `feat(infra): provision + deploy scripts with cloud-init`
@@ -251,11 +242,13 @@ Goal: public hostname live behind Access.
 
 ## Open questions / follow-ups
 
-1. Repo visibility: private → deploy key (A3); confirm before provisioning.
+1. ~~Repo visibility~~ resolved: private, with a read-only deploy key on the box (A3).
 2. Access policy membership: who's allowed through Cloudflare Access (single email? IdP group? service tokens for programmatic callers?).
 3. Backups: off-box `pg_dump` cron → object storage. Not scheduled.
 4. `agent.jamis.xyz` cutover from v1 agent, separate plan.
 5. Memory headroom: watch `docker stats` during first `up --build`; CX23 has 4GB, resize to CX33 (8GB, $8.99) if the build OOMs even with swap.
-6. Docker bypasses ufw for published ports: safe today because nothing publishes on a public interface (`!reset []` + tailscale-IP binding). If a future port is ever published publicly, ufw alone won't block it, revisit then.
-7. Tailscale auth key rotation: reusable keys live max 90 days. Note in password manager to regenerate; only needed when provisioning a new box, existing nodes stay connected.
+6. **Open decision for B3.** Docker bypasses ufw for published ports, and compose treats an empty `${TAILSCALE_IP}` as "bind everywhere": `':4111:4111'` renders as `published: "4111"` with no host IP, which is `0.0.0.0`. That would put the Mastra API on the public internet with neither ufw nor Cloudflare Access in front, leaving only the SimpleAuth bearer token. `.env.prod.example` ships that variable blank, so the failure mode is one forgotten line. Two ways out, pick one before writing `docker-compose.prod.yml`:
+   - Keep `${TAILSCALE_IP}:4111:4111` and rely on the `deploy.sh` guard. Guards only the path that goes through the script, not a manual `docker compose up` on the box.
+   - Bind `127.0.0.1:4111:4111` and publish to the tailnet with `tailscale serve --bg 4111`. Nothing is ever bound to a public interface and there is no variable to get wrong. Less config than the first option.
+7. ~~Tailscale auth key rotation~~ moot: no auth key is used. The box joined interactively as a tagged node, and tagged nodes do not expire. Reintroducing `TS_AUTH_KEY` for unattended provisioning brings the rotation problem back.
 8. Data migration when switching boxes: PG/ClickHouse volumes don't move by themselves. New box = fresh databases unless you pg_dump/restore. Acceptable (deferred with backups), call it out before any provider switch.
