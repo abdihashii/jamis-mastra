@@ -1,0 +1,128 @@
+#cloud-config
+# First boot for the Jamis prod box (Hetzner CX23, Ubuntu 26.04). See docs/plans/001-vps-production-setup.md (A1).
+#
+# Line 1 must stay exactly `#cloud-config`, no space. This file is in eslint's ignores
+# for that reason.
+#
+# Accounts: root is the operator login (key only). jamis is the agent's unprivileged
+# host account: no sudo beyond a read-only allowlist, not in the docker group, no SSH
+# key yet. Add a key to jamis only when the agent actually needs to reach the box.
+#
+# ${TS_AUTH_KEY} is a placeholder. Either:
+#   - run infra/provision.sh, which envsubst's it in, or
+#   - replace it by hand before pasting this file into Hetzner's "Cloud config" box.
+# Prereq: a reusable Tailscale auth key tagged tag:server (Tailscale admin console).
+# If the placeholder is left unset, everything else still installs and Tailscale is skipped.
+
+hostname: jamis-prod
+preserve_hostname: false
+package_update: true
+disable_root: false
+
+users:
+  # Hetzner also injects the selected key here. Listing it keeps the file self-sufficient
+  # on any provider.
+  - name: root
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA9rPBtO3bhEjeYmN6fIpeHjCAF1hb/zXanb/pONmY3d abdirahman.haji.13@gmail.com
+
+  - name: jamis
+    shell: /bin/bash
+    lock_passwd: true
+    # systemd-journal reads the journal without any sudo at all.
+    groups: [systemd-journal]
+    # No ssh_authorized_keys on purpose: nothing can log in as jamis yet.
+    # To grant access later: ssh-copy-id, or root can `su - jamis`.
+
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - ufw
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-jamis.conf
+    permissions: '0644'
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin prohibit-password
+
+  # The reviewed privilege for jamis: look at the stack, change nothing. Every entry
+  # pins its arguments, so `docker ps` is allowed and `docker run` is not. `docker
+  # inspect` is deliberately absent, it prints container env vars (secrets).
+  - path: /etc/sudoers.d/jamis-readonly
+    permissions: '0440'
+    content: |
+      Cmnd_Alias JAMIS_READONLY = /usr/bin/docker ps, \
+                                  /usr/bin/docker ps -a, \
+                                  /usr/bin/docker stats --no-stream, \
+                                  /usr/bin/docker compose ls, \
+                                  /usr/bin/docker logs *
+      jamis ALL=(root) NOPASSWD: JAMIS_READONLY
+
+runcmd:
+  # A broken file in sudoers.d breaks sudo for everyone, so drop it if it fails to parse.
+  - visudo -cf /etc/sudoers.d/jamis-readonly || rm -f /etc/sudoers.d/jamis-readonly
+
+  # 4GB swapfile. CX23 has 4GB RAM and `docker compose up --build` is the tight spot.
+  - |
+    if [ ! -f /swapfile ]; then
+      fallocate -l 4G /swapfile
+      chmod 600 /swapfile
+      mkswap /swapfile
+      swapon /swapfile
+      echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    fi
+
+  # Docker and Tailscale apt repos. Both publish per Ubuntu codename and a brand-new
+  # release may not be there yet, so fall back to noble (24.04) when it 404s.
+  - install -m 0755 -d /etc/apt/keyrings
+  - |
+    codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+    arch="$(dpkg --print-architecture)"
+
+    docker_codename="$codename"
+    curl -fsI "https://download.docker.com/linux/ubuntu/dists/${docker_codename}/Release" >/dev/null 2>&1 || docker_codename=noble
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${docker_codename} stable" \
+      > /etc/apt/sources.list.d/docker.list
+
+    ts_codename="$codename"
+    curl -fsI "https://pkgs.tailscale.com/stable/ubuntu/${ts_codename}.noarmor.gpg" >/dev/null 2>&1 || ts_codename=noble
+    curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${ts_codename}.noarmor.gpg" -o /etc/apt/keyrings/tailscale.gpg
+    chmod a+r /etc/apt/keyrings/tailscale.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/tailscale.gpg] https://pkgs.tailscale.com/stable/ubuntu ${ts_codename} main" \
+      > /etc/apt/sources.list.d/tailscale.list
+
+  - apt-get update
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin tailscale
+  - systemctl enable --now docker
+
+  # Deny inbound by default. Public ssh is temporary and gets removed in stage A4,
+  # once the tailnet route is proven.
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow in on tailscale0
+  - ufw allow 41641/udp comment 'tailscale direct connections'
+  - ufw allow ssh comment 'temporary, remove after tailnet works (A4)'
+  - ufw --force enable
+
+  # Validate before restarting. A bad sshd config here means no way back into the box.
+  - sshd -t && systemctl restart ssh
+
+  - |
+    # Safe to paste this file with the placeholder left in: an empty or unsubstituted
+    # key just skips the join, and tailscale is still installed for a manual `up`.
+    TS_KEY='${TS_AUTH_KEY}'
+    case "$TS_KEY" in
+      '' | '$'*)
+        echo 'No auth key substituted. Join later with:'
+        echo '  tailscale up --advertise-tags=tag:server --hostname=jamis-prod'
+        ;;
+      *)
+        tailscale up --auth-key="$TS_KEY" --advertise-tags=tag:server --hostname=jamis-prod
+        tailscale ip -4
+        ;;
+    esac
