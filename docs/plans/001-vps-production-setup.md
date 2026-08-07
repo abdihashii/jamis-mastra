@@ -229,14 +229,29 @@ import { SimpleAuth } from '@mastra/core/server';
 // in the Mastra config:
 server: {
   auth: new SimpleAuth({
-    tokens: { [process.env.API_TOKEN!]: { id: 'admin', name: 'admin' } },
+    tokens: { [requireEnv('API_TOKEN')]: { id: 'admin', name: 'admin' } },
   }),
 },
 ```
 
+  `requireEnv`, not `process.env.API_TOKEN!`: the assertion would make an unset token a silent `undefined` key, which is a token nobody can present but also no loud failure. `server` has to stay a direct property of the `new Mastra()` object or the build cannot extract it.
+
   No `public:` exceptions: Studio ships its token in `X-Playground-Access`, which SimpleAuth checks by default. Studio workflow: open Studio over tailnet → paste `API_TOKEN` in the access-token field.
-- Add `API_TOKEN=` to `apps/agent/.env.example`.
-- Verify locally: `mastra dev`, then `curl localhost:4111/api/agents` → 401; `curl -H "Authorization: Bearer $API_TOKEN" localhost:4111/api/agents` → agent JSON.
+- Add `API_TOKEN=` to `apps/agent/.env.example`. It is now required for `mastra dev` too, not just prod.
+- Verify: against the built image, pointed at the dev databases.
+
+  | request | result |
+  | --- | --- |
+  | `/api/agents` no token | 401 |
+  | `/api/agents` wrong token | 401 |
+  | `/api/agents` `Authorization: Bearer <token>` | 200 |
+  | `/api/agents` `Authorization: <token>` | 200 |
+  | `/api/agents` `X-Playground-Access: <token>` | 200 |
+  | `/api/agents/weather-agent` no token | 401 |
+  | `/` no token | 200, Studio shell only, no agent data |
+  | `/health` no token | 200 |
+
+  Known gaps, both accepted: `/` has to serve the Studio shell unauthenticated or there is nowhere to paste the token, and the studio-only `POST /__refresh` and `GET /refresh-events` answer 200 without a token. They trigger a UI refresh and expose no data. Everything here is tailnet-only, with Cloudflare Access in front of the public hostname.
 - Commit: `feat(agent): protect API with SimpleAuth bearer token`
 
 ### B5. First deploy
