@@ -195,7 +195,8 @@ services:
       driver: json-file
       options: { max-size: 10m, max-file: '3' }
   cloudflared:
-    image: cloudflare/cloudflared
+    # Pinned: --no-autoupdate makes the tag the only version control.
+    image: cloudflare/cloudflared:2026.7.3
     command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
     depends_on: [app]
     restart: unless-stopped
@@ -211,7 +212,11 @@ services:
 </clickhouse>
 ```
 
-- Verify: `docker compose --env-file .env.prod.example -f docker-compose.yml -f docker-compose.prod.yml config` renders without errors.
+- Verify: `app`'s `env_file: .env.prod` means compose needs that file to exist even to render, and it only exists on the box. Verify with a throwaway copy (`cp .env.prod.example .env.prod`, then delete it), not by pointing `--env-file` at the template.
+  - `docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml config` renders, with `app` published on `127.0.0.1:4111` and postgres, clickhouse, and cloudflared publishing nothing.
+  - Full local run under an isolated project name so the dev stack is untouched: `docker compose -p jamis-prodtest ... up -d --build`. Confirmed ClickHouse merges `memory.xml` and reports `max_server_memory_usage = 1500000000, changed = 1`, an invalid file there would stop it booting. `GET 127.0.0.1:4111/api/agents` and `/` both answer 200, and the two databases end up with 36 and 25 `mastra_*` tables. Tear down with `down -v`.
+  - The app logs `Storage init failed; will retry on next storage call` a handful of times at cold start, then recovers on its own and migrates both databases. That is the `depends_on`-without-healthchecks tradeoff working as intended, not a fault.
+  - `cloudflared` restart-loops until B6 supplies `TUNNEL_TOKEN`. Expected, and it does not affect the rest of the stack.
 - Commit: `feat(agent): prod compose overlay with app, cloudflared, CH memory cap`
 
 ### B4. SimpleAuth wiring

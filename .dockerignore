@@ -16,6 +16,9 @@ node_modules
 **/*.duckdb
 **/*.duckdb.wal
 
+# Same story: a generated copy of @mastra/core's provider registry, 1.3MB.
+**/src/mastra/public/dist
+
 # Secrets reach the container through --env-file at runtime, never the image.
 .env*
 **/.env*
