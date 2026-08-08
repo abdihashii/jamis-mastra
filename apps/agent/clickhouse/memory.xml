@@ -1,0 +1,5 @@
+<clickhouse>
+  <!-- The CX23 has 4GB shared with postgres, the agent, and a build that runs
+       on the box. ClickHouse otherwise sizes itself against total RAM. -->
+  <max_server_memory_usage>1500000000</max_server_memory_usage>
+</clickhouse>
