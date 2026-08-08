@@ -9,12 +9,17 @@
 	"main": "index.js",
 	"scripts": {
 		"dev": "mastra dev",
-		"build": "mastra build"
+		"build": "mastra build --studio",
+		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@mastra/core": "^1.55.0"
+		"@mastra/clickhouse": "^1.14.0",
+		"@mastra/core": "^1.57.0",
+		"@mastra/memory": "^1.26.0",
+		"@mastra/observability": "^1.16.5",
+		"@mastra/pg": "^1.19.0"
 	},
 	"devDependencies": {
-		"mastra": "^1.21.0"
+		"mastra": "^1.23.0"
 	}
 }
