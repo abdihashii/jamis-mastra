@@ -7,4 +7,7 @@ export default antfu({
 		quotes: 'single',
 		indent: 'tab',
 	},
+	// cloud-init requires the literal `#cloud-config` on line 1. The yaml comment
+	// spacing rule rewrites it to `# cloud-config`, which silently disables the file.
+	ignores: ['infra/cloud-init.yaml'],
 });
