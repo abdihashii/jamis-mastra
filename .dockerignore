@@ -1,0 +1,29 @@
+node_modules
+**/node_modules
+.mastra
+**/.mastra
+
+# Local dev databases from the pre-Postgres LibSQL/DuckDB setup. They sit in
+# src/mastra/public, which mastra build copies verbatim into the output root, so
+# without this the image ships local agent memory and the on-box build (fresh
+# clone, no gitignored files) differs from the local one.
+*.db
+*.db-*
+*.duckdb
+*.duckdb.wal
+**/*.db
+**/*.db-*
+**/*.duckdb
+**/*.duckdb.wal
+
+# Same story: a generated copy of @mastra/core's provider registry, 1.3MB.
+**/src/mastra/public/dist
+
+# Secrets reach the container through --env-file at runtime, never the image.
+.env*
+**/.env*
+
+.git
+.github
+docs
+infra

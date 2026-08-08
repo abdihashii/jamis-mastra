@@ -1,6 +1,7 @@
 {
 	"name": "jamis-mastra",
 	"version": "1.0.0",
+	"packageManager": "pnpm@11.20.0",
 	"description": "JAMIS (Mastra) Monorepo",
 	"author": "",
 	"license": "ISC",
@@ -8,17 +9,16 @@
 	"scripts": {
 		"test": "echo \"Error: no test specified\" && exit 1",
 		"lint": "eslint",
-		"lint:fix": "eslint --fix"
+		"lint:fix": "eslint --fix",
+		"typecheck": "pnpm -r --if-present run typecheck"
 	},
-	"devEngines": {
-		"packageManager": {
-			"name": "pnpm",
-			"version": "^11.17.0",
-			"onFail": "download"
-		}
+	"dependencies": {
+		"zod": "^4.4.3"
 	},
 	"devDependencies": {
 		"@antfu/eslint-config": "^9.2.0",
-		"eslint": "^10.8.0"
+		"@types/node": "^26.1.2",
+		"eslint": "^10.8.0",
+		"typescript": "^6.0.3"
 	}
 }

@@ -1,0 +1,9 @@
+{
+	"mcpServers": {
+		"mastra": {
+			"type": "stdio",
+			"command": "pnpm",
+			"args": ["dlx", "@mastra/mcp-docs-server@1.2.14"]
+		}
+	}
+}
