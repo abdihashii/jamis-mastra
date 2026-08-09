@@ -1,4 +1,4 @@
-# 002 — Build Jamis (supervisor agent + iMessage channel)
+# 002: Build Jamis (supervisor agent + iMessage channel)
 
 Status: **planned.** No stages started. Decisions below are settled; the open questions at the bottom are not.
 
@@ -52,7 +52,7 @@ Stage 1 retires the highest-risk concern: a public unauthenticated path punched 
 
 ---
 
-## Stage 1 — iMessage reaches the box (echo, no agent)
+## Stage 1: iMessage reaches the box (echo, no agent)
 
 **Goal:** text the Sendblue number from the iPhone, get an echo back.
 
@@ -89,7 +89,7 @@ registerApiRoute('/webhooks/sendblue', {
 
 **Commit:** `feat(agent): sendblue imessage webhook with echo`
 
-## Stage 2 — Jamis the supervisor, in Studio
+## Stage 2: Jamis the supervisor, in Studio
 
 **Goal:** an agent that knows you across two separate threads, demoed in Studio over the tailnet.
 
@@ -127,7 +127,7 @@ Also check the voice, since it is now a requirement and not a vibe: ask him some
 
 **Commit:** `feat(agent): jamis supervisor agent with resource-scoped memory`
 
-## Stage 3 — Route iMessage to Jamis
+## Stage 3: Route iMessage to Jamis
 
 **Goal:** text Jamis from the phone, get a real answer, and have him still know it tomorrow.
 
@@ -142,7 +142,7 @@ Also check the voice, since it is now a requirement and not a vibe: ask him some
 
 **Commit:** `feat(agent): route imessage conversations to jamis`
 
-## Stage 4 — First specialist (proves the supervisor pattern)
+## Stage 4: First specialist (proves the supervisor pattern)
 
 **Goal:** Jamis delegates to a subagent and synthesizes the result, visible in a trace.
 
@@ -150,13 +150,13 @@ The pattern needs something to delegate to. **Recommended first specialist: rese
 
 - New `apps/agent/src/mastra/agents/research-agent.ts` with a `description` written for the supervisor to read, plus its search tool under `src/mastra/tools/`.
 - `jamis.ts`: add it to `agents: {}` and fill in the coordination section of the instructions.
-- Add `onDelegationComplete` logging so delegations are greppable, and set a `maxSteps` ceiling so a bad delegation loop cannot run away.
+- Add `onDelegationComplete` logging so delegations are easy to grep for, and set a `maxSteps` ceiling so a bad delegation loop cannot run away.
 
 **Verify:** in Studio first, then from the phone. Ask something requiring current information. The trace shows Jamis delegating to `research-agent` and synthesizing, not answering from the model's own knowledge. Then ask a plain conversational question and confirm he does **not** delegate. Both directions matter; a supervisor that always delegates is as broken as one that never does.
 
 **Commit:** `feat(agent): research specialist under the jamis supervisor`
 
-## Stage 5 — Docs
+## Stage 5: Docs
 
 - `CONTEXT.md`: fill in the Jamis entry with what he is now rather than what he will be, including the expansion (Just A Mostly Intelligent System) and the JARVIS framing, since it is what the voice section of the instructions is derived from. Add language entries for **Supervisor**, **Specialist**, and **Channel**.
 - This file: record results per stage, as 001 does.

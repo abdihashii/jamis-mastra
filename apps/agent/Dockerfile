@@ -18,10 +18,10 @@ COPY apps/agent/package.json apps/agent/
 RUN pnpm install --frozen-lockfile
 
 COPY apps/agent apps/agent
-# Rollup holds the whole module graph in memory. Deploys build on the box, where
-# postgres and clickhouse are already running, so this stays well under the
-# CX23's 4GB: at the full 4GB the OOM killer would pick the largest process,
-# which is clickhouse, and take the database down mid-deploy.
+# Rollup holds the whole module graph in memory. Deploys build on the box with
+# postgres and clickhouse running, so stay well under the CX23's 4GB: at the full
+# 4GB the OOM killer picks the largest process, clickhouse, and takes the
+# database down mid-deploy.
 ENV NODE_OPTIONS=--max-old-space-size=2048
 RUN pnpm -F @jamis-mastra/agent build
 
@@ -29,8 +29,8 @@ FROM node:24-alpine
 WORKDIR /app
 
 # mastra build emits a self-contained output dir: index.mjs, its own
-# node_modules, and the studio assets. The server finds the assets on its own:
-# MASTRA_STUDIO_PATH defaults to <dir of index.mjs>/studio, which is /app/studio.
+# node_modules, and the studio assets. No MASTRA_STUDIO_PATH needed: it defaults
+# to <dir of index.mjs>/studio, which is /app/studio.
 COPY --from=build --chown=node:node /app/apps/agent/.mastra/output ./
 
 USER node

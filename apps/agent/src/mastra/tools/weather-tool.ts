@@ -22,7 +22,7 @@ export const weatherTool = createTool({
 		}
 
 		// wttr.in answers 200 with a plain-text error body for locations it cannot
-		// resolve, so the parse and the shape both have to be checked.
+		// resolve, so check both the parse and the shape.
 		const data = await response.json().catch(() => null);
 		const current = data?.current_condition?.[0];
 		const temperatureCelcius = Number(current?.temp_C);

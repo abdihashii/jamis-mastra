@@ -14,8 +14,8 @@ import { PostgresStore } from '@mastra/pg';
 
 import { weatherAgent } from './agents/weather-agent';
 
-// Fail at boot rather than handing undefined to a driver. ClickHouse accepts an
-// empty password and connects, which hides the misconfiguration until much later.
+// Fail at boot rather than hand undefined to a driver. ClickHouse accepts an
+// empty password and connects, hiding the misconfiguration.
 function requireEnv(name: string): string {
 	const value = process.env[name];
 
@@ -30,8 +30,8 @@ export const mastra = new Mastra({
 	agents: { weatherAgent },
 	server: {
 		// One token, one operator. SimpleAuth checks Authorization and
-		// X-Playground-Access by default, so Studio authenticates by pasting the
-		// same token into its access-token field. No public path exceptions.
+		// X-Playground-Access by default, so Studio authenticates with an
+		// `Authorization: Bearer` header. No public path exceptions.
 		auth: new SimpleAuth({
 			tokens: { [requireEnv('API_TOKEN')]: { id: 'admin', name: 'admin' } },
 		}),
@@ -55,11 +55,11 @@ export const mastra = new Mastra({
 			default: {
 				serviceName: 'mastra',
 				exporters: [
-					new MastraStorageExporter(), // Persists observability events to Mastra Storage
-					// new MastraPlatformExporter(), // Sends observability events to Mastra platform (if MASTRA_PLATFORM_ACCESS_TOKEN is set)
+					new MastraStorageExporter(),
+					// new MastraPlatformExporter(), // needs MASTRA_PLATFORM_ACCESS_TOKEN
 				],
 				spanOutputProcessors: [
-					new SensitiveDataFilter(), // Redacts sensitive data like passwords, tokens, keys
+					new SensitiveDataFilter(),
 				],
 			},
 		},
