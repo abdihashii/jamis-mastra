@@ -12,7 +12,6 @@
 #   - run infra/provision.sh, which envsubst's it in, or
 #   - replace it by hand before pasting this file into Hetzner's "Cloud config" box.
 # Prereq: a reusable Tailscale auth key tagged tag:server (Tailscale admin console).
-# If the placeholder is left unset, everything else still installs and Tailscale is skipped.
 
 hostname: jamis-prod
 preserve_hostname: false
@@ -29,7 +28,7 @@ users:
   - name: jamis
     shell: /bin/bash
     lock_passwd: true
-    # systemd-journal reads the journal without any sudo at all.
+    # systemd-journal reads the journal without sudo.
     groups: [systemd-journal]
     # No ssh_authorized_keys on purpose: nothing can log in as jamis yet.
     # To grant access later: ssh-copy-id, or root can `su - jamis`.
@@ -48,9 +47,9 @@ write_files:
       KbdInteractiveAuthentication no
       PermitRootLogin prohibit-password
 
-  # The reviewed privilege for jamis: look at the stack, change nothing. Every entry
-  # pins its arguments, so `docker ps` is allowed and `docker run` is not. `docker
-  # inspect` is deliberately absent, it prints container env vars (secrets).
+  # What jamis may do: look at the stack, change nothing. Every entry pins its
+  # arguments, so `docker ps` is allowed and `docker run` is not. `docker inspect`
+  # is deliberately absent, it prints container env vars (secrets).
   - path: /etc/sudoers.d/jamis-readonly
     permissions: '0440'
     content: |

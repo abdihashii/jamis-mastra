@@ -1,6 +1,6 @@
-# 001 — VPS production setup & agent productionalization
+# 001: VPS production setup and getting the agent production-ready
 
-Status: **done.** Track A and Track B are complete. The stack is deployed, Studio is reachable over the tailnet, and `mastra-agent.jamis.xyz` is live behind Cloudflare Access with the bearer token behind that. Remaining follow-ups are in the open questions below, none of them blocking. Decisions final per ADRs 0001-0003, the grilling session, and open question 6, do not reopen.
+Status: **done.** Both tracks are complete: the stack is deployed, Studio is reachable over the tailnet, and `mastra-agent.jamis.xyz` is live behind Cloudflare Access with the bearer token behind that. Follow-ups are in the open questions below, none blocking. Decisions final per ADRs 0001-0003, the grilling session, and open question 6, do not reopen.
 
 **The tailnet URL is the MagicDNS name, not the IP.** `tailscale serve` routes by Host header, so `http://100.105.239.41:4111` gets a 404 from tailscale before it ever reaches the app. Use `http://jamis-prod.tail024e5c.ts.net:4111` (or `http://jamis-prod:4111`). SSH is unaffected and still works over the IP.
 
@@ -27,7 +27,7 @@ nginx, CI/CD, container registry, Terraform/Ansible, backups (follow-up: off-box
 
 ---
 
-## Track A — VPS provisioning (scripted)
+## Track A: VPS provisioning (scripted)
 
 All repo files live in `infra/` at the repo root.
 
@@ -53,7 +53,7 @@ Prereq (one-time, manual): Tailscale admin console → Access controls → add `
 
 Goal: one command creates a ready box. Thin wrapper, no abstraction layer. See `infra/provision.sh` for the real thing; the shape is `HCLOUD_TOKEN=... ./infra/provision.sh`, which renders the cloud-init through `envsubst` into a `mktemp` file (removed by a trap), calls `hcloud server create --type cx23 --location fsn1 --image ubuntu-26.04`, and prints the public IP. Name, type, location, image, and SSH key name are all env-overridable.
 
-Provider switch = swap the `hcloud` line for `doctl compute droplet create jamis-prod --size s-2vcpu-4gb --region nyc3 --image ubuntu-24-04-x64 --user-data-file ...` (comment in the script). ponytail: support the provider you use, document the alternative, don't build a provider abstraction.
+Provider switch = swap the `hcloud` line for `doctl compute droplet create jamis-prod --size s-2vcpu-4gb --region nyc3 --image ubuntu-24-04-x64 --user-data-file ...` (comment in the script). Support the provider you use, document the alternative, don't build a provider abstraction.
 
 `TS_AUTH_KEY` is optional and better left unset. An auth key pasted into user-data becomes a standing tailnet credential readable from the Hetzner console and API for the life of the box. Skipping it costs one interactive step instead:
 
@@ -105,7 +105,7 @@ ssh root@<tailscale-ip> 'ufw delete allow ssh && ufw reload'
 
 ---
 
-## Track B — Productionalization (repo changes)
+## Track B: production-ready agent (repo changes)
 
 B1-B4 are done, one commit each, pushed to `feat/part-1-mastra-setup`:
 
@@ -141,7 +141,7 @@ CLICKHOUSE_PASSWORD=
 ### B2. Dockerfile + .dockerignore (done, `6aecdb9`)
 
 Goal: self-contained prod image of the agent.
-- `apps/agent/package.json`: build script → `"build": "mastra build --studio"` (ponytail: one-word change; `--studio` on a dev build is harmless).
+- `apps/agent/package.json`: build script → `"build": "mastra build --studio"` (one-word change; `--studio` on a dev build is harmless).
 - New `apps/agent/Dockerfile`:
 
 ```dockerfile
@@ -198,7 +198,7 @@ services:
       context: ../..
       dockerfile: apps/agent/Dockerfile
     env_file: .env.prod
-    depends_on: [postgres, clickhouse]   # ponytail: no healthchecks; restart policy covers cold-start races
+    depends_on: [postgres, clickhouse]   # no healthchecks; restart policy covers cold-start races
     ports:
       - '127.0.0.1:4111:4111'            # loopback only; tailscale serve fronts the tailnet (A3)
     restart: unless-stopped
