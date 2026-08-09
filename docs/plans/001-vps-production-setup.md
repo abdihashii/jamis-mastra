@@ -1,6 +1,6 @@
 # 001 — VPS production setup & agent productionalization
 
-Status: Track A done, the box is live. B1-B5 done: the stack is deployed and serving on the tailnet. What is left is B6 (Cloudflare dashboard). Decisions final per ADRs 0001-0003, the grilling session, and open question 6, do not reopen.
+Status: **done.** Track A and Track B are complete. The stack is deployed, Studio is reachable over the tailnet, and `mastra-agent.jamis.xyz` is live behind Cloudflare Access with the bearer token behind that. Remaining follow-ups are in the open questions below, none of them blocking. Decisions final per ADRs 0001-0003, the grilling session, and open question 6, do not reopen.
 
 **The tailnet URL is the MagicDNS name, not the IP.** `tailscale serve` routes by Host header, so `http://100.105.239.41:4111` gets a 404 from tailscale before it ever reaches the app. Use `http://jamis-prod.tail024e5c.ts.net:4111` (or `http://jamis-prod:4111`). SSH is unaffected and still works over the IP.
 
@@ -284,23 +284,35 @@ Two things the first deploy taught us:
 
 - Commit: the script already landed in `31312a3` and the guard removal rode with B3. This stage's only repo change is the ClickHouse image pin plus these doc corrections.
 
-### B6. Cloudflare dashboard (not started, no repo changes)
+### B6. Cloudflare dashboard (done, no repo changes)
 
-Goal: public hostname live behind Access.
-1. Zero Trust → Networks → Tunnels → create remotely-managed tunnel → copy token into `.env.prod` as `TUNNEL_TOKEN` → recreate cloudflared (`up -d --force-recreate cloudflared`).
-2. Tunnel → Public hostnames: `mastra-agent.jamis.xyz` → service `http://app:4111`. Only this hostname; no Studio routes.
-3. Access → Applications → add application for `mastra-agent.jamis.xyz` with an allow policy (your email / IdP group).
-- Verify (boundary smoke):
-  - `curl https://mastra-agent.jamis.xyz/api/agents` → blocked by Access (302/403, never reaches origin).
-  - Authenticated request (Access session + bearer token) → agent JSON.
+Goal: public hostname live behind Access. What was done, in this order:
+
+1. Zero Trust → Networks → Tunnels → create a remotely-managed tunnel named `jamis-prod`. The name is a display label over a UUID, so it can be renamed later without touching the token or DNS.
+2. Tunnel → Route Traffic → Published applications: `mastra-agent` + `jamis.xyz`, empty path, service type HTTP, URL `app:4111`. The compose service name, not localhost: cloudflared shares the compose network with the app. Only this hostname; no Studio routes.
+3. Access → Applications → **Public DNS** (the current name for self-hosted) → destination `mastra-agent.jamis.xyz`, one Allow policy `allow-me` with an Include rule of Emails = the operator address, all identity providers accepted (one-time PIN is the only one configured).
+4. Only then the token: `TUNNEL_TOKEN` into `.env.prod`, `up -d --force-recreate cloudflared`.
+
+**Step 3 before step 4 on purpose.** The plan originally ordered these the other way. The hostname is live on the public internet the moment the connector registers, so creating the Access application first means it is never exposed with only the bearer token in front of it.
+
+- Verified (boundary smoke):
+  - 4 `Registered tunnel connection` lines in the cloudflared log.
+  - `curl https://mastra-agent.jamis.xyz/api/agents` → 302 to the Access login, never reaches the origin.
+  - Browser, after completing the one-time PIN login → Mastra's own `401 {"error":"Invalid or expired token"}`. Access passed the request through and the bearer requirement stopped it. Both layers confirmed.
   - Studio loads over the tailnet MagicDNS name only.
+
+Gotchas:
+
+- **`--force-recreate cloudflared` recreates its dependencies too**, so the whole stack bounced. Add `--no-deps` to touch only the connector.
+- The Access login page is titled with the Zero Trust **team name**, which is inherited from whatever the account was first set up for. It is not a sign that a different application is handling the hostname.
+- Getting agent JSON over the public hostname needs both an Access session and the bearer header. A browser sends only the first. That is a service-token job, see open question 2.
 
 **Cut:** healthcheck conditions on `depends_on` (restart policy suffices), Watchtower/auto-updates, docker logging daemon config, fail2ban (no public SSH left to protect), Tailscale SSH (plain sshd over tailscale0 works), provider-abstraction layer in provision.sh, Terraform/Ansible. Add any of these when a concrete pain shows up.
 
 ## Open questions / follow-ups
 
 1. ~~Repo visibility~~ resolved: private, with a read-only deploy key on the box (A3).
-2. Access policy membership: who's allowed through Cloudflare Access (single email? IdP group? service tokens for programmatic callers?).
+2. ~~Access policy membership~~ resolved for humans: one Allow policy, Include Emails = the operator address, one-time PIN. Still open for machines: any programmatic caller from outside the tailnet needs an Access service token (a client ID and secret sent as two headers), which is a policy addition, not a repo change.
 3. Backups: off-box `pg_dump` cron → object storage. Not scheduled.
 4. `agent.jamis.xyz` cutover from v1 agent, separate plan.
 5. ~~Memory headroom~~ resolved for now: the first `up --build` completed on the CX23 without OOM. Resize to CX33 (8GB, $8.99) if a future build starts failing.
