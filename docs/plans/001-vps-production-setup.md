@@ -1,8 +1,8 @@
 # 001 — VPS production setup & agent productionalization
 
-Status: Track A done, the box is live. B1-B4 done and pushed; nothing is deployed yet. What is left is B5 (first deploy) and B6 (Cloudflare dashboard), both of which need a human at the keyboard. Decisions final per ADRs 0001-0003, the grilling session, and open question 6, do not reopen.
+Status: Track A done, the box is live. B1-B5 done: the stack is deployed and serving on the tailnet. What is left is B6 (Cloudflare dashboard). Decisions final per ADRs 0001-0003, the grilling session, and open question 6, do not reopen.
 
-Before B5 can run, on the box: fill `.env.prod` (including `API_TOKEN`, which is just `openssl rand -hex 32`, no external service) and run `tailscale serve --bg --http=4111 localhost:4111`. See A3.
+**The tailnet URL is the MagicDNS name, not the IP.** `tailscale serve` routes by Host header, so `http://100.105.239.41:4111` gets a 404 from tailscale before it ever reaches the app. Use `http://jamis-prod.tail024e5c.ts.net:4111` (or `http://jamis-prod:4111`). SSH is unaffected and still works over the IP.
 
 ## Current box
 
@@ -14,8 +14,8 @@ Before B5 can run, on the box: fill `.env.prod` (including `API_TOKEN`, which is
 ## Architecture recap
 
 - Public ingress: Cloudflare Tunnel only, hostname `mastra-agent.jamis.xyz` → Mastra API (`app:4111`). Cloudflare Access policy at the edge.
-- Private ops: Tailscale: SSH, Studio (`http://<tailscale-ip>:4111`), nothing else. The stack publishes loopback only; `tailscale serve` forwards the tailnet IP to it (open question 6, resolved).
-- Auth in app: `SimpleAuth` bearer token (`API_TOKEN` env). Studio authenticates by pasting the same token into Studio's access-token field (SimpleAuth checks `X-Playground-Access` by default, no `public:` path exceptions needed).
+- Private ops: Tailscale: SSH, Studio (`http://jamis-prod.tail024e5c.ts.net:4111`), nothing else. The stack publishes loopback only; `tailscale serve` fronts it on the MagicDNS name (open question 6, resolved).
+- Auth in app: `SimpleAuth` bearer token (`API_TOKEN` env). Studio's first screen asks for a Mastra instance URL and headers, not a bare access token: enter the tailnet URL above, leave the API prefix blank, and add `Authorization: Bearer <API_TOKEN>`. No `public:` path exceptions needed.
 - Deploy: build on VPS from git via `infra/deploy.sh` (non-interactive SSH: git pull + compose up --build). No registry, no CI, no nginx.
 - Secrets: `.env.prod` on VPS, gitignored, `chmod 600`, consumed via `--env-file`.
 - VPS: Hetzner CX23 (2 vCPU / 4GB, $6.49/mo), Falkenstein fsn1, Ubuntu 26.04 (ADR 0003). Provisioned by cloud-init user-data + `infra/provision.sh`. 4GB swapfile. ClickHouse memory capped at ~1.5GB. Escape hatch: re-run provision on a bigger type, or resize.
@@ -247,7 +247,7 @@ server: {
 
   `requireEnv`, not `process.env.API_TOKEN!`: the assertion would make an unset token a silent `undefined` key, which is a token nobody can present but also no loud failure. `server` has to stay a direct property of the `new Mastra()` object or the build cannot extract it.
 
-  No `public:` exceptions: Studio ships its token in `X-Playground-Access`, which SimpleAuth checks by default. Studio workflow: open Studio over tailnet → paste `API_TOKEN` in the access-token field.
+  No `public:` exceptions. Studio workflow, as it actually behaves: open Studio over the tailnet → its config screen asks for a Mastra instance URL and headers → enter `http://jamis-prod.tail024e5c.ts.net:4111`, leave the API prefix blank, add `Authorization: Bearer <API_TOKEN>`.
 - Add `API_TOKEN=` to `apps/agent/.env.example`. It is now required for `mastra dev` too, not just prod.
 - Verify: against the built image, pointed at the dev databases.
 
@@ -265,21 +265,24 @@ server: {
   Known gaps, both accepted: `/` has to serve the Studio shell unauthenticated or there is nowhere to paste the token, and the studio-only `POST /__refresh` and `GET /refresh-events` answer 200 without a token. They trigger a UI refresh and expose no data. Everything here is tailnet-only, with Cloudflare Access in front of the public hostname.
 - Commit: `feat(agent): protect API with SimpleAuth bearer token`
 
-### B5. First deploy (next, not started)
+### B5. First deploy (done)
 
-The B4-before-B5 ordering warning that used to sit here is satisfied: loopback binding and the token both landed. Two prerequisites are still open, both on the box and both manual:
+The two prerequisites were completed on the box, in this order: `.env.prod` filled and `chmod 600` (`API_TOKEN`, the postgres password, and the clickhouse password all generated with `openssl rand -hex`; `FIREWORKS_API_KEY` copied from the Mac; `TUNNEL_TOKEN` left blank for B6), then `tailscale serve --bg --http=4111 localhost:4111`.
 
-1. `.env.prod` filled in, `chmod 600`. `API_TOKEN` is a value you generate (`openssl rand -hex 32`), not something issued by a service. Leave `TUNNEL_TOKEN` blank until B6.
-2. `tailscale serve --bg --http=4111 localhost:4111`. Compose binds loopback only, so without this nothing on the tailnet can reach the app.
+Deploy is one non-interactive command from the Mac: `JAMIS_HOST=100.105.239.41 ./infra/deploy.sh`. It connects as root, fetches, checks out `JAMIS_BRANCH` (default `main`, which now carries this work), and runs `docker compose up -d --build` with both compose files. Build on the box succeeded on the CX23 without OOM, and all four services came up.
 
-`infra/deploy.sh` is already written and committed in `31312a3`, ahead of B1-B3. `docker-compose.prod.yml` now exists, so the remaining work in this stage is running it, not writing it. It deploys `JAMIS_BRANCH`, which defaults to `main`, while this work sits on `feat/part-1-mastra-setup`: either pass the branch or merge first.
+Verified:
 
-Goal: deploys are one non-interactive command from your Mac. `JAMIS_HOST=100.105.239.41 ./infra/deploy.sh` connects as root, fetches, checks out `JAMIS_BRANCH` (default `main`), and runs `docker compose up -d --build` with both compose files.
+- `curl http://jamis-prod.tail024e5c.ts.net:4111/api/agents` with no token → 401, with `Authorization: Bearer $API_TOKEN` → 200.
+- Studio loads over the tailnet, lists `weather-agent`, and a live agent run returned a weather answer with its trace visible in observability. That exercises Fireworks, Postgres, and ClickHouse end to end.
+- `cloudflared` restart-loops, expected until B6 supplies `TUNNEL_TOKEN`.
 
-It shipped with a guard refusing to deploy unless `.env.prod` had `TAILSCALE_IP=100.`. B3 removes that guard along with the variable it protected.
+Two things the first deploy taught us:
 
-- Verify: run it, then `curl -H "Authorization: Bearer $API_TOKEN" http://$JAMIS_HOST:4111/api/agents` → agent JSON; `curl http://$JAMIS_HOST:4111/api/agents` (no token) → 401; Studio loads at `http://$JAMIS_HOST:4111` and works after entering the token. All three go through `tailscale serve`, so a connection refused here means the A3 serve step is missing, not that the app is down.
-- No commit: the script already landed in `31312a3`. The guard removal rides with B3; any other fix the first real deploy surfaces gets its own commit.
+- **`tailscale serve` is Host-header routed.** Requests to `http://<tailscale-ip>:4111` 404 at tailscale, never reaching the app. Use the MagicDNS name. A 404 here is a routing mismatch; a connection refused is a missing serve step; a 502 is the app being down.
+- **ClickHouse logs a `generateSerialID` / `NO_ELEMENTS_IN_CONFIG` error at first boot, and it is harmless.** `@mastra/clickhouse` probes for Keeper once at init inside a `try/catch` and falls back to `farmFingerprint64` for delta cursors. The ClickHouse client logs the failed probe query itself, before Mastra swallows it. Confirmed on the box: 25 `mastra_*` tables, 6 MVs carrying the fallback expression. Later boots read the strategy off existing MV DDL and skip the probe.
+
+- Commit: the script already landed in `31312a3` and the guard removal rode with B3. This stage's only repo change is the ClickHouse image pin plus these doc corrections.
 
 ### B6. Cloudflare dashboard (not started, no repo changes)
 
@@ -290,7 +293,7 @@ Goal: public hostname live behind Access.
 - Verify (boundary smoke):
   - `curl https://mastra-agent.jamis.xyz/api/agents` → blocked by Access (302/403, never reaches origin).
   - Authenticated request (Access session + bearer token) → agent JSON.
-  - Studio loads over tailnet IP only.
+  - Studio loads over the tailnet MagicDNS name only.
 
 **Cut:** healthcheck conditions on `depends_on` (restart policy suffices), Watchtower/auto-updates, docker logging daemon config, fail2ban (no public SSH left to protect), Tailscale SSH (plain sshd over tailscale0 works), provider-abstraction layer in provision.sh, Terraform/Ansible. Add any of these when a concrete pain shows up.
 
@@ -300,7 +303,7 @@ Goal: public hostname live behind Access.
 2. Access policy membership: who's allowed through Cloudflare Access (single email? IdP group? service tokens for programmatic callers?).
 3. Backups: off-box `pg_dump` cron → object storage. Not scheduled.
 4. `agent.jamis.xyz` cutover from v1 agent, separate plan.
-5. Memory headroom: watch `docker stats` during first `up --build`; CX23 has 4GB, resize to CX33 (8GB, $8.99) if the build OOMs even with swap.
+5. ~~Memory headroom~~ resolved for now: the first `up --build` completed on the CX23 without OOM. Resize to CX33 (8GB, $8.99) if a future build starts failing.
 6. ~~Open decision for B3~~ **resolved: bind `127.0.0.1:4111:4111`, front it with `tailscale serve --bg --http=4111 localhost:4111`.** The problem: docker bypasses ufw for published ports, and compose treats an empty `${TAILSCALE_IP}` as "bind everywhere" (`':4111:4111'` renders as `published: "4111"` with no host IP, which is `0.0.0.0`), which would put the API on the public internet with neither ufw nor Cloudflare Access in front. `.env.prod.example` shipped that variable blank, so the failure mode was one forgotten line.
    The rejected alternative was making it mandatory as `${TAILSCALE_IP:?...}`. Verified with compose v5.1.4: that does fail closed on blank and unset, on every path including a manual `up`. But it also fails `ps`, `down`, and `logs` unless each carries `--env-file .env.prod`, and it still lets a wrong-but-non-empty value through.
    The serve route removes the variable instead of guarding it, so no value can expose the box. `--http` serves plain HTTP on the tailnet IP, so the Studio URL is unchanged and no tailnet TLS certs are needed; `--bg` survives reboots. Cost: one manual step per box (A3), and its state lives on the box rather than in the repo. It fails safe, an unset serve means Studio is unreachable, never exposed.

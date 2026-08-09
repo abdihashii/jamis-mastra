@@ -13,7 +13,11 @@ services:
       - '127.0.0.1:5432:5432'
 
   clickhouse:
-    image: clickhouse/clickhouse-server
+    # Exact pin. ClickHouse versions are calendar-based (26.7 is July 2026), so
+    # every monthly release is a feature release that can change on-disk formats,
+    # and a data directory cannot be downgraded. Bump this deliberately, never by
+    # letting a tag drift, or a redeploy can strand the chdata volume.
+    image: clickhouse/clickhouse-server:26.7.3.19
     environment:
       CLICKHOUSE_USER: ${CLICKHOUSE_USERNAME:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-password}
