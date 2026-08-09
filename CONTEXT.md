@@ -22,6 +22,14 @@ _Avoid_: public endpoint, external access
 Everything reachable only over the Tailscale tailnet: SSH, Studio, direct Postgres/ClickHouse access.
 _Avoid_: admin network, internal access
 
+**Runtime**:
+Bun. What executes JavaScript, in dev and in the container. Set in two places, since dev runs on the host and prod runs in the `app` service. Node still appears throughout (the Mac's own install, `node:*` imports, `@types/node`) and is named directly when meant.
+_Avoid_: engine, JS runtime
+
+**Package manager**:
+pnpm. What resolves, installs, and links the workspace. Not the runtime, and not the thing that runs the code it installs.
+_Avoid_: build tool
+
 **Track A / Track B**:
 Track A is VPS provisioning (Hetzner CX23 in Falkenstein, cloud-init plus infra/provision.sh). Track B is making the agent production-ready (repo changes: Dockerfile, prod compose overlay, auth, infra/deploy.sh). See docs/plans/001-vps-production-setup.md.
 
