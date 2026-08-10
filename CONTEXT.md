@@ -23,7 +23,7 @@ Everything reachable only over the Tailscale tailnet: SSH, Studio, direct Postgr
 _Avoid_: admin network, internal access
 
 **Runtime**:
-Bun. What executes JavaScript, in dev and in the container. Set in two places, since dev runs on the host and prod runs in the `app` service. Node still appears throughout (the Mac's own install, `node:*` imports, `@types/node`) and is named directly when meant.
+Bun. What executes JavaScript, in dev and in the container. Pinned in the `app` service, picked per command on the host (`bun --bun run dev`). Node still appears throughout (the Mac's own install, `node:*` imports, `@types/node`) and is named directly when meant.
 _Avoid_: engine, JS runtime
 
 **Package manager**:
