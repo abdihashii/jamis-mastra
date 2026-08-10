@@ -26,6 +26,11 @@ services:
     # interface is bound and no env var can widen it. See plan 001, Q6.
     ports:
       - '127.0.0.1:4111:4111'
+    # As PID 1, bun ignores SIGTERM, so every deploy and restart would stall for
+    # the full stop timeout and then SIGKILL the app mid-request. docker-init
+    # takes PID 1 and forwards the signal. Measured: 8s and exit 137 without it,
+    # 0.2s and exit 143 with it.
+    init: true
     restart: unless-stopped
     logging:
       driver: json-file
