@@ -6,7 +6,7 @@ The tag is an exact pin, like the ClickHouse one. `deploy.sh` builds on the box,
 
 ## Why pnpm stays
 
-Mastra supports npm, pnpm, Yarn, and Turborepo workspaces, and lists Bun workspaces as partial support with known issues. `mastra build` also picks its install command from the lockfile name, so the lockfile matters at build time too. Switching to `bun install` would trade a supported setup for a flagged one and gain nothing here.
+Mastra lists Bun *workspaces* as partial support with known issues, not Bun installs generally. `@mastra/deployer` already reads `bun.lock`: `findLockFile` includes it, `getPackageManager()` returns `"bun"`, and `pack()` has a `bun pm pack` branch. `mastra build` picks its install command from the lockfile name, so the lockfile matters at build time too. Switching to `bun install` would drop a workspace layout Mastra flags, not an install method it lacks.
 
 ## Why Bun builds, not just runs
 
