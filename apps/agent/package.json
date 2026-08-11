@@ -8,9 +8,9 @@
 	"keywords": [],
 	"main": "index.js",
 	"scripts": {
-		"dev": "mastra dev",
-		"build": "mastra build --studio",
-		"typecheck": "tsc --noEmit"
+		"dev": "bun run --bun mastra dev",
+		"build": "bun run --bun mastra build --studio",
+		"typecheck": "bun run --bun tsc --noEmit"
 	},
 	"dependencies": {
 		"@mastra/clickhouse": "^1.14.0",

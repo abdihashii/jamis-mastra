@@ -104,9 +104,8 @@ the default sidebar. Open it at `/agents/weather-agent/session/smoke-003-prod`.
 2. **Watch [oven-sh/bun#34924](https://github.com/oven-sh/bun/pull/34924)**, open as of 2026-08-10.
    When it ships in a `1.3` patch, restore `ENV NODE_OPTIONS=--max-old-space-size=2048` and check it
    actually aborts. Silent acceptance is the failure mode here.
-3. **If build memory tightens, build off-box into a registry.** Not by shaving
-   `clickhouse/memory.xml`.
-4. **`pnpm dev` still runs the Mac's Node** while `apps/agent/tsconfig.json` says Bun types, so a
-   `Bun.*` call would typecheck, then fail in dev and work in prod. `"dev": "bun --bun mastra dev"`
-   closes the gap and gives up the Node escape hatch.
+3. **If build memory tightens**, try `MASTRA_CONCURRENCY` first, which caps how many expensive build
+   steps run at once, then build off-box into a registry. Not by shaving `clickhouse/memory.xml`.
+4. ~~`pnpm dev` runs the Mac's Node~~ **closed after the merge.** `dev`, `build`, `typecheck`, and
+   `lint` now all run through `bun --bun`, so the Node escape hatch is gone on purpose.
 5. **`Bun.sql` in place of `pg`** is worth revisiting now the runtime is settled.
