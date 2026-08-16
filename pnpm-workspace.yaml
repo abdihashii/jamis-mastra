@@ -2,10 +2,6 @@ shellEmulator: true
 
 trustPolicy: no-downgrade
 
-packages:
-  - 'apps/*'
-  - 'packages/*'
-
 allowBuilds:
   # esbuild's postinstall only fetches its platform binary, which pnpm already
   # installs as an optional dependency. Left unanswered, this placeholder is a

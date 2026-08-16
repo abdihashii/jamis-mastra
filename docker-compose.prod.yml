@@ -18,8 +18,8 @@ services:
 
   app:
     build:
-      context: ../..
-      dockerfile: apps/agent/Dockerfile
+      context: .
+      dockerfile: Dockerfile
     env_file: .env.prod
     depends_on: [postgres, clickhouse]
     # Loopback only. tailscale serve publishes it to the tailnet, so no routable

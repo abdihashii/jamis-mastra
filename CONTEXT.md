@@ -1,13 +1,13 @@
 # Jamis Mastra
 
-Monorepo for the Jamis agent system, built on Mastra. `apps/agent` is the Mastra server hosting the agents.
+Single-package repo for the Jamis agent system, built on Mastra. `src` is the Mastra server hosting the agents.
 
-Docker Compose runs Postgres and ClickHouse in both dev and prod. In dev that is all it runs: the agent itself runs on the host with `pnpm -F @jamis-mastra/agent dev`, pointed at the two containers over `localhost`. Prod adds `docker-compose.prod.yml`, which puts the agent in the stack as the `app` service alongside `cloudflared` and drops the databases' host port bindings.
+Docker Compose runs Postgres and ClickHouse in both dev and prod. In dev that is all it runs: the agent itself runs on the host with `pnpm dev`, pointed at the two containers over `localhost`. Prod adds `docker-compose.prod.yml`, which puts the agent in the stack as the `app` service alongside `cloudflared` and drops the databases' host port bindings.
 
 ## Language
 
 **Jamis**:
-The master agent (to be built in `apps/agent`, `id: 'jamis'`). Also the Docker Compose project name, and the name of the agent's unprivileged account on the VPS.
+The master agent (to be built in `src`, `id: 'jamis'`). Also the Docker Compose project name, and the name of the agent's unprivileged account on the VPS.
 _Avoid_: master agent, main agent (use "Jamis")
 
 **Operator**:
@@ -23,7 +23,7 @@ Everything reachable only over the Tailscale tailnet: SSH, Studio, direct Postgr
 _Avoid_: admin network, internal access
 
 **Runtime**:
-Bun. What executes JavaScript, in dev and in the container. Pinned in the `app` service, picked per command on the host (`bun --bun run dev`). Node still appears throughout (the Mac's own install, `node:*` imports, `@types/node`) and is named directly when meant.
+Bun. What executes JavaScript, in dev and in the container. Pinned in the `app` service and in the `package.json` scripts, which all run through `bun --bun`. Node still appears throughout (the Mac's own install, `node:*` imports, `@types/node`) and is named directly when meant.
 _Avoid_: engine, JS runtime
 
 **Package manager**:

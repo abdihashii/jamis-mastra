@@ -65,9 +65,9 @@ Note the path is `/webhooks/sendblue`, **not** under `/api/`. Plan 001 B4 put Si
 
 Repo changes:
 
-- `apps/agent/package.json`: add `chat`, `chat-adapter-sendblue`, `@chat-adapter/state-memory`. Pin `chat-adapter-sendblue` to an exact version, no caret. It is 0.2.0 and young.
-- New `apps/agent/src/channels/sendblue.ts`: builds the `Chat` instance with `createSendblueAdapter()` and `createMemoryState()`, registers the `onDirectMessage` handler, exports the webhook handler.
-- `apps/agent/src/mastra/index.ts`: register the route.
+- `package.json`: add `chat`, `chat-adapter-sendblue`, `@chat-adapter/state-memory`. Pin `chat-adapter-sendblue` to an exact version, no caret. It is 0.2.0 and young.
+- New `src/channels/sendblue.ts`: builds the `Chat` instance with `createSendblueAdapter()` and `createMemoryState()`, registers the `onDirectMessage` handler, exports the webhook handler.
+- `src/mastra/index.ts`: register the route.
 
 ```ts
 registerApiRoute('/webhooks/sendblue', {
@@ -93,7 +93,7 @@ registerApiRoute('/webhooks/sendblue', {
 
 **Goal:** an agent that knows you across two separate threads, demoed in Studio over the tailnet.
 
-- New `apps/agent/src/mastra/agents/jamis.ts`, `id: 'jamis'`, registered in the `agents: {}` map on the `Mastra` instance alongside `weatherAgent`.
+- New `src/mastra/agents/jamis.ts`, `id: 'jamis'`, registered in the `agents: {}` map on the `Mastra` instance alongside `weatherAgent`.
 - Instructions have three sections, so later stages edit one section rather than restructuring the agent:
   1. **Who he is.** The purpose lines from Context above, verbatim.
   2. **Voice.** JARVIS to Tony Stark: concise, dry, understated. Never eager, never sycophantic, no emoji, no "Great question!" Assume competence and skip the preamble. Say the inconvenient thing plainly rather than softening it. When he does not know, say so rather than fill the space, which is what "Mostly Intelligent" is doing in the name.
@@ -131,7 +131,7 @@ Also check the voice, since it is now a requirement and not a vibe: ask him some
 
 **Goal:** text Jamis from the phone, get a real answer, and have him still know it tomorrow.
 
-- `apps/agent/src/channels/sendblue.ts`: replace the echo with `mastra.getAgent('jamis')` and a `generate()` call, then `thread.post()` the result.
+- `src/channels/sendblue.ts`: replace the echo with `mastra.getAgent('jamis')` and a `generate()` call, then `thread.post()` the result.
 - Identity mapping, which is what makes memory work:
   - `resource` = a constant for the operator. Same value forever, across every thread and channel. This is the key working memory is scoped to.
   - `thread` = derived from the Sendblue conversation. One long-lived thread is correct here; observational memory compresses it as it grows.
@@ -148,7 +148,7 @@ Also check the voice, since it is now a requirement and not a vibe: ask him some
 
 The pattern needs something to delegate to. **Recommended first specialist: research**, a subagent with one web search tool. It is read-only, needs one API key, has no OAuth, and cannot damage anything. It is also the capability that most obviously exceeds what Jamis can do alone, which is what makes the delegation decision legible in a trace. This is the one substantive assumption in the plan and it is a one-line swap if a different first specialist is more useful.
 
-- New `apps/agent/src/mastra/agents/research-agent.ts` with a `description` written for the supervisor to read, plus its search tool under `src/mastra/tools/`.
+- New `src/mastra/agents/research-agent.ts` with a `description` written for the supervisor to read, plus its search tool under `src/mastra/tools/`.
 - `jamis.ts`: add it to `agents: {}` and fill in the coordination section of the instructions.
 - Add `onDelegationComplete` logging so delegations are easy to grep for, and set a `maxSteps` ceiling so a bad delegation loop cannot run away.
 
@@ -177,7 +177,7 @@ The pattern needs something to delegate to. **Recommended first specialist: rese
 
 ## Verified against the installed packages (2026-08-09)
 
-Every Mastra package in `apps/agent` was at the latest published version when this plan was written, so nothing here needs an upgrade first:
+Every Mastra package in the repo was at the latest published version when this plan was written, so nothing here needs an upgrade first:
 
 `@mastra/core` 1.57.0, `@mastra/memory` 1.26.0, `@mastra/pg` 1.19.0, `@mastra/clickhouse` 1.14.0, `@mastra/observability` 1.16.5, `mastra` 1.23.0.
 
@@ -198,7 +198,7 @@ Third-party, checked on npm: `chat@4.37.0`, `chat-adapter-sendblue@0.2.0`, `@cha
 ## Notes for the executor
 
 - Per-stage sign-off before every commit. Pushing needs its own separate ok.
-- `mcp__mastra__searchMastraDocs` needs `projectPath` = `/Users/abdirahmanhaji/dev/jamis-mastra/apps/agent`. It only covers `@mastra/core` and `@mastra/memory`; use the remote `mastraDocs` tool for everything else.
+- `mcp__mastra__searchMastraDocs` needs `projectPath` = `/Users/abdirahmanhaji/dev/jamis-mastra`. It only covers `@mastra/core` and `@mastra/memory`; use the remote `mastraDocs` tool for everything else.
 - Mastra docs lag the code. Two of the three memory findings above are absent from the prose docs and only visible in the types. Verify against the installed packages before trusting a doc example.
 - Do not use `.network()` or agent networks; deprecated in favor of supervisor agents and slated for removal.
 
