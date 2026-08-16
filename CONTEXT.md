@@ -27,7 +27,7 @@ Bun. What executes JavaScript, in dev and in the container. Pinned in the `app` 
 _Avoid_: engine, JS runtime
 
 **Package manager**:
-pnpm. What resolves, installs, and links the workspace. Not the runtime, and not the thing that runs the code it installs.
+Bun. What resolves and installs dependencies. Not the runtime, even though the same binary does both.
 _Avoid_: build tool
 
 **Track A / Track B**:
