@@ -1,6 +1,6 @@
 # 004: One package, then bun installs
 
-Status: **PR 1 done.** PR 2 (bun installs) not started.
+Status: **PR 1 and PR 2 done.**
 
 ## Context
 
@@ -103,21 +103,67 @@ historical record. This file added.
 
 ## PR 2: bun installs
 
-Not started. See the plan doc's PR 2 section for the intended shape: delete `pnpm-lock.yaml` and
-`pnpm-workspace.yaml`, `bun install` to produce `bun.lock`, drop `@pnpm/exe` from the Dockerfile, and
-confirm (not assume) that Bun blocks lifecycle scripts by default so the `allowBuilds: esbuild: false`
-intent survives without configuration.
+Branch `chore/bun-install`, off `main` after PR 1 merged (`1ffbbfd`).
 
-## Acceptance, PR 1 only
+### Stage 1: swap the installer
+
+One commit, `b8853e5` `chore: swap pnpm for bun as the installer`.
+
+`pnpm-lock.yaml` and `pnpm-workspace.yaml` deleted, `bun install` produced `bun.lock`. `package.json`
+dropped the `packageManager` field; nothing in Bun's project config plays the same role. Dockerfile
+dropped the `@pnpm/exe` install, its `chmod`, and the Apple Silicon segfault comment; `COPY
+pnpm-workspace.yaml package.json pnpm-lock.yaml` became `COPY package.json bun.lock`, and both `RUN
+pnpm ...` lines became `RUN bun ...`.
+
+**esbuild's postinstall, confirmed rather than assumed:** `bun install --verbose` on a clean
+`node_modules` logs `[Lifecycle Scripts] ignoring esbuild lifecycle scripts`, and `bun pm untrusted`
+reports zero untrusted packages with scripts, both with no `trustedDependencies` field anywhere. No
+config was added. Full reasoning in [0006-bun-installs.md](../adrs/0006-bun-installs.md).
+
+**Verified:**
+
+- `bun install --frozen-lockfile`, `bun run typecheck`, `bun run lint`: all clean.
+- `bun run dev`, once Postgres/ClickHouse were actually healthy: ready in 666ms; `lsof -nP -iTCP:4111
+  -sTCP:LISTEN` resolved to `bun`, cross-checked with `lsof -d txt` against the pid (not just `ps`,
+  which prints `node` for Bun's node-compat process title).
+- `docker build --provenance=false -f Dockerfile -t jamis-agent .`, **no `--platform` flag**, succeeded
+  natively on this arm64 Mac in ~22s. That's the arm64 segfault proof plan 004 called for.
+- `mastra build`'s internal install log shows `bun install v1.3.14` running, not pnpm. The `Failed to
+  generate package-lock.json` warning from plan 003 is still there; traced it to `mastra build`
+  shelling out to `npm` for a deploy-fallback lockfile regardless of which tool did the real install,
+  and the image has no `npm` binary either way. Expected to persist, not a regression.
+- Image size: `docker save | wc -c`, `docker inspect --format='{{.Size}}'`, and `docker images` CONTENT
+  SIZE all reported ~75-79MB here, the same buildx attestation-manifest undercount the PR 1 handoff
+  flagged, this time surviving `--provenance=false` too. `docker history`'s summed layer sizes (~304MB)
+  and `du -sh /` inside a running container (~290MB) agreed with each other and are the trustworthy
+  pair: **down from the 377MB baseline**, consistent with dropping `@pnpm/exe` and its own footprint.
+- Full container smoke against `jamis_default` (`docker run --network jamis_default -p 4111:4111
+  --env-file .env` with `DATABASE_URL`/`CLICKHOUSE_URL` pointed at the compose service names): unauth
+  401, `["weather-agent"]`, real forecasts through `weatherTool` for three cities, Postgres messages 2
+  → 6 across host and container calls on the same thread, ClickHouse trace roots 15 → 16.
+- Studio in an actual browser (Playwright/Chromium, installed ad hoc for this check, not added to the
+  project): the login gate needed `?auth_header=Bearer%20<token>` in the URL, documented in
+  `@mastra/core`'s embedded docs, to get past sign-in without a hosted OAuth flow. Weather Agent listed
+  correctly once past it.
+- Teardown: `docker compose down`, never `-v`. `docker volume ls` showed `jamis_pgdata` and
+  `jamis_chdata` present both before and after.
+
+### Stage 2: docs
+
+This stage. `docs/adrs/0006-bun-installs.md` added, superseding the "why pnpm stays" half of
+[0004](../adrs/0004-bun-runtime-pnpm-packages.md). `CONTEXT.md`'s **Package manager** glossary entry
+changed from pnpm to Bun. This file's PR 2 section and the acceptance table below.
+
+## Acceptance
 
 | # | Check | Result |
 | --- | --- | --- |
-| `apps/`, `packages/` | gone | done |
-| `bun install --frozen-lockfile` n/a until PR 2; `pnpm typecheck`, `pnpm lint` | clean | done |
-| `pnpm dev`, `lsof` on 4111 | listener is `bun` | done |
-| `docker build` on amd64 | succeeds | done |
+| `apps/`, `packages/`, `pnpm-workspace.yaml`, `pnpm-lock.yaml` | gone by end of PR 2 | done |
+| `bun install --frozen-lockfile`, `pnpm typecheck`/`pnpm lint` (now `bun run typecheck`/`bun run lint`) | clean | done |
+| `pnpm dev`/`bun run dev`, `lsof` on 4111 | listener is `bun` | done |
+| `docker build` on arm64, no platform flag | succeeds | done |
 | Container on `jamis_default`, full smoke | matches plan 003's baseline | done |
 | Unauthenticated API call | 401 | done |
-| Studio in a browser | not checked in a real browser this PR; index served 200 with correct HTML | partial |
+| Studio in a browser | renders, Weather Agent listed | done |
 | `docker volume ls` | `jamis_pgdata` and `jamis_chdata` untouched | done |
 | Prod | still on `c4e2c59`, not redeployed | done |
