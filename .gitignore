@@ -13,3 +13,5 @@ src/mastra/public/dist
 *.db-*
 *.duckdb
 *.duckdb.wal
+
+.firecrawl
