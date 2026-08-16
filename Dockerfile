@@ -1,20 +1,10 @@
-# Add --platform=linux/amd64 on Apple Silicon: pnpm's static arm64 binary
-# segfaults on alpine, and amd64 is the VPS's architecture anyway.
-
 FROM oven/bun:1.3.14-alpine AS build
-# corepack is a node tool and this image ships neither node nor npm, so pnpm
-# arrives as the self-contained @pnpm/exe binary, pinned to the root
-# packageManager field. bun links it onto PATH without an exec bit, so chmod the
-# symlink's target. pnpm's own `node` shims resolve to bun through the image's
-# bun-node-fallback-bin.
-RUN bun install -g @pnpm/exe@11.20.0 \
-  && chmod +x "$(readlink -f /usr/local/bin/pnpm)"
 WORKDIR /app
 
-# Manifests first so a source-only change reuses the install layer.
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+# Manifest first so a source-only change reuses the install layer.
+COPY package.json bun.lock ./
 
-RUN pnpm install --frozen-lockfile
+RUN bun install --frozen-lockfile
 
 COPY src src
 COPY tsconfig.json ./
@@ -24,7 +14,7 @@ COPY tsconfig.json ./
 # is gone. The 4GB swapfile and clickhouse's 1.5GB max_server_memory_usage are
 # the only guards left, and neither bounds a growing process: a runaway build
 # still gets clickhouse OOM-killed. Accepted risk until bun#34924 lands.
-RUN pnpm run build
+RUN bun run build
 
 FROM oven/bun:1.3.14-alpine
 WORKDIR /app
