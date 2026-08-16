@@ -207,6 +207,21 @@ importers:
 
   .:
     dependencies:
+      '@mastra/clickhouse':
+        specifier: ^1.14.0
+        version: 1.14.0(@mastra/core@1.57.0(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3))(zod@4.4.3)
+      '@mastra/core':
+        specifier: ^1.57.0
+        version: 1.57.0(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3)
+      '@mastra/memory':
+        specifier: ^1.26.0
+        version: 1.26.0(@mastra/core@1.57.0(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3))(supports-color@7.2.0)
+      '@mastra/observability':
+        specifier: ^1.16.5
+        version: 1.16.5(@mastra/core@1.57.0(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3))(zod@4.4.3)
+      '@mastra/pg':
+        specifier: ^1.19.0
+        version: 1.19.0(@mastra/core@1.57.0(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3))
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -223,31 +238,12 @@ importers:
       eslint:
         specifier: ^10.8.0
         version: 10.8.0(supports-color@7.2.0)
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-
-  apps/agent:
-    dependencies:
-      '@mastra/clickhouse':
-        specifier: ^1.14.0
-        version: 1.14.0(@mastra/core@1.57.0(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3))(zod@4.4.3)
-      '@mastra/core':
-        specifier: ^1.57.0
-        version: 1.57.0(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3)
-      '@mastra/memory':
-        specifier: ^1.26.0
-        version: 1.26.0(@mastra/core@1.57.0(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3))(supports-color@7.2.0)
-      '@mastra/observability':
-        specifier: ^1.16.5
-        version: 1.16.5(@mastra/core@1.57.0(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3))(zod@4.4.3)
-      '@mastra/pg':
-        specifier: ^1.19.0
-        version: 1.19.0(@mastra/core@1.57.0(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3))
-    devDependencies:
       mastra:
         specifier: ^1.23.0
         version: 1.23.0(@hono/node-server@1.19.17(hono@4.12.33))(@mastra/core@1.57.0(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3))(supports-color@7.2.0)(typescript@6.0.3)(zod@4.4.3)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
 
 packages:
 

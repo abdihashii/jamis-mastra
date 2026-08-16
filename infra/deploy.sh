@@ -19,7 +19,13 @@ cd /root/jamis-mastra
 git fetch origin
 git checkout "$branch"
 git pull --ff-only
-cd apps/agent
+
+# .env.prod moved from apps/agent/ to the repo root when the workspace
+# flattened. A box deployed before that move still has it at the old path.
+if [ ! -f .env.prod ]; then
+  echo "Missing .env.prod at repo root. Run: mv apps/agent/.env.prod .env.prod" >&2
+  exit 1
+fi
 
 # No TAILSCALE_IP guard: the app binds 127.0.0.1 and tailscale serve publishes it
 # to the tailnet, so there is no variable left whose value could expose the box.
