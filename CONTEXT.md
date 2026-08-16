@@ -14,8 +14,20 @@ _Avoid_: master agent, main agent (use "Jamis")
 You, logging in as `root` over the tailnet. The only account with privilege on the box. The `jamis` account is the agent's, and holds read-only inspection rights, never `sudo` in general and never the `docker` group.
 _Avoid_: admin user, deploy user
 
+**Channel**:
+A messaging platform the operator reaches an agent through, instead of Studio. iMessage over Sendblue is the first one.
+_Avoid_: integration, connector, bridge
+
+**Sendblue line**:
+The phone number Sendblue assigns to the account, which an agent receives on and sends from.
+_Avoid_: the number, the bot number
+
+**Operator number**:
+The operator's own handset. The only number allowed to reach an agent over a channel; anything else is dropped without a reply.
+_Avoid_: the number, my phone, the whitelist number
+
 **Public ingress**:
-Cloudflare Tunnel exposing only the Mastra API at `mastra-agent.jamis.xyz`, with Cloudflare Access in front. The only public path into production.
+Cloudflare Tunnel exposing only the Mastra API at `mastra-agent.jamis.xyz`, with Cloudflare Access in front of everything except channel webhooks, which the messaging platform has to reach unauthenticated. The only public path into production.
 _Avoid_: public endpoint, external access
 
 **Private ops**:

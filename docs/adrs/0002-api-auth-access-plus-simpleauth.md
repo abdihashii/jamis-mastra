@@ -7,4 +7,6 @@ The public Mastra API is protected in two places.
 
 We chose this over Access alone (tailnet calls would be unauthenticated) and over the token alone (nothing stops strangers at the edge).
 
+One class of path is behind neither: channel webhooks, which the messaging platform must reach unauthenticated. See [0008](0008-public-webhook-path-through-access.md).
+
 The tokens are static and never expire. That is fine for a single operator. If outside users ever appear, we can switch to JWT or a login provider.
