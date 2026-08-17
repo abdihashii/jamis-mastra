@@ -1,5 +1,3 @@
-import process from 'node:process';
-
 import { ObservabilityStorageClickhouseVNext } from '@mastra/clickhouse';
 import { Mastra } from '@mastra/core';
 import { SimpleAuth } from '@mastra/core/server';
@@ -13,18 +11,7 @@ import {
 import { PostgresStore } from '@mastra/pg';
 
 import { weatherAgent } from './agents/weather-agent';
-
-// Fail at boot rather than hand undefined to a driver. ClickHouse accepts an
-// empty password and connects, hiding the misconfiguration.
-function requireEnv(name: string): string {
-	const value = process.env[name];
-
-	if (!value) {
-		throw new Error(`Missing required env var: ${name}`);
-	}
-
-	return value;
-}
+import { requireEnv } from './env';
 
 export const mastra = new Mastra({
 	agents: { weatherAgent },
