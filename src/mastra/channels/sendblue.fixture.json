@@ -1,0 +1,36 @@
+{
+	"accountEmail": "fixture@example.invalid",
+	"content": "What is the weather in Chicago?",
+	"is_outbound": false,
+	"status": "RECEIVED",
+	"error_code": null,
+	"error_message": null,
+	"error_reason": null,
+	"message_handle": "11111111-1111-4111-8111-111111111111",
+	"date_sent": "2026-01-15T12:00:00.000Z",
+	"date_updated": "2026-01-15T12:00:00.000Z",
+	"from_number": "+15555550101",
+	"number": "+15555550101",
+	"to_number": "+15555550100",
+	"was_downgraded": null,
+	"plan": "dedicated",
+	"media_url": "",
+	"message_type": "message",
+	"group_id": "",
+	"participants": [
+		"+15555550101",
+		"+15555550100"
+	],
+	"send_style": "",
+	"opted_out": false,
+	"error_detail": null,
+	"sendblue_number": "+15555550100",
+	"service": "iMessage",
+	"group_display_name": null,
+	"reply_to": {
+		"message_handle": "22222222-2222-4222-8222-222222222222"
+	},
+	"thread_originator": {
+		"message_handle": "22222222-2222-4222-8222-222222222222"
+	}
+}

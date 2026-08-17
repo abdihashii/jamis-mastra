@@ -133,7 +133,7 @@ channels: {
 
 ## Stage 3: local proof by replay
 
-**Status.** Complete locally. No Stage 3 commit was made.
+**Status.** Complete locally. The synthetic replay fixture is tracked.
 
 **Goal.** Everything except Sendblue's inbound delivery, proven on localhost.
 
