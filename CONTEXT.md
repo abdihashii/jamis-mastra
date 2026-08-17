@@ -7,8 +7,11 @@ Docker Compose runs Postgres and ClickHouse in both dev and prod. In dev that is
 ## Language
 
 **Jamis**:
-Just A Mostly Intelligent System. The master agent (to be built in `src`, `id: 'jamis'`). A personal agent to text like a person, that remembers the operator across days, projects, and contexts rather than restarting each session, and over time takes work off his plate. The model is JARVIS to Tony Stark, and that sets the register: dry and understated rather than eager, says the inconvenient thing plainly, and admits what it does not know. "Mostly Intelligent" is the same point in the name. Also the Docker Compose project name, and the name of the agent's unprivileged account on the VPS.
+Just A Mostly Intelligent System. The channel-facing personal agent (`id: 'jamis'`). A personal agent to text like a person, that remembers the operator across days, projects, and contexts rather than restarting each session, and over time takes work off his plate. The model is JARVIS to Tony Stark, and that sets the register: dry and understated rather than eager, says the inconvenient thing plainly, and admits what it does not know. "Mostly Intelligent" is the same point in the name. Also the Docker Compose project name, and the name of the agent's unprivileged account on the VPS.
 _Avoid_: master agent, main agent (use "Jamis")
+
+**Subagent**:
+An internal agent that accepts bounded delegated work from Jamis. Jamis owns the operator conversation and turns a subagent result into the final response.
 
 **Operator**:
 You, logging in as `root` over the tailnet. The only account with privilege on the box. The `jamis` account is the agent's, and holds read-only inspection rights, never `sudo` in general and never the `docker` group.
