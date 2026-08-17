@@ -1,6 +1,6 @@
 # 005: the iMessage channel
 
-Status: **planned.** Nothing implemented.
+Status: **Stages 1-3 complete locally.** Stage 4 requires fresh explicit production approval. Stage 5 remains pending.
 
 Text the Sendblue line from the operator number, get a real answer back from `weather-agent`.
 
@@ -24,32 +24,32 @@ Settled during planning, with the reasoning in the ADRs:
 Verified against installed code and vendor docs during planning, so they do not need re-deriving:
 
 | Fact | Source |
-| --- | --- |
-| `channels` exists, added in `@mastra/core@1.22.0`; repo is on 1.59.0 | installed `package.json` |
-| Webhook path is `/api/agents/${agent.id}/channels/${adapterKey}/webhook`, not configurable | `agent-CKAVuxKN.js:20257,20603` |
-| That route is `requiresAuth: false`, hardcoded | `agent-CKAVuxKN.js:20605` |
-| `chat@4.38.0` already in the tree as a dependency of `@mastra/core` | `@mastra/core/package.json:871` |
-| `chat-adapter-sendblue@0.2.0` peers `chat >=4.0.0`, depends on `sendblue@^3.6.1` | npm |
-| Only two versions of the adapter ever published (0.1.0, 0.2.0) | npm |
-| Default state is `MastraStateAdapter`: subscriptions persist to storage, dedupe keys and locks stay in memory by design | `channels/state-adapter.d.ts` |
-| `sb-signing-secret` carries the configured secret verbatim, a shared secret and not an HMAC | Sendblue + Chat SDK docs |
-| Inbound `from_number` is E.164 with a leading `+` | Sendblue webhook docs, documented payload |
-| `receive` webhooks are an account-level array and the create endpoint appends | Sendblue webhook docs |
-| Adapter env names are `SENDBLUE_API_KEY` / `SENDBLUE_API_SECRET` / `SENDBLUE_FROM_NUMBER` | Sendblue + Chat SDK docs |
-| Default `resourceId` is `${platform}:${message.author.userId}`; default `threadId` is a random UUID | Mastra channels reference |
-| Markdown is stripped to plain text; no streaming on this adapter | Chat SDK adapter docs |
-| Cloudflare allows one wildcard between each pair of slashes, and a mid-path wildcard spans multiple segments | Cloudflare Access app-paths docs |
+| :--- | :--- |
+| `channels` exists, added in `@mastra/core@1.22.0`; repo is on `1.59.0` | Installed `package.json` |
+| Webhook path is `/api/agents/${agent.id}/channels/${adapterKey}/webhook`; it is not configurable | `agent-CKAVuxKN.js:20257,20603` |
+| The webhook route is hardcoded `requiresAuth: false` | `agent-CKAVuxKN.js:20605` |
+| `chat@4.38.0` is already in the tree through `@mastra/core` | `@mastra/core/package.json:871` |
+| `chat-adapter-sendblue@0.2.0` peers `chat >=4.0.0` and depends on `sendblue@^3.6.1` | npm metadata |
+| Only adapter versions `0.1.0` and `0.2.0` were published | npm metadata |
+| Default state is `MastraStateAdapter`.<br>Subscriptions persist to storage; dedupe keys and locks stay in memory. | `channels/state-adapter.d.ts` |
+| `sb-signing-secret` carries the configured shared secret verbatim, not an HMAC | Sendblue and Chat SDK docs |
+| Inbound `from_number` is E.164 with a leading `+` | Sendblue webhook docs |
+| `receive` webhooks are account-level; create appends to the array | Sendblue webhook docs |
+| Adapter env names are `SENDBLUE_API_KEY`, `SENDBLUE_API_SECRET`, and `SENDBLUE_FROM_NUMBER` | Sendblue and Chat SDK docs |
+| Default `resourceId` is `${platform}:${message.author.userId}`.<br>Default `threadId` is a random UUID. | Mastra channels reference |
+| Markdown is rendered as plain text; streaming is unsupported | Chat SDK adapter docs |
+| Cloudflare permits one wildcard between slash pairs; a mid-path wildcard spans segments | Cloudflare Access path docs |
 
 ### Adapter behavior, read from the published source
 
 `chat-adapter-sendblue@0.2.0` was unpacked and read during planning. Four things it does are load-bearing here:
 
 | Behavior | Location | Consequence |
-| --- | --- | --- |
-| `if (this.config.webhookSecret) { ...verify... }` | `dist/index.js:106` | **Fails open.** An unset or empty secret skips verification entirely and accepts every request. |
-| `headerValue !== this.config.webhookSecret` | `dist/index.js:109` | Plain string compare, not constant-time. |
-| `author.userId = raw.from_number` | `dist/index.js:185` | The allowlist compares E.164 with a leading `+`, matching the documented payload. Nothing to pin. |
-| `isDM: !decoded.groupId` | `dist/index.js:342` | 1:1 routes to `onDirectMessage`. Group messages reach no enabled handler and are dropped. |
+| :--- | :--- | :--- |
+| `if (this.config.webhookSecret) { ...verify... }` | `dist/index.js:106` | **Fails open.**<br>An unset or empty secret skips verification and accepts every request. |
+| `headerValue !== this.config.webhookSecret` | `dist/index.js:109` | Plain string comparison, not constant-time. |
+| `author.userId = raw.from_number` | `dist/index.js:185` | The allowlist receives the documented E.164 number with a leading `+`. |
+| `isDM: !decoded.groupId` | `dist/index.js:342` | 1:1 reaches `onDirectMessage`.<br>Groups have no enabled handler and are dropped. |
 
 The fail-open is the reason `SENDBLUE_WEBHOOK_SECRET` goes through `requireEnv` in stage 2. This repo has met this failure mode before: plan 001's open question 6 was a blank `${TAILSCALE_IP}` rendering as bind-everywhere. Same shape, same fix, refuse to boot.
 
@@ -62,6 +62,8 @@ One thing planning could not settle:
 ---
 
 ## Stage 1: dependency and env templates
+
+**Status.** Complete.
 
 **Goal.** The adapter is installed, resolves to one shared `chat`, and both env templates carry the new keys. No code wired yet.
 
@@ -82,6 +84,8 @@ Both templates gain empty keys: `SENDBLUE_API_KEY`, `SENDBLUE_API_SECRET`, `SEND
 ---
 
 ## Stage 2: the channel, wired
+
+**Status.** Complete.
 
 **Goal.** The full config, plus the boot-time guard that closes the adapter's fail-open.
 
@@ -129,11 +133,13 @@ channels: {
 
 ## Stage 3: local proof by replay
 
+**Status.** Complete locally. No Stage 3 commit was made.
+
 **Goal.** Everything except Sendblue's inbound delivery, proven on localhost.
 
 **Critical files.** a synthetic fixture alongside `src/mastra/channels/sendblue.ts`.
 
-The fixture is the payload from Sendblue's public webhook docs with placeholder numbers, **not a captured real message**. A real capture would put the operator number and personal message content into git history. `from_number` in the fixture is set to whatever `JAMIS_ALLOWED_NUMBER` holds locally, which can be a placeholder, since the local `.env` never carries the real value either.
+The fixture is the payload from Sendblue's public webhook docs with reserved test numbers, **not a captured real message**. A real capture would put the operator number and personal message content into git history. For a real local replay, rewrite the phone-number fields from local `.env` in memory, never in the tracked fixture.
 
 Replay it against the local server:
 
@@ -148,17 +154,17 @@ Outbound is an ordinary API call, so this sends a real text from the local proce
 
 **Verify.** Each of these is a separate run:
 
-| Check | Expected |
-| --- | --- |
-| Valid replay | fast 200, phone receives a real forecast, one message |
-| No `sb-signing-secret` header | rejected, no reply, no agent run |
-| Wrong secret value | rejected, no reply, no agent run |
-| `from_number` changed to another number | 200, silently dropped, no reply, **and no new Postgres thread row** |
-| Same fixture replayed twice quickly | one reply, not two, which is the dedupe path |
-| `group_id` populated in the fixture | no handler fires, dropped |
-| Postgres | message count increases, thread created with channel metadata |
-| ClickHouse | a trace root for the run |
-| Unauthenticated `GET /api/agents` locally | still 401 from `SimpleAuth` |
+| Check | Expected | Result |
+| :--- | :--- | :--- |
+| Valid replay | Fast `200`; one forecast | **Passed locally.** `200`; one forecast |
+| No `sb-signing-secret` header | Rejected; no reply or agent run | **Passed locally.** `401` |
+| Wrong secret value | Rejected; no reply or agent run | **Passed locally.** `401` |
+| Different `from_number` | `200`; silent drop; no Postgres thread | **Passed locally.** `200`; no new thread or message |
+| Two immediate identical replays | One reply, not two | **Passed locally.** Two `200`s; one reply |
+| Populated `group_id` | No handler fires; dropped | **Passed locally.** `200`; no new thread or message |
+| Postgres | Messages increase; a channel thread exists | **Passed locally.** One channel thread; four channel messages |
+| ClickHouse | Trace root exists | **Passed locally.** Two successful-run trace roots |
+| Unauthenticated `GET /api/agents` | `401` from `SimpleAuth` | **Passed locally.** `401` |
 
 **Commit.** none, or a docs-only commit if the curl recipe is worth keeping.
 
@@ -181,13 +187,13 @@ Order matters:
 **Verify.**
 
 | Check | Expected |
-| --- | --- |
-| Text the Sendblue line from the operator number | a real forecast comes back, one message, typing bubble first |
-| `GET /api/agents` unauthenticated | 302 to Access login |
-| `GET /api/agents` with the bearer token over the tailnet | 200 |
-| Unsigned POST to the webhook path | rejected, no reply |
-| `sendblue` webhook list | exactly one `receive` entry |
-| ClickHouse | trace root for the phone-originated run |
+| :--- | :--- |
+| Text the Sendblue line from the operator number | One forecast; typing bubble first |
+| Unauthenticated `GET /api/agents` | `302` to Access login |
+| Bearer-token `GET /api/agents` over the tailnet | `200` |
+| Unsigned webhook POST | Rejected; no reply |
+| `sendblue` webhook list | Exactly one `receive` entry |
+| ClickHouse | Trace root for the phone-originated run |
 | `docker volume ls` | `jamis_pgdata` and `jamis_chdata` present |
 
 **Kill switch and rollback.** In order of speed, because the failure being guarded against is an open path on a live box:
@@ -217,16 +223,16 @@ The glossary terms (**Channel**, **Sendblue line**, **Operator number**), the co
 ## Acceptance
 
 | # | Check | Result |
-| --- | --- | --- |
-| 1 | Text the Sendblue line from the operator number, get a real forecast | |
-| 2 | One message in, one message out, typing bubble while working | |
-| 3 | Unsigned POST to the webhook rejected | |
-| 4 | Non-allowlisted number dropped with no reply | |
-| 5 | `curl https://mastra-agent.jamis.xyz/api/agents` still 302s to Access | |
-| 6 | Single hoisted `chat`, no nested copy | |
-| 7 | Exactly one `receive` webhook registered | |
-| 8 | `jamis_pgdata` and `jamis_chdata` untouched | |
-| 9 | Blank `SENDBLUE_WEBHOOK_SECRET` refuses to boot | |
+| :---: | :--- | :--- |
+| 1 | Operator text gets a forecast | **Local pass.** Production pending Stage 4. |
+| 2 | One inbound message, one outbound message, typing bubble | **Local message flow passed.** Typing bubble remains for Stage 4. |
+| 3 | Unsigned webhook is rejected | **Passed locally.** |
+| 4 | Non-allowlisted number is dropped | **Passed locally.** |
+| 5 | Public `/api/agents` still redirects to Access | Pending Stage 4. |
+| 6 | One hoisted `chat`, no nested copy | **Passed Stage 1.** |
+| 7 | One registered `receive` webhook | Pending Stage 4. |
+| 8 | `jamis_pgdata` and `jamis_chdata` remain intact | **Local volumes present.** Production pending Stage 4. |
+| 9 | Blank `SENDBLUE_WEBHOOK_SECRET` refuses boot | **Passed Stage 2.** |
 
 ## Accepted residual risk
 
