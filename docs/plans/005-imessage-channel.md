@@ -1,6 +1,6 @@
 # 005: the iMessage channel
 
-Status: **Stages 1-3 complete locally.** Stage 4 requires fresh explicit production approval. Stage 5 remains pending.
+Status: **Stages 1-4 complete.** Stage 5 documentation review and explicit commit approval remain pending.
 
 Text the Sendblue line from the operator number, get a real answer back from `weather-agent`.
 
@@ -172,7 +172,9 @@ Outbound is an ordinary API call, so this sends a real text from the local proce
 
 ## Stage 4: prod
 
-**Goal.** The one leg curl cannot prove. **Needs explicit sign-off before anything here runs.** Prod is live and healthy at `4eb0ab4`.
+**Status.** Complete on 2026-08-17 UTC. Deployed `feat/imessage-channel` after explicit production approval. Prod was healthy at `b9ed6e7` before deployment.
+
+**Goal.** The one leg curl cannot prove.
 
 **Critical files.** none in the repo. Cloudflare dashboard, Sendblue account, `.env.prod` on the box.
 
@@ -186,21 +188,21 @@ Order matters:
 
 **Verify.**
 
-| Check | Expected |
-| :--- | :--- |
-| Text the Sendblue line from the operator number | One forecast; typing bubble first |
-| Unauthenticated `GET /api/agents` | `302` to Access login |
-| Bearer-token `GET /api/agents` over the tailnet | `200` |
-| Unsigned webhook POST | Rejected; no reply |
-| `sendblue` webhook list | Exactly one `receive` entry |
-| ClickHouse | Trace root for the phone-originated run |
-| `docker volume ls` | `jamis_pgdata` and `jamis_chdata` present |
+| Check | Expected | Result |
+| :--- | :--- | :--- |
+| Text the Sendblue line from the operator number | One forecast; typing bubble first | **Passed.** One weather reply, typing indicator, and read receipt observed. |
+| Unauthenticated `GET /api/agents` | `302` to Access login | **Passed.** Public request returned `302` after deployment. |
+| Bearer-token `GET /api/agents` over the tailnet | `200` | **Passed.** Returned `200`. |
+| Unsigned webhook POST | Rejected; no reply | **Passed.** Returned `401 Unauthorized`. |
+| `sendblue` webhook list | Exactly one `receive` entry | **Passed.** Exactly one signed `receive` URL. |
+| ClickHouse | Trace root for the phone-originated run | **Passed.** Three recent Sendblue `weather-agent` trace roots completed `ok`. |
+| `docker volume ls` | `jamis_pgdata` and `jamis_chdata` present | **Passed.** Both volumes remain present. |
 
 **Kill switch and rollback.** In order of speed, because the failure being guarded against is an open path on a live box:
 
 1. **Delete the Sendblue `receive` webhook.** Fastest and needs no deploy. Inbound stops immediately and the rest of prod is untouched. This is the first move for anything unexpected.
 2. **Delete the Access Bypass application.** Closes the hole at the edge without touching the box. Sendblue then gets a 302 and gives up.
-3. **Redeploy `4eb0ab4`.** `JAMIS_BRANCH=main` after reverting, or check out the tag directly. That commit is the rollback target: it is what prod runs today and has been healthy.
+3. **Redeploy `b9ed6e7` directly.** That is the known-good pre-deploy commit. Do not rely on the moving `main` ref for this rollback.
 
 Steps 1 and 2 are independent of the deploy, so a bad outcome does not require a rebuild to stop the bleeding.
 
@@ -209,6 +211,8 @@ Steps 1 and 2 are independent of the deploy, so a bad outcome does not require a
 ---
 
 ## Stage 5: docs
+
+**Status.** Stage 4 results are recorded below. Documentation review and explicit commit approval remain pending.
 
 **Goal.** Record what shipped.
 
@@ -224,14 +228,14 @@ The glossary terms (**Channel**, **Sendblue line**, **Operator number**), the co
 
 | # | Check | Result |
 | :---: | :--- | :--- |
-| 1 | Operator text gets a forecast | **Local pass.** Production pending Stage 4. |
-| 2 | One inbound message, one outbound message, typing bubble | **Local message flow passed.** Typing bubble remains for Stage 4. |
-| 3 | Unsigned webhook is rejected | **Passed locally.** |
+| 1 | Operator text gets a forecast | **Passed in production.** |
+| 2 | One inbound message, one outbound message, typing bubble | **Passed in production.** One reply, typing indicator, and read receipt observed. |
+| 3 | Unsigned webhook is rejected | **Passed in production.** Unsigned POST returned `401`. |
 | 4 | Non-allowlisted number is dropped | **Passed locally.** |
-| 5 | Public `/api/agents` still redirects to Access | Pending Stage 4. |
+| 5 | Public `/api/agents` still redirects to Access | **Passed in production.** Public GET returned `302` to Access. |
 | 6 | One hoisted `chat`, no nested copy | **Passed Stage 1.** |
-| 7 | One registered `receive` webhook | Pending Stage 4. |
-| 8 | `jamis_pgdata` and `jamis_chdata` remain intact | **Local volumes present.** Production pending Stage 4. |
+| 7 | One registered `receive` webhook | **Passed in production.** Exactly one signed `receive` URL. |
+| 8 | `jamis_pgdata` and `jamis_chdata` remain intact | **Passed in production.** Both volumes remain present. |
 | 9 | Blank `SENDBLUE_WEBHOOK_SECRET` refuses boot | **Passed Stage 2.** |
 
 ## Accepted residual risk
