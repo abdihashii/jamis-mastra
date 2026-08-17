@@ -1,6 +1,6 @@
 # 005: the iMessage channel
 
-Status: **Stages 1-4 complete.** Stage 5 documentation review and explicit commit approval remain pending.
+Status: **Stages 1-5 complete.**
 
 Text the Sendblue line from the operator number, get a real answer back from `weather-agent`.
 
@@ -212,7 +212,7 @@ Steps 1 and 2 are independent of the deploy, so a bad outcome does not require a
 
 ## Stage 5: docs
 
-**Status.** Stage 4 results are recorded below. Documentation review and explicit commit approval remain pending.
+**Status.** Complete. Stage 4 results are recorded below, and this documentation update is committed and pushed.
 
 **Goal.** Record what shipped.
 
