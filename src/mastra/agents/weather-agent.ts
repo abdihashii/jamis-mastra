@@ -1,6 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
 
+import { isOperator, sendblueAdapter } from '../channels/sendblue';
 import { weatherTool } from '../tools/weather-tool';
 
 export const weatherAgent = new Agent({
@@ -20,6 +21,26 @@ export const weatherAgent = new Agent({
 `,
 	model: 'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
 	tools: { weatherTool },
+	channels: {
+		adapters: {
+			sendblue: {
+				adapter: sendblueAdapter,
+				toolDisplay: 'hidden',
+				gateway: false,
+			},
+		},
+		handlers: {
+			onDirectMessage: async (thread, message, defaultHandler) => {
+				if (!isOperator(message)) {
+					return;
+				}
+
+				await defaultHandler(thread, message);
+			},
+			onMention: false,
+			onSubscribedMessage: false,
+		},
+	},
 	memory: new Memory({
 		options: {
 			observationalMemory: {

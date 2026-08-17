@@ -20,6 +20,7 @@
 		"@mastra/memory": "^1.26.0",
 		"@mastra/observability": "^1.16.5",
 		"@mastra/pg": "^1.19.0",
+		"chat-adapter-sendblue": "0.2.0",
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
