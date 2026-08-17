@@ -93,7 +93,7 @@ Both templates gain empty keys: `SENDBLUE_API_KEY`, `SENDBLUE_API_SECRET`, `SEND
 
 `requireEnv` currently lives in `src/mastra/index.ts` and is not exported. The channel config needs it too, so it moves to its own module and both files import it. That move is part of this stage, not a drive-by refactor.
 
-`src/mastra/channels/sendblue.ts` holds the adapter construction and `isOperator`, so `weather-agent.ts` keeps to describing the agent. It is also where the stage 3 fixture lives.
+`src/mastra/channels/sendblue.ts` holds the adapter construction and `isOperator`, so `weather-agent.ts` keeps to describing the agent. The stage 3 fixture lives under `src/mastra/channels/__tests__/fixtures/`.
 
 `requireEnv` covers **both** `SENDBLUE_WEBHOOK_SECRET` and `JAMIS_ALLOWED_NUMBER`, alongside the existing secrets. The adapter treats its secret as optional and skips verification when it is falsy, so a blank value in `.env.prod` would silently open the path to the whole internet. Failing at boot is the only thing standing between a forgotten line and an open agent.
 
@@ -137,7 +137,7 @@ channels: {
 
 **Goal.** Everything except Sendblue's inbound delivery, proven on localhost.
 
-**Critical files.** a synthetic fixture alongside `src/mastra/channels/sendblue.ts`.
+**Critical files.** `src/mastra/channels/__tests__/fixtures/sendblue.fixture.json`.
 
 The fixture is the payload from Sendblue's public webhook docs with reserved test numbers, **not a captured real message**. A real capture would put the operator number and personal message content into git history. For a real local replay, rewrite the phone-number fields from local `.env` in memory, never in the tracked fixture.
 
@@ -147,7 +147,7 @@ Replay it against the local server:
 curl -X POST localhost:4111/api/agents/weather-agent/channels/sendblue/webhook \
   -H 'content-type: application/json' \
   -H "sb-signing-secret: $SENDBLUE_WEBHOOK_SECRET" \
-  -d @fixture.json
+  -d @src/mastra/channels/__tests__/fixtures/sendblue.fixture.json
 ```
 
 Outbound is an ordinary API call, so this sends a real text from the local process. The phone should buzz.
