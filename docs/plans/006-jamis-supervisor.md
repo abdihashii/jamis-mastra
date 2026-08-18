@@ -1,6 +1,6 @@
 # 006: Jamis supervisor agent
 
-Status: **Planned.**
+Status: **Stages 1-2 complete on `feat/jamis-supervisor`; Stages 3-4 planned.**
 
 Text the Sendblue line, reach Jamis, and receive one answer that Jamis either produces directly or assembles after delegating bounded work to an internal subagent.
 
@@ -44,6 +44,8 @@ Verified against installed `@mastra/core@1.59.0`, its embedded documentation, th
 
 ## Stage 1: record the supervisor boundary
 
+**Status.** Complete 2026-08-17 UTC in `119fb22` (`docs: define the jamis supervisor boundary`).
+
 **Goal.** Capture the domain language and architectural choice before implementation depends on them.
 
 **Critical files.** `CONTEXT.md`, new `docs/adrs/0009-jamis-as-mastra-supervisor.md`, this plan.
@@ -54,11 +56,13 @@ ADR 0009 records why Jamis uses Mastra's adaptive supervisor pattern instead of 
 
 Historical plan 005 remains unchanged. Its exclusion of Jamis describes the boundary of that completed channel slice, not the current architecture.
 
-**Verify.** Documentation links resolve and `git diff --check` passes.
+**Verify. Completed 2026-08-17 UTC.** Documentation links resolve and `git diff --check` passes.
 
 **Proposed commit.** `docs: define the jamis supervisor boundary`
 
 ## Stage 2: build the vertical supervisor slice
+
+**Status.** Complete locally 2026-08-18 UTC in `8d283b2` (`feat: add jamis supervisor agent`), pending merge of [PR #14](https://github.com/abdihashii/jamis-mastra/pull/14).
 
 **Goal.** Jamis handles ordinary conversation directly and delegates live-weather work locally.
 
@@ -86,7 +90,7 @@ Add a `description` to `weatherAgent` that says when Jamis should call it, what 
 
 Register only `{ jamis }` in `src/mastra/index.ts`. Do not add delegation hooks, message filters, completion scorers, background tasks, direct Jamis tools, or a shared model constant.
 
-**Verify.**
+**Verify. Completed locally 2026-08-18 UTC.** All checks passed:
 
 1. `bun run typecheck`, `bun run lint`, and `bun run build` pass.
 2. With the local server running, authenticated `mastra api agent list` returns only `jamis`.
