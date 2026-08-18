@@ -1,6 +1,6 @@
 # 006: Jamis supervisor agent
 
-Status: **Stages 1-3 complete on `main`; Stage 4 planned.**
+Status: **Stages 1-4 complete on `main`.**
 
 Text the Sendblue line, reach Jamis, and receive one answer that Jamis either produces directly or assembles after delegating bounded work to an internal subagent.
 
@@ -149,6 +149,8 @@ No Cloudflare application, environment variable, database, or Docker volume chan
 **Commit.** None. Deploy only.
 
 ## Stage 4: record rollout and close the gate
+
+**Status.** Complete 2026-08-18 UTC. Production evidence was recorded in `96239ba` (`docs: record jamis supervisor rollout`), and the full available repository gate passed.
 
 **Goal.** Preserve production evidence and leave the repository fully verified.
 
