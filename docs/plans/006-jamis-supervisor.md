@@ -1,6 +1,6 @@
 # 006: Jamis supervisor agent
 
-Status: **Stages 1-2 complete on `feat/jamis-supervisor`; Stages 3-4 planned.**
+Status: **Stages 1-3 complete on `main`; Stage 4 planned.**
 
 Text the Sendblue line, reach Jamis, and receive one answer that Jamis either produces directly or assembles after delegating bounded work to an internal subagent.
 
@@ -62,7 +62,7 @@ Historical plan 005 remains unchanged. Its exclusion of Jamis describes the boun
 
 ## Stage 2: build the vertical supervisor slice
 
-**Status.** Complete locally 2026-08-18 UTC in `8d283b2` (`feat: add jamis supervisor agent`), pending merge of [PR #14](https://github.com/abdihashii/jamis-mastra/pull/14).
+**Status.** Complete 2026-08-18 UTC. [PR #14](https://github.com/abdihashii/jamis-mastra/pull/14) was squash-merged to `main` as `fb3084c`; implementation commit: `8d283b2` (`feat: add jamis supervisor agent`).
 
 **Goal.** Jamis handles ordinary conversation directly and delegates live-weather work locally.
 
@@ -112,6 +112,8 @@ The current `test` package script intentionally fails with "no test specified," 
 
 ## Stage 3: cut production iMessage over to Jamis
 
+**Status.** Complete 2026-08-18 UTC. Rolled out from `main` at `fb3084c`; recorded pre-deploy rollback SHA: `51f4b25df0e9a9b6c13b0f5e69d2ba15bd2c8896`.
+
 **Goal.** The operator texts Jamis in production and receives direct or delegated answers.
 
 **Critical files.** None in the repo. Sendblue webhook registration and the normal production deploy path.
@@ -124,21 +126,23 @@ The current `test` package script intentionally fails with "no test specified," 
 
 No Cloudflare application, environment variable, database, or Docker volume changes in this stage.
 
-**Verify.**
+**Result. Completed 2026-08-18 UTC.** The old weather-agent receive webhook was removed, `main` was deployed through `infra/deploy.sh`, and exactly one signed Jamis receive webhook was registered. The old public weather webhook now returns `404`.
 
-| Check | Expected |
-| :--- | :--- |
-| General text from the operator | One Jamis response; no weather subagent span |
-| Weather text from the operator | One response; trace contains Jamis, `agent-weatherAgent`, and `weather-tool` |
-| Follow-up text | Jamis recalls the preceding channel exchange |
-| Unsigned Jamis webhook POST | `401`; no reply or run |
-| Public `GET /api/agents` | `302` to Cloudflare Access login |
-| Authenticated tailnet agent list | Only `jamis` |
-| Sendblue webhook list | Exactly one signed Jamis `receive` URL |
-| Old weather webhook | Unregistered and unavailable |
-| Postgres | Old weather records remain; new messages belong to a Jamis channel thread |
-| ClickHouse | Direct and delegated Jamis trace roots complete successfully |
-| Docker volumes | `jamis_pgdata` and `jamis_chdata` remain present |
+**Verify. Completed 2026-08-18 UTC.**
+
+| Check | Expected | Result |
+| :--- | :--- | :--- |
+| General text from the operator | One Jamis response; no weather subagent span | Passed. One response; successful Jamis trace had no subagent or tool-call span. |
+| Weather text from the operator | One response; trace contains Jamis, `agent-weatherAgent`, and `weather-tool` | Passed. Successful trace followed Jamis, `agent-weatherAgent`, `weather-agent`, `weatherTool`, then Jamis. Mastra emits the existing tool ID as `weatherTool`. |
+| Follow-up text | Jamis recalls the preceding channel exchange | Passed. Jamis used the preceding Chicago conditions without asking for them again. |
+| Unsigned Jamis webhook POST | `401`; no reply or run | Passed. Returned `401`; no later agent run was recorded. |
+| Public `GET /api/agents` | `302` to Cloudflare Access login | Passed. Returned `302`. |
+| Authenticated tailnet agent list | Only `jamis` | Passed. Only `jamis` was returned. |
+| Sendblue webhook list | Exactly one signed Jamis `receive` URL | Passed. Exactly one Jamis receive URL; no weather-agent entry. |
+| Old weather webhook | Unregistered and unavailable | Passed. Unregistered at Sendblue; public route returns `404`. |
+| Postgres | Old weather records remain; new messages belong to a Jamis channel thread | Passed. One retained weather-agent channel thread has 10 messages; one Jamis channel thread has 6 messages. |
+| ClickHouse | Direct and delegated Jamis trace roots complete successfully | Passed. Direct and delegated Jamis roots completed successfully. |
+| Docker volumes | `jamis_pgdata` and `jamis_chdata` remain present | Passed. Both volumes remain present. |
 
 **Rollback.** Delete the Jamis receive webhook and redeploy the recorded pre-deploy SHA. Re-register the old weather webhook only if the old version is restored and inbound weather service is still wanted.
 
