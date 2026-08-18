@@ -10,11 +10,11 @@ import {
 } from '@mastra/observability';
 import { PostgresStore } from '@mastra/pg';
 
-import { weatherAgent } from './agents/weather-agent';
+import { jamis } from './agents/jamis';
 import { requireEnv } from './env';
 
 export const mastra = new Mastra({
-	agents: { weatherAgent },
+	agents: { jamis },
 	server: {
 		// One token, one operator. SimpleAuth checks Authorization and
 		// X-Playground-Access by default, so Studio authenticates with an
