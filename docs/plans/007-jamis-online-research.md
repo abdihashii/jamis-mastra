@@ -108,6 +108,8 @@ Do not change Mastra dependencies. The lockfile already contains the latest `@ma
 
 ## Stage 3: give Jamis search and page-reading capability
 
+**Status.** Complete locally 2026-08-19 UTC. Authenticated runs used at most one search and three page reads; the sentinel stayed out of research context and Firecrawl inputs, raw page bodies stayed out of Jamis's model context, and no Firecrawl key reached the tested private records.
+
 **Goal.** Jamis can delegate an explicit online-research request through Firecrawl and receive a bounded evidence memo.
 
 **Critical files.** New `src/mastra/tools/firecrawl.ts`, new `src/mastra/agents/research-agent.ts`, `src/mastra/agents/jamis.ts`.
@@ -144,7 +146,7 @@ Do not register `researchAgent` in `src/mastra/index.ts`, add memory, add any ot
 8. A greeting still receives a direct response with no research span.
 9. `git diff --check` passes.
 
-**Proposed commit.** `feat: give Jamis online research`
+**Implementation commits.** `df3c1f1` (`feat: add Firecrawl research tools`) and `e4c1137` (`feat: add Jamis research delegation`).
 
 ## Stage 4: apply the evidence policy to verifiable claims
 
