@@ -73,6 +73,8 @@ Add **Online research**, **Verification-required claim**, **Credible source**, a
 
 ## Stage 2: prove the Firecrawl dependency and secret boundary
 
+**Status.** Complete 2026-08-18 UTC. [PR #16](https://github.com/abdihashii/jamis-mastra/pull/16) was squash-merged to `main` as `38a4488`; implementation commit: `d2b9be0` (`build: add firecrawl sdk configuration`).
+
 **Goal.** Prove package resolution, authentication, and outbound Firecrawl access before agent behavior depends on them.
 
 **Critical files.** `package.json`, `bun.lock`, `.env.example`, `.env.prod.example`.
