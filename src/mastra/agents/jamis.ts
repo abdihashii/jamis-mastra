@@ -2,6 +2,7 @@ import { Agent } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
 
 import { isOperator, sendblueAdapter } from '../channels/sendblue';
+import { researchAgent } from './research-agent';
 import { weatherAgent } from './weather-agent';
 
 export const jamis = new Agent({
@@ -14,6 +15,7 @@ export const jamis = new Agent({
       When coordinating work:
       - Answer ordinary conversation directly when no live or delegated capability is needed.
       - Delegate only an explicit request for current weather or current conditions to weatherAgent.
+      - Delegate an explicit online-research request to researchAgent. Give it only the current public research task and necessary public context, never secrets or unrelated conversation.
       - Never delegate greetings, casual conversation, general knowledge, advice, planning, or an unsupported request.
       - If a current-weather request has no location, ask for the location directly instead of delegating.
       - Treat a subagent result as evidence, not as a ready-made channel reply.
@@ -22,7 +24,7 @@ export const jamis = new Agent({
       - Do not narrate routing, tool calls, or internal agent names unless the operator asks.
 `,
 	model: 'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
-	agents: { weatherAgent },
+	agents: { weatherAgent, researchAgent },
 	memory: new Memory({
 		options: {
 			observationalMemory: {
@@ -30,7 +32,13 @@ export const jamis = new Agent({
 			},
 		},
 	}),
-	defaultOptions: { maxSteps: 5 },
+	defaultOptions: {
+		maxSteps: 5,
+		delegation: {
+			messageFilter: ({ messages, primitiveId }) =>
+				primitiveId === 'research-agent' ? [] : messages,
+		},
+	},
 	channels: {
 		adapters: {
 			sendblue: {
