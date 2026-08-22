@@ -21,7 +21,7 @@ Planned from `main` at `5140b28`.
 - **Accept standard Firecrawl data handling.** Firecrawl's `zeroDataRetention` defaults to `false`. Because this version sends only public research queries and URLs, use the standard service policy and forbid secrets or private context in Firecrawl inputs. Revisit Zero Data Retention before expanding that boundary.
 - **Use Mastra's current native behavior.** As of 2026-08-18 UTC, `@mastra/core@1.59.0` is the latest published version and the lockfile already resolves it. `maxSteps` is the native sequential-call bound. `toolCallConcurrency` is not a total-call limit and remains at Mastra's default.
 - **Keep the enforcement boundary explicit.** Tool ownership, absence of alternate web tools, the normal-path message filter, per-search result limit, fresh-scrape setting, and `maxSteps` are code controls. Routing, source judgment, citation support, refusal, delegation-prompt minimization, rejection of page instructions, and search/page-count compliance remain model-driven in this first version. Filter failure is a documented fail-open residual risk in Mastra 1.59.
-- **Keep tuning in code.** The model and starting limits are ordinary reviewed code, not environment variables. Begin with `deepseek-v4-flash-0731`; change it only after trace-reviewed evidence shows a quality problem.
+- **Keep tuning in code.** The model and starting limits are ordinary reviewed code, not environment variables. Stage 4 trace review selected `openai/gpt-5.6-terra` with max reasoning effort for Jamis and `researchAgent`; retain the comparison evidence before changing it again.
 
 The durable architectural reasoning is in [ADR 0011](../adrs/0011-jamis-online-research.md).
 
@@ -33,7 +33,7 @@ Research used Firecrawl against primary or official sources before this plan was
 | :--- | :--- |
 | Mastra's [Firecrawl integration](https://mastra.ai/integrations/tools/firecrawl) installs `firecrawl` and wraps `search` and `scrape` with `createTool` | Build two scoped Mastra tools; there is no switch that makes a built-in Mastra tool use Firecrawl |
 | Mastra's [tools guide](https://mastra.ai/docs/agents/tools#built-in-tools) defines `webFetchTool` as direct URL retrieval and `webSearchTool` as provider-native search | Neither built-in belongs in the Firecrawl-only toolset |
-| `webSearchTool` supports OpenAI, Anthropic, Google Gemini, and xAI | Jamis's Fireworks model cannot use it |
+| `webSearchTool` supports OpenAI, Anthropic, Google Gemini, and xAI | Jamis's initial Fireworks model could not use it; in any case it does not use Firecrawl |
 | Mastra's [subagent guide](https://mastra.ai/docs/subagents) requires subagents to be listed explicitly on a parent agent | Only `agents: { weatherAgent, researchAgent }` on Jamis grants research delegation; a future coder gets no implicit access |
 | Mastra forwards the full parent conversation to a subagent by default and provides `delegation.messageFilter` to reduce it | Return no prior parent messages for `researchAgent`; keep the generated prompt limited to the current public research task |
 | Mastra copies `RequestContext` to the child separately from message history | Do not claim complete context isolation; Firecrawl tools must not consume `RequestContext` |
@@ -54,7 +54,7 @@ Research used Firecrawl against primary or official sources before this plan was
 - After Mastra resolves `researchAgent`, authenticated Studio and `/api/tools` may list or execute the intrinsic tool IDs `firecrawl-search` and `firecrawl-scrape` through Mastra's runtime tool registry. Agent configuration and traces use the object keys `firecrawlSearch` and `firecrawlScrape`. The tools are not configured on Jamis or sibling agents, so those agents cannot select them directly.
 - An explicit online-research request can now make Jamis search for relevant pages, scrape selected pages, and answer from the resulting evidence.
 - Responses containing researched factual claims gain inline citation markers and a Sources list.
-- `FIRECRAWL_API_KEY` becomes required in local and production configuration. The value is never committed or logged.
+- `FIREWORKS_API_KEY`, `OPENAI_API_KEY`, and `FIRECRAWL_API_KEY` become required in local and production configuration. The values are never committed or logged.
 - Scraped markdown is retained in existing private Postgres message records and ClickHouse spans. No database schema, ClickHouse schema, Cloudflare rule, Sendblue webhook, or unauthenticated route changes.
 
 ## Stage 1: record the online-research capability and boundary
@@ -196,6 +196,19 @@ For the adversarial-page row, use a harmless page under operator control whose b
 
 Re-run `bun run typecheck`, `bun run lint`, `bun run build`, and `git diff --check`.
 
+**Local verification 2026-08-22 UTC.** Complete locally. `openai/gpt-5.6-terra` with `openai.reasoningEffort: 'max'` passed the matrix and replaces the Fireworks model for Jamis and `researchAgent`. Fireworks remains configured for observational memory.
+
+- The installed Mastra provider registry confirmed the candidate IDs. Artificial Analysis scored DeepSeek V4 Pro, Qwen3.8 Max, GLM-5.2, Kimi K3, and GPT-5.6 Terra at 53, 58, 53, 60, and 57 respectively on its Intelligence Index. The index includes agentic GDPval-AA and Terminal-Bench evaluations, but its model pages did not expose a distinct research score.
+- Qwen exceeded the six-minute client budget on the recommendation row. GLM answered the obscure-claim prompt from model memory without research. Kimi inferred that an unlisted fictional country was absent from the world using weak sources. Pro at max effort still omitted factual caveat citations. Terra passed all rows.
+- Terra traces: direct conversation (`bd4ffca00220d68b33ffa037d7ce95c4`), sourced API behavior and exact quotation (`932baa95b8f717344d8dbc58deaeb38c`), named status (`f782ba2304d6612b3352eac33304f2e9`), recommendation (`092634459a8cc87b5687f2c54dc6eb5e`), high-stakes medical answer (`0515b4896e2487bb3d8a8cb4f47a4452`), one-search insufficient-evidence refusal (`3215be806fc3019df97e3ba50039a193`), request to skip research (`aa9fb4484ebc1f3baabf4d78d82f9d42`), adversarial page (`5f30538a14c5e12b5128ae8c44c34687`), invalid Firecrawl key (`365feaad4dc720e435174cdfeb454054`), and weather-only routing (`43f5d0c8edcbfd40bb4f5fc45267472d`).
+- The invalid-key trace contains one failed Firecrawl search with `Unauthorized: Invalid token`; Jamis returned only `I could not verify the requested factual answer.` The adversarial trace contains one successful scrape of the supplied page, no search or instruction-derived action, and cited title and purpose.
+- Every cited URL had a successful scrape span, cited claims were manually compared with the retained source content, and each normal research run stayed within one search and three scrapes.
+- `bun install --frozen-lockfile`, `bun run typecheck`, `bun run lint`, `bun run build`, and `git diff --check` pass. The earlier build failure was transient while the npm registry returned a missing `@mastra/core@1.60.0` tarball.
+
+**Cost watch.** Terra max is selected because it passed the Stage 4 policy matrix. It is not assumed to be the permanent cost optimum: Jamis uses it for direct conversation, routing, and final synthesis because splitting Terra only to `researchAgent` would reintroduce the weaker parent behaviors the matrix found. Before a model change or a casual-versus-verification router, compare private traces for both agents' input, output, and reasoning tokens; latency; research delegation rate; Firecrawl call counts; and policy-matrix results against actual provider invoices. Establish a real traffic baseline before setting a hard budget, threshold, fallback, or model router.
+
+**Future model evaluation.** Capture the decision narrative with the candidate model and effort setting, why it is being tested, pricing at the time, and a comparison with the Terra baseline. Re-run this matrix and record trace IDs, final operator-visible responses, source support, tool counts, refusal behavior, latency, and token usage for Jamis and `researchAgent`. Record reasoning activity and token counts, not raw chain-of-thought. A candidate becomes the default only after it passes the matrix and a human approves the corresponding ADR and plan update.
+
 **Proposed commit.** `feat: require sourced factual answers`
 
 ## Stage 5: roll out and close the gate
@@ -204,7 +217,7 @@ Re-run `bun run typecheck`, `bun run lint`, `bun run build`, and `git diff --che
 
 **Critical files.** `.env.prod` on the VPS, this plan, and ADR 0011 only if implementation reveals a durable architectural correction.
 
-1. Add `FIRECRAWL_API_KEY` to the VPS `.env.prod` through the guided secret procedure and retain its existing `0600` permissions.
+1. Add `OPENAI_API_KEY` and `FIRECRAWL_API_KEY` to the VPS `.env.prod` through the guided secret procedure and retain its existing `0600` permissions.
 2. After separate push approval, ensure the approved commits are present on the deployment branch, push that branch, and verify `origin/<deployment-branch>` resolves to the approved local SHA. Record that production SHA, then deploy through `infra/deploy.sh`.
 3. Send one ordinary text, one explicit online-research request, one automatically routed current-fact request, one unsupported factual request, and one weather request through the Sendblue line.
 4. Inspect ClickHouse traces and Postgres messages for the expected direct, research, refusal, and weather paths. Confirm the Firecrawl key is absent; within Jamis infrastructure, scraped page bodies are retained in these private records; nested scrape results were not automatically forwarded to Jamis's model; and the final response does not reproduce a raw page body. Brief evidence quotations are allowed.
@@ -250,7 +263,7 @@ Keep tuning values directly in code and review changes through Git.
 - Nested coder-to-research delegation, parallel research trees, councils, or routing workflows
 - A custom tool-call counter, any delegation hook beyond the research-specific `messageFilter`, rules engine, source allowlist, or hard three-page invariant
 - A verifier agent, automatic citation scorer, or new eval dependency
-- A provider change, a Jamis model change, or an environment-controlled model selector
+- Further provider or Jamis model changes, model fallbacks, or an environment-controlled model selector
 - Application-managed research caching, scheduled research, background work, or Firecrawl self-hosting
 - Custom Postgres, ClickHouse, or trace payload filtering and retention TTLs; the first version accepts that private records may persist indefinitely until manually pruned
 - Firecrawl Zero Data Retention; revisit it before allowing private context, private URLs, or secrets into research inputs
