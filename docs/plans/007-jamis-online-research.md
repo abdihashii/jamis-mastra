@@ -1,6 +1,6 @@
 # 007: Jamis online research through Firecrawl
 
-Status: **Proposed 2026-08-18 UTC.**
+Status: **Complete 2026-08-23 UTC. Updated 2026-08-23 UTC.**
 
 Ask Jamis to research the public web, and it can discover relevant pages, read selected sources, and answer from what it finds. Jamis delegates search and single-page scraping to one internal Firecrawl-powered subagent while keeping ownership of the conversation. For factual answers that require verification, Jamis uses credible evidence or says it could not verify the claim.
 
@@ -19,7 +19,7 @@ Planned from `main` at `5140b28`.
 - **Require fresh pages.** Set Firecrawl scrape `maxAge: 0` and `storeInCache: false`; current-claim verification must neither reuse Firecrawl's default cached page content nor add its fresh scrape to that cache. This does not enable Firecrawl Zero Data Retention.
 - **Accept private tool-result retention.** Keep raw nested tool results from being automatically forwarded to Jamis's model with Mastra's default behavior, but acknowledge that the subagent memo can quote page content and full scraped markdown is retained in private Postgres messages and ClickHouse spans. The current storage configuration has no TTL, so records may persist indefinitely until manually pruned.
 - **Accept standard Firecrawl data handling.** Firecrawl's `zeroDataRetention` defaults to `false`. Because this version sends only public research queries and URLs, use the standard service policy and forbid secrets or private context in Firecrawl inputs. Revisit Zero Data Retention before expanding that boundary.
-- **Use Mastra's current native behavior.** The root lockfile resolves `@mastra/core@1.59.0`, but `mastra build` emits self-contained output whose dependencies resolved `@mastra/core@1.61.0`; production runtime was verified at 1.61.0 on 2026-08-23 UTC. `maxSteps` is the native sequential-call bound. `toolCallConcurrency` is not a total-call limit and remains at Mastra's default.
+- **Use pinned Mastra runtime dependencies.** The root package and Mastra's self-contained build both resolve the production-tested set: `@mastra/core@1.61.0`, `@mastra/clickhouse@1.15.2`, `@mastra/memory@1.27.0`, `@mastra/observability@1.17.1`, and `@mastra/pg@1.21.1`. `mastra@1.25.0` is pinned too. `maxSteps` is the native sequential-call bound. `toolCallConcurrency` is not a total-call limit and remains at Mastra's default.
 - **Keep the enforcement boundary explicit.** Tool ownership, absence of alternate web tools, the normal-path message filter, per-search result limit, fresh-scrape setting, and `maxSteps` are code controls. Routing, source judgment, citation support, refusal, delegation-prompt minimization, rejection of page instructions, and search/page-count compliance remain model-driven in this first version. Filter failure is a documented fail-open residual risk in Mastra 1.59.
 - **Keep tuning in code.** The model and starting limits are ordinary reviewed code, not environment variables. Stage 4 trace review selected `openai/gpt-5.6-terra` with max reasoning effort for Jamis and `researchAgent`; retain the comparison evidence before changing it again.
 
@@ -234,6 +234,20 @@ Re-run `bun run typecheck`, `bun run lint`, `bun run build`, and `git diff --che
 **Rollback.** On the deployment branch, create revert commits for the online-research commits, obtain separate approval to push them, verify the remote branch SHA, and rerun `infra/deploy.sh`. Leave the Firecrawl key in `.env.prod` for a retry or remove it after rollback; no database or webhook rollback is required.
 
 **Proposed commit.** `docs: record online research rollout`
+
+## Stage 6: pin the Mastra build/runtime set
+
+**Status.** Complete locally 2026-08-23 UTC.
+
+**Goal.** Future local and isolated Mastra builds use the same direct runtime versions already proven in production, rather than independently resolving compatible versions from ranges.
+
+**Critical files.** `package.json`, `bun.lock`, this plan.
+
+Pin the direct Mastra runtime packages and CLI to the production-tested versions. Keep the existing lockfile for transitive dependencies. Do not change agent code, configuration, model selection, or production deployment.
+
+**Verification.** `bun install --frozen-lockfile`, `bun run typecheck`, `bun run lint`, and `bun run build` pass. A version assertion confirms the root install and `.mastra/output` both contain the five pinned Mastra runtime package versions.
+
+**Proposed commit.** `build: pin Mastra runtime versions`
 
 ## Acceptance
 
