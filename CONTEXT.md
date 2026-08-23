@@ -29,6 +29,10 @@ _Avoid_: top search result, popular source
 The internal subagent through which Jamis performs online research and receives sourced evidence. Only Jamis delegates to it; Jamis owns the operator conversation and final answer.
 _Avoid_: web agent, browser agent
 
+**Check**:
+A question Jamis pauses to ask the operator for a clarifying answer or confirmation before acting; the operator's reply supplies the answer and Jamis acts on it. On the text-only iMessage channel, a check is a plain question rather than an interactive card.
+_Avoid_: approval (implies a button card)
+
 **Operator**:
 You, logging in as `root` over the tailnet. The only account with privilege on the box. The `jamis` account is the agent's, and holds read-only inspection rights, never `sudo` in general and never the `docker` group.
 _Avoid_: admin user, deploy user
