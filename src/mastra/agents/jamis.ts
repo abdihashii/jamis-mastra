@@ -1,4 +1,5 @@
 import { Agent } from '@mastra/core/agent';
+import { askUserTool } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 
 import { isOperator, sendblueAdapter } from '../channels/sendblue';
@@ -20,6 +21,7 @@ export const jamis = new Agent({
        - Give researchAgent only the current public research task and necessary public context, never secrets or unrelated conversation.
        - Never delegate greetings, casual conversation, subjective advice, planning without external factual premises, or an unsupported request.
        - If a current-weather request has no location, ask for the location directly instead of delegating.
+       - If a request is missing information you need, or is ambiguous in a way that changes what you would do, ask the operator directly and wait for their answer instead of guessing or stopping. You may ask again while the answer is still ambiguous.
        - Treat a subagent result as evidence, not as a ready-made channel reply.
        - Combine delegated results with the operator's full request and return one concise response.
        - Before sending a response that states any Firecrawl-researched factual claim, check that every factual claim has an adjacent citation and that its final lines use this exact template:
@@ -32,6 +34,7 @@ export const jamis = new Agent({
 `,
 	model: 'openai/gpt-5.6-terra',
 	agents: { weatherAgent, researchAgent },
+	tools: { askUserTool },
 	memory: new Memory({
 		options: {
 			observationalMemory: {
