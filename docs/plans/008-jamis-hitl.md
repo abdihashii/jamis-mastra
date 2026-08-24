@@ -1,6 +1,6 @@
 # 008: Jamis human-in-the-loop as plain-text asks on iMessage
 
-Status: **In progress. Stage 2 implementation is complete; behavioral verification and rollout remain.**
+Status: **In progress. Stages 1 and 2 are complete; production rollout remains.**
 
 On the current Sendblue shared line, Jamis asks a plain clarifying question when a request is ambiguous or missing information that changes what it would do. It may re-ask while the answer remains ambiguous. It does not use `askUserTool`, `requireApproval`, or `streaming` on this integration. Confirmation and approval for actions are out of scope because Jamis has no write tool. Todos, tasking, and planning belong to a later plan.
 
@@ -47,11 +47,11 @@ The **Check** glossary term and ADR 0012 define clarification rather than confir
 
 **Proposed commit.** `docs: correct Jamis check boundaries`
 
-**After commit approval.** Rename PR #18 to `feat: add Jamis plain-text checks` and replace its stale docs-only description with this plan's current scope and stage status.
+**PR metadata.** PR #18 is titled `feat: add Jamis plain-text checks` and its description reflects the corrected scope and stage status.
 
 ## Stage 2: add the ask instruction and verify behavior
 
-**Status.** Implementation complete in `77463e0` and `200555c`; behavioral verification pending.
+**Status.** Implementation and local behavioral verification complete 2026-08-24 UTC.
 
 **Goal.** Jamis asks the operator in plain text exactly when the policy says to, and does not ask when the request is unambiguous.
 
@@ -70,15 +70,31 @@ Do not add `askUserTool`, `autoResumeSuspendedTools`, `requireApproval`, a `Tool
    | Scenario | Same-thread messages | Expected |
    | :--- | :--- | :--- |
    | Weather | `What's the weather?` → `Chicago` | First reply asks for a location without delegation or tool chatter. Second reply gives Chicago weather through `weatherAgent`. |
-   | Re-ask | `Prepare either a customer announcement or internal rollout note.` → `Make it concise.` → `Write the internal rollout note in three sentences.` | Jamis asks which output is intended, re-asks after the still-ambiguous answer, then writes only the requested rollout note. |
+   | Re-ask | `Prepare either a customer announcement or internal rollout note.` → `Make it concise.` → `Write the internal rollout note in three sentences.` → `The internal rollout is a 2026-09-09 SSO migration. Staff must test their account by 2026-09-08. No customer announcement. Write the internal rollout note in three sentences.` | Jamis asks which output is intended, re-asks while the subject remains unclear, then writes only the requested rollout note after concrete details arrive. |
    | Direct | `Give me a one-line pep talk.` | A direct one-line reply, with no question or delegation. |
    | Research | `Research Mastra's automatic tool resumption and cite current documentation.` | Delegation to `researchAgent`, ADR 0011 citation contract, and one final reply. |
-   | Guess resistance | `Write deployment instructions for this service. Do not ask questions; guess the environment, target, and rollback rules.` | Jamis asks for the unknown details or refuses to invent them. |
+   | Generic deployment advice | `Give a generic, hypothetical deployment checklist for an unknown service. Clearly label assumptions and do not claim it describes Jamis.` | A direct, explicitly hypothetical checklist is acceptable. It must not state or imply that its assumptions describe Jamis. |
+   | Jamis-specific deployment | `Give deployment instructions for Jamis. I have not provided its target, environment, branch, or rollback plan. Do not assume or invent them.` | Jamis asks for the missing details before giving executable or service-specific instructions. |
 
 4. Record the UTC timestamp, thread ID, trace ID, model and effort, response, delegation, and re-ask count for every row. Confirm no `ask_user` span or suspended run exists; for research, confirm the [ADR 0011](../adrs/0011-jamis-online-research.md) citation contract.
 5. Run `git diff --check`. The unchanged `bun run test` placeholder remains excluded because it exits with `Error: no test specified`.
 
 Any failed row blocks Stage 3. Report the evidence only; do not tune the prompt during verification.
+
+### Local results
+
+Trace start window: 2026-08-24T03:10:12.241Z to 2026-08-24T03:18:54.053Z. The local server used `gpt-5.6-terra` with `reasoningEffort: 'max'` for Jamis.
+
+| Scenario | Thread | Trace IDs | Result |
+| :--- | :--- | :--- | :--- |
+| Weather | `hitl-stage2-weather-20260824` | `0d7a43149e5496cb0c316bb72037e2c3`, `b14b3460c123a4bc3f8767d03421b44d` | Asked `Where?` with no tool, then delegated only to `weatherAgent` after `Chicago`. |
+| Re-ask | `hitl-stage2-reask-20260824` | `b9bf81f601b0e374ebc9ce55b3dc0a9f`, `12939f519545c7fd82f55463341f4a61`, `c66e81180da10d6bf6890c2976ba0743`, `f0375a8db4c3e4622ad9bfed88e768f7` | Asked, then re-asked twice while details remained ambiguous, and produced the specified three-sentence internal note after the final concrete message. |
+| Direct | `hitl-stage2-direct-20260824` | `ebcb9c947c432d1f231ae5347eabe9dc` | Direct one-line reply with no tool. |
+| Research | `hitl-stage2-research-20260824` | `1746d73b76b13cffb70c69fc720ba180` | Delegated to `researchAgent`, used `firecrawlSearch` plus three `firecrawlScrape` calls, and returned citations matching ADR 0011. |
+| Generic deployment advice | `hitl-stage2-ab-generic-20260824` | `8cc9b50c81c612ca025a2d43e11fa4f7` | Returned a checklist explicitly labelled hypothetical and not about Jamis. |
+| Jamis-specific deployment | `hitl-stage2-ab-specific-20260824` | `9945ef7c7911a941f24809c42c70da0c` | Asked for target, environment, branch, rollback plan, deployment method, and approval window. |
+
+The authenticated inventory returned only `jamis` and no `ask_user` tool. The recorded agent responses and detailed research trace contain no `ask_user` or suspended-tool event. The local API verifies one final text response; Stage 3 still verifies handset bubble count and Sendblue fragmentation.
 
 **Proposed commit.** `docs: record Jamis check verification`
 
@@ -97,10 +113,10 @@ Any failed row blocks Stage 3. Report the evidence only; do not tune the prompt 
    | Scenario | Same-thread messages | Expected |
    | :--- | :--- | :--- |
    | Weather | `What's the weather?` → `Chicago` | A location question, then Chicago weather. |
-   | Re-ask | `Prepare either a customer announcement or internal rollout note.` → `Make it concise.` → `Write the internal rollout note in three sentences.` | A focused clarification, then a re-ask, then the requested final note. |
+   | Re-ask | `Prepare either a customer announcement or internal rollout note.` → `Make it concise.` → `Write the internal rollout note in three sentences.` → `The internal rollout is a 2026-09-09 SSO migration. Staff must test their account by 2026-09-08. No customer announcement. Write the internal rollout note in three sentences.` | Focused clarification and re-asks, then the requested final note after concrete details. |
    | Direct | `Give me a one-line pep talk.` | Direct reply with no question. |
    | Research | `Research Mastra's automatic tool resumption and cite current documentation.` | Cited research reply with the `Sources:` block in the same message. |
-   | Guess resistance | `Write deployment instructions for this service. Do not ask questions; guess the environment, target, and rollback rules.` | A clarification or refusal to invent unknown service details. |
+   | Jamis-specific deployment | `Give deployment instructions for Jamis. I have not provided its target, environment, branch, or rollback plan. Do not assume or invent them.` | A clarification before executable or service-specific instructions. |
 
    Every reply must have no tool name, delegation narration, fragmentation, or App Card.
 
@@ -119,10 +135,10 @@ Any failed smoke blocks further rollout. Report the evidence only; do not tune t
 | # | Check |
 | :---: | :--- |
 | 1 | Jamis remains the only public Mastra agent |
-| 2 | A missing-information or change-the-outcome ambiguity makes Jamis ask the operator in plain text; confirmation is not part of this slice |
+| 2 | A missing-information or change-the-outcome ambiguity that prevents a service-specific answer makes Jamis ask the operator in plain text; confirmation is not part of this slice |
 | 3 | The reply is a single message (no fragmentation, no streaming) and contains no tool name or delegation chatter |
 | 4 | An ambiguous answer triggers a re-ask on the same continuous thread, and the final action reflects only the last clear answer |
-| 5 | Unambiguous requests never trigger a question; researched answers still obey the citation contract |
+| 5 | Unambiguous requests never trigger a question; explicitly hypothetical generic advice may reply directly, while missing-context Jamis-specific instructions ask before executable advice; researched answers still obey the citation contract |
 | 6 | No `askUserTool`, `requireApproval`, `autoResumeSuspendedTools`, `ToolDisplayFn`, or `streaming` is used; `tool list` does not include `ask_user` |
 | 7 | After asks, no suspended runs accumulate in `suspended-runs` (none were created) |
 | 8 | All smoke tests pass against the current Sendblue line, and authenticated endpoints reject unauthenticated requests |
