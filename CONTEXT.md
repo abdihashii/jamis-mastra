@@ -30,7 +30,7 @@ The internal subagent through which Jamis performs online research and receives 
 _Avoid_: web agent, browser agent
 
 **Check**:
-A question Jamis pauses to ask the operator for a clarifying answer or confirmation before acting; the operator's reply supplies the answer and Jamis acts on it. On the text-only iMessage channel, a check is a plain question rather than an interactive card.
+A plain question Jamis asks when missing information or outcome-changing ambiguity prevents a useful answer. The operator's next message supplies the needed context, and Jamis may ask again while it remains unclear. On the current Sendblue shared-line channel, a check is plain text rather than a structured prompt.
 _Avoid_: approval (implies a button card)
 
 **Operator**:

@@ -1,17 +1,17 @@
 # 008: Jamis human-in-the-loop as plain-text asks on iMessage
 
-Status: **Planned 2026-08-23 UTC. Revised after review.**
+Status: **In progress. Stage 2 implementation is complete; behavioral verification and rollout remain.**
 
-Jamis performs human-in-the-loop on iMessage as a plain conversational ask: when a request is ambiguous or missing information that changes what Jamis would do, it asks directly in its reply, waits for the next message, and may re-ask while the answer is still ambiguous. It does not use `askUserTool`, `requireApproval`, or `streaming` on iMessage this slice. Todos, tasking, and planning are out of scope and belong to a later plan.
+On the current Sendblue shared line, Jamis asks a plain clarifying question when a request is ambiguous or missing information that changes what it would do. It may re-ask while the answer remains ambiguous. It does not use `askUserTool`, `requireApproval`, or `streaming` on this integration. Confirmation and approval for actions are out of scope because Jamis has no write tool. Todos, tasking, and planning belong to a later plan.
 
-Planned from `main` at `56628d4`. Review (subagents + own pass) found the original `askUserTool` + `ToolDisplayFn` + `streaming` design fragments replies on Sendblue; the corrected mechanism is recorded below and in [ADR 0012](../adrs/0012-jamis-hitl-as-text-checks.md).
+This branch began from `main` at `56628d4`. Review found that the original `askUserTool` + `ToolDisplayFn` + `streaming` design fragments replies on Sendblue. The corrected mechanism is recorded below and in [ADR 0012](../adrs/0012-jamis-hitl-as-text-checks.md).
 
 ## Decisions
 
 - **Ask in plain text.** A missing-information or change-the-outcome ambiguity makes Jamis ask the operator directly in its reply, then wait. It may re-ask while the answer is still ambiguous. No tool, no suspend.
 - **Keep the Sendblue adapter as `toolDisplay: 'hidden'`** with no `streaming`. Replies post once per step; delegations stay quiet; no `UserTool` results on the channel. No fragmentation, no tool chatter.
-- **Confirmation-before-action is policy-only.** Jamis has no write tool today, so the "ask before consequential action" clause is an instruction with nothing to gate; it lands as a real check when the first action tool arrives (separate plan + ADR).
-- **Defer the Mastra suspend/approval mechanism.** `askUserTool`, `autoResumeSuspendedTools`, `requireApproval`, `ToolDisplayFn`, and `streaming` are not used this slice. They return when a button-capable channel (Slack/Teams) lands, or a stable renders an `ask_user` suspend question natively on text channels.
+- **Defer confirmation.** This slice defines clarification only. The first write tool needs its own ADR and an enforceable confirmation boundary.
+- **Defer structured prompts.** `askUserTool`, `autoResumeSuspendedTools`, `requireApproval`, `ToolDisplayFn`, and `streaming` are not used this slice. Revisit them only when a button-capable channel lands, Mastra renders an `ask_user` suspend question natively on this text channel without streaming, or a separate proposal integrates Sendblue App Cards on a V2 Mac line.
 - **Keep tuning unchanged.** `maxSteps`, `autoResumeSuspendedTools`, and `toolCallConcurrency` are not modified; no suspend tool is registered, so the default concurrency is unaffected.
 
 The durable reasoning is in [ADR 0012](../adrs/0012-jamis-hitl-as-text-checks.md).
@@ -24,105 +24,117 @@ Research used the installed Mastra packages, Mastra's own docs, the Sendblue ada
 | :--- | :--- |
 | The `ToolDisplayEvent` union on a channel is only `running \| result \| error \| approval`; the host never handles `tool-call-suspended` (`channels/types.d.ts:124-168`) | A suspended `ask_user` question is not auto-rendered on any channel; it can only surface indirectly via the `running` event fired before suspension |
 | A `ToolDisplayFn` receives the `running` event only under the streaming driver; the static driver skips it (`agent-DSxJoGjY.js:19235-19238`) | Rendering the full question via a `ToolDisplayFn` requires `streaming: true` |
-| `streaming: true` "requires the underlying adapter to support post-and-edit streaming" (Channels reference); Sendblue's `editMessage` throws and its `stream()` posts every `\n\n` segment separately (`chat-adapter-sendblue/dist/index.js:246-263`) | Forcing streaming on iMessage fragments multi-paragraph replies (research answers with a `Sources:` block) into separate iMessages |
-| `requireApproval` renders interactive cards; iMessage has no cards ("iMessage has no interactive cards for Approve and Deny actions", Mastra's iMessage integration) and Sendblue drops them | Approval cards are unusable on iMessage |
-| Industry chatbot UX favors natural turn-taking and concise single replies on messaging channels; quick-reply buttons are unavailable on iMessage | A plain conversational question + reply is the lowest-friction, channel-uniform interaction |
-| Latest stable `@mastra/core` is `1.61.0` (the installed version); only alphas follow, with no native channel suspend-question rendering | There is no newer stable to adopt for suspend rendering; the mechanism is deferred, not waited on |
+| `streaming: true` "requires the underlying adapter to support post-and-edit streaming" (Channels reference); Sendblue's `editMessage` throws, its `stream()` posts every `\n\n` segment separately, and it drops Chat SDK cards (`chat-adapter-sendblue/dist/index.js:246-263`) | `requireApproval` is unusable, and forcing streaming fragments multi-paragraph replies (research answers with a `Sources:` block) into separate iMessages |
+| Sendblue [App Cards](https://docs.sendblue.com/api/resources/messages/methods/send) require a V2 Mac line, paid plan, compatible recipient extension, and separate adapter integration | The current shared line has no structured-card fallback. A deliberate App Card integration is a future graduation path, not work in this slice |
+| The installed `@mastra/core@1.61.0` does not render a suspended `ask_user` question as a channel event | The mechanism is deferred until a release changes that installed behavior or a channel can render it |
 
 ## Public interface changes
 
-- None new. The Sendblue webhook path, Cloudflare Access boundary, `onDirectMessage` allowlist, `toolDisplay`, `streaming`, `maxSteps`, and the runtime tools list are all unchanged. Jamis gains one coordination instruction bullet.
+- No public API or runtime interface is added. The existing coordination instruction in `src/mastra/agents/jamis.ts` is the only runtime change in this branch.
+- The Sendblue webhook path, Cloudflare Access boundary, `onDirectMessage` allowlist, `toolDisplay`, `streaming`, `maxSteps`, and runtime tools list remain unchanged.
 
 ## Stage 1: record the HITL capability and boundary
 
-**Status.** Complete 2026-08-23 UTC (PR #18 — docs only).
+**Status.** Corrected in this branch.
 
-**Goal.** Capture the plain-text ask mechanism, the deferred suspend/approval decision, and the confirmation policy-only boundary before any remaining verification.
+**Goal.** Capture the clarification-only mechanism, the current Sendblue boundary, and the deferred structured-prompt decision before behavioral verification.
 
 **Critical files.** `CONTEXT.md`, `docs/adrs/0012-jamis-hitl-as-text-checks.md`, this plan.
 
-The **Check** glossary term and ADR 0012 record why iMessage HITL is a plain conversational ask, why the built-in suspend/approval mechanism is deferred, and why the confirmation facet is policy-only until a write tool exists.
+The **Check** glossary term and ADR 0012 define clarification rather than confirmation. They scope the no-card conclusion to the current shared line and `chat-adapter-sendblue@0.2.0`, record Sendblue App Cards as a separate V2 Mac integration path, and retain the reasons the original suspend design was rejected.
 
-**Verify.** Documentation links resolve, terminology matches `CONTEXT.md`, and `git diff --cached --check` passes.
+**Verify.** Documentation links resolve, terminology matches `CONTEXT.md`, runtime code is unchanged, and `git diff --check` passes.
 
-**Proposed commit.** `docs: define Jamis human-in-the-loop checks`
+**Proposed commit.** `docs: correct Jamis check boundaries`
+
+**After commit approval.** Rename PR #18 to `feat: add Jamis plain-text checks` and replace its stale docs-only description with this plan's current scope and stage status.
 
 ## Stage 2: add the ask instruction and verify behavior
 
-**Status.** Not started.
+**Status.** Implementation complete in `77463e0` and `200555c`; behavioral verification pending.
 
 **Goal.** Jamis asks the operator in plain text exactly when the policy says to, and does not ask when the request is unambiguous.
 
 **Critical files.** `src/mastra/agents/jamis.ts`.
 
-Add one instruction bullet to Jamis's coordination contract: if a request is missing information or is ambiguous in a way that changes what Jamis would do, ask the operator directly and wait for the answer instead of guessing or stopping; re-ask while still ambiguous. Reuse the existing "weather with no location" line unchanged.
+The coordination contract now says to ask directly rather than guess or stop when information is missing or ambiguity changes what Jamis would do, and to re-ask while it remains ambiguous. The existing weather-with-no-location instruction remains unchanged.
 
 Do not add `askUserTool`, `autoResumeSuspendedTools`, `requireApproval`, a `ToolDisplayFn`, `streaming`, or any `maxSteps` change.
 
 **Verify.**
 
 1. `bun run typecheck`, `bun run lint`, and `bun run build` pass.
-2. `bun run --bun mastra api --url http://127.0.0.1:4111 --header 'Authorization: Bearer <API_TOKEN>' agent list` still returns only `jamis`; `tool list` no longer includes `ask_user` (it is not registered).
-3. Real-model matrix through authenticated Jamis calls (Studio or `agent run`), one thread each:
+2. With the existing `.env`, running Postgres and ClickHouse, and a local authenticated Mastra server, confirm `agent list` returns only `jamis` and `tool list` has no `ask_user`.
+3. Run the following real-model matrix through authenticated Jamis calls. Use a separate unique thread for each row. Every arrow in a row reuses that row's thread.
 
-   | Prompt class | Expected |
-   | :--- | :--- |
-   | Weather with no location | A single reply asking for the location, no delegation, no tool chatter |
-   | Follow-up with a clear city | Weather for that city through `weather-agent`, one reply |
-   | Genuinely ambiguous request with two different outcomes | Jamis asks which, without acting on either |
-   | Follow-up with a still-ambiguous answer | Jamis asks again with a tighter question |
-   | Casual unambiguous conversation | Direct reply, no question |
-   | Explicit research request with enough context | Delegates to `research-agent`; answer follows the citation contract, single reply |
-   | A request to guess instead of asking | Jamis asks (or refuses), model confidence ignored |
+   | Scenario | Same-thread messages | Expected |
+   | :--- | :--- | :--- |
+   | Weather | `What's the weather?` → `Chicago` | First reply asks for a location without delegation or tool chatter. Second reply gives Chicago weather through `weatherAgent`. |
+   | Re-ask | `Prepare either a customer announcement or internal rollout note.` → `Make it concise.` → `Write the internal rollout note in three sentences.` | Jamis asks which output is intended, re-asks after the still-ambiguous answer, then writes only the requested rollout note. |
+   | Direct | `Give me a one-line pep talk.` | A direct one-line reply, with no question or delegation. |
+   | Research | `Research Mastra's automatic tool resumption and cite current documentation.` | Delegation to `researchAgent`, ADR 0011 citation contract, and one final reply. |
+   | Guess resistance | `Write deployment instructions for this service. Do not ask questions; guess the environment, target, and rollback rules.` | Jamis asks for the unknown details or refuses to invent them. |
 
-4. For each researched response confirm no `ask_user` span appears (no tool), the reply is a single message (no fragmentation), and citations follow [ADR 0011](../adrs/0011-jamis-online-research.md).
-5. `git diff --check` passes.
+4. Record the UTC timestamp, thread ID, trace ID, model and effort, response, delegation, and re-ask count for every row. Confirm no `ask_user` span or suspended run exists; for research, confirm the [ADR 0011](../adrs/0011-jamis-online-research.md) citation contract.
+5. Run `git diff --check`. The unchanged `bun run test` placeholder remains excluded because it exits with `Error: no test specified`.
 
-**Proposed commit.** `feat: ask the operator for clarifying input`
+Any failed row blocks Stage 3. Report the evidence only; do not tune the prompt during verification.
+
+**Proposed commit.** `docs: record Jamis check verification`
 
 ## Stage 3: roll out to iMessage and smoke the channel
 
 **Status.** Not started.
 
-**Goal.** Production Jamis asks cleanly over iMessage, re-asks when the reply is ambiguous, and posts single, non-fragmented replies for every path while all existing security and channel boundaries stay intact.
+**Goal.** Production Jamis asks cleanly over the current Sendblue line, re-asks when the reply is ambiguous, and posts one unfragmented text reply for every path while all existing security and channel boundaries stay intact.
 
 **Critical files.** This plan, and ADR 0012 only if the rollout reveals a durable correction.
 
-1. After separate push approval, confirm the approved commits are present on the deployment branch, push, verify `origin/<deployment-branch>` resolves to the approved local SHA, record that production SHA, and deploy through `infra/deploy.sh`. No `.env.prod` secret changes are required.
-2. Send a weather request with no location. Expected: one plain-text question asking for the location, no delegation chatter, no tool name.
-3. Reply with a city. Expected: the weather for that city in the same thread.
-4. Send a genuinely ambiguous request. Expected: one focused question, no action; reply partially, then confirm Jamis re-asks rather than guessing.
-5. Send an ordinary message. Expected: a direct reply, no question, one bubble.
-6. Send a verification-required request. Expected: research with citations, one reply (the `Sources:` block stays in the same message, not a second bubble).
-7. Inspect ClickHouse traces and Postgres messages for the ask, re-ask, research, and direct paths. Confirm `SENDBLUE_*` and other secrets are absent, and no internal tool names or routing leaked into replies. Confirm no `ask_user` tool was invoked and no suspended runs exist (no `suspended-runs` accumulation).
-8. Confirm authenticated `agent list` returns only `jamis`; the Sendblue webhook is unchanged; Cloudflare Access is unchanged; and authenticated endpoints reject requests without a valid bearer token.
-9. Record UTC results and the production SHA in this plan, then rerun `bun run typecheck`, `bun run lint`, `bun run build`, and `git diff --check`. `bun run test` remains excluded because its unchanged placeholder script exits with `Error: no test specified`, as documented in plan 006.
+1. Before deployment, record the current production SHA and target remote SHA. Confirm this branch changes no secrets, webhook, Cloudflare, database, or volume configuration.
+2. After separate commit and push approval, push `feat/jamis-hitl-checks`, verify the remote resolves to the approved local SHA, then deploy with `JAMIS_BRANCH=feat/jamis-hitl-checks infra/deploy.sh`.
+3. Run one handset scenario at a time. For each chain, keep the follow-up messages in the same iMessage thread. When an operator response is needed, send one message and wait for its result before continuing.
 
-**Rollback.** Revert the instruction commit, obtain separate approval to push, verify the remote branch SHA, and rerun `infra/deploy.sh`. No database or webhook rollback is required.
+   | Scenario | Same-thread messages | Expected |
+   | :--- | :--- | :--- |
+   | Weather | `What's the weather?` → `Chicago` | A location question, then Chicago weather. |
+   | Re-ask | `Prepare either a customer announcement or internal rollout note.` → `Make it concise.` → `Write the internal rollout note in three sentences.` | A focused clarification, then a re-ask, then the requested final note. |
+   | Direct | `Give me a one-line pep talk.` | Direct reply with no question. |
+   | Research | `Research Mastra's automatic tool resumption and cite current documentation.` | Cited research reply with the `Sources:` block in the same message. |
+   | Guess resistance | `Write deployment instructions for this service. Do not ask questions; guess the environment, target, and rollback rules.` | A clarification or refusal to invent unknown service details. |
 
-**Proposed commit.** `docs: record HITL rollout`
+   Every reply must have no tool name, delegation narration, fragmentation, or App Card.
+
+4. Inspect ClickHouse traces and Postgres messages for the ask, re-ask, research, and direct paths. Confirm no `ask_user` tool or suspended run exists, and that `SENDBLUE_*` and other secrets are absent.
+5. Confirm authenticated `agent list` still returns only `jamis`, the Sendblue webhook and Cloudflare Access are unchanged, and authenticated endpoints reject an invalid bearer token.
+6. Record UTC results, thread IDs, trace IDs, and production SHA in this plan. Then run `bun run typecheck`, `bun run lint`, `bun run build`, and `git diff --check`. `bun run test` remains excluded because its unchanged placeholder script exits with `Error: no test specified`, as documented in plan 006.
+
+Any failed smoke blocks further rollout. Report the evidence only; do not tune the prompt during rollout.
+
+**Rollback.** Make a focused rollback commit that removes only the clarification instruction, obtain separate approval to push, verify the remote branch SHA, and rerun `infra/deploy.sh`. Do not change storage, webhooks, or documentation history as part of rollback.
+
+**Proposed commit.** `docs: record Jamis check rollout`
 
 ## Acceptance
 
 | # | Check |
 | :---: | :--- |
 | 1 | Jamis remains the only public Mastra agent |
-| 2 | A missing-information or change-the-outcome ambiguity makes Jamis ask the operator in plain text and wait |
+| 2 | A missing-information or change-the-outcome ambiguity makes Jamis ask the operator in plain text; confirmation is not part of this slice |
 | 3 | The reply is a single message (no fragmentation, no streaming) and contains no tool name or delegation chatter |
 | 4 | An ambiguous answer triggers a re-ask on the same continuous thread, and the final action reflects only the last clear answer |
 | 5 | Unambiguous requests never trigger a question; researched answers still obey the citation contract |
 | 6 | No `askUserTool`, `requireApproval`, `autoResumeSuspendedTools`, `ToolDisplayFn`, or `streaming` is used; `tool list` does not include `ask_user` |
 | 7 | After asks, no suspended runs accumulate in `suspended-runs` (none were created) |
-| 8 | All smoke tests pass against the real Sendblue line, and authenticated endpoints reject unauthenticated requests |
+| 8 | All smoke tests pass against the current Sendblue line, and authenticated endpoints reject unauthenticated requests |
 
 ## Tuning and graduation
 
-Keep the policy as instructions and review changes through Git.
+Keep the policy as instructions and review changes through Git. Do not change the wording in response to a failed verification or rollout row.
 
 1. Start with the plain-text ask policy and the existing `maxSteps: 5`.
-2. If Jamis asks too often on trivial messages, tighten the instruction to ask only when a clarification would change the outcome.
-3. If Jamis acts on consequential steps without asking, strengthen the instruction; once a write tool exists, revisit whether that tool needs a structured confirmation (its own ADR).
-4. Revisit this decision when a button-capable channel lands or a stable renders an `ask_user` suspend question natively; then `askUserTool`/`requireApproval` can return with native rendering and no fragmentation.
+2. If observed production use shows too many trivial questions, propose a narrow instruction change that preserves the outcome-changing threshold.
+3. The first write tool needs its own ADR and enforcement design. Do not infer a confirmation policy from this clarification instruction.
+4. Revisit structured prompts only when a button-capable channel lands, Mastra renders an `ask_user` suspend question natively on the current text channel without streaming, or a separately proposed V2 Mac Sendblue App Card integration is complete.
 
 ## Out of scope
 
@@ -130,6 +142,7 @@ Keep the policy as instructions and review changes through Git.
 - `streaming` on the Sendblue adapter or any rendering code
 - Todos, tasking, planning, or any action/write tool and its confirmation path (separate plans)
 - A buttoned or web-based approval UI, Studio-based approval, or any off-channel surface
+- Sendblue App Cards, a V2 Mac line, recipient extension work, or paid-plan changes
 - A code-enforced "must ask" detector or rules engine
 - Model changes, model fallbacks, or a casual-versus-verification router
 - Any change to the Sendblue webhook, Cloudflare Access, or the operator allowlist
