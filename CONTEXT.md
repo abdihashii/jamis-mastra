@@ -41,6 +41,10 @@ _Avoid_: admin user, deploy user
 A messaging platform the operator reaches an agent through, instead of Studio. iMessage over Sendblue is the first one.
 _Avoid_: integration, connector, bridge
 
+**Trace export boundary**:
+Channel render context and adapter configuration are runtime-only and must never be exported in traces. Channel credentials must never enter exported records. See [ADR 0013](docs/adrs/0013-channel-render-context-trace-boundary.md).
+_Avoid_: trace context (ambiguous)
+
 **Sendblue line**:
 The phone number Sendblue assigns to the account, which an agent receives on and sends from.
 _Avoid_: the number, the bot number

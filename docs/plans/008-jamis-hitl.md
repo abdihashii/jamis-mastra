@@ -1,10 +1,10 @@
 # 008: Jamis human-in-the-loop as plain-text asks on iMessage
 
-Status: **In progress. Stages 1 and 2 are complete; production rollout remains.**
+Status: **In progress. Plain-text HITL behavior passed production smoke on 2026-08-24 UTC; release acceptance is blocked by channel credentials reaching ClickHouse traces.**
 
 On the current Sendblue shared line, Jamis asks a plain clarifying question when a request is ambiguous or missing information that changes what it would do. It may re-ask while the answer remains ambiguous. It does not use `askUserTool`, `requireApproval`, or `streaming` on this integration. Confirmation and approval for actions are out of scope because Jamis has no write tool. Todos, tasking, and planning belong to a later plan.
 
-This branch began from `main` at `56628d4`. Review found that the original `askUserTool` + `ToolDisplayFn` + `streaming` design fragments replies on Sendblue. The corrected mechanism is recorded below and in [ADR 0012](../adrs/0012-jamis-hitl-as-text-checks.md).
+This branch began from `main` at `56628d4`. Review found that the original `askUserTool` + `ToolDisplayFn` + `streaming` design fragments replies on Sendblue. The corrected mechanism is recorded below and in [ADR 0012](../adrs/0012-jamis-hitl-as-text-checks.md). The separate trace-export boundary is in [ADR 0013](../adrs/0013-channel-render-context-trace-boundary.md).
 
 ## Decisions
 
@@ -13,6 +13,7 @@ This branch began from `main` at `56628d4`. Review found that the original `askU
 - **Defer confirmation.** This slice defines clarification only. The first write tool needs its own ADR and an enforceable confirmation boundary.
 - **Defer structured prompts.** `askUserTool`, `autoResumeSuspendedTools`, `requireApproval`, `ToolDisplayFn`, and `streaming` are not used this slice. Revisit them only when a button-capable channel lands, Mastra renders an `ask_user` suspend question natively on this text channel without streaming, or a separate proposal integrates Sendblue App Cards on a V2 Mac line.
 - **Keep tuning unchanged.** `maxSteps`, `autoResumeSuspendedTools`, and `toolCallConcurrency` are not modified; no suspend tool is registered, so the default concurrency is unaffected.
+- **Keep channel render context out of traces.** It is a runtime capability containing the live adapter and its configuration, not observability data. Remove the whole render-context entry before trace export; retain `SensitiveDataFilter` for the rest of the span.
 
 The durable reasoning is in [ADR 0012](../adrs/0012-jamis-hitl-as-text-checks.md).
 
@@ -30,7 +31,7 @@ Research used the installed Mastra packages, Mastra's own docs, the Sendblue ada
 
 ## Public interface changes
 
-- No public API or runtime interface is added. The existing coordination instruction in `src/mastra/agents/jamis.ts` is the only runtime change in this branch.
+- No public API is added. The coordination instruction in `src/mastra/agents/jamis.ts` is the only behavior change. A later internal-only span processor removes runtime channel render context from exported traces.
 - The Sendblue webhook path, Cloudflare Access boundary, `onDirectMessage` allowlist, `toolDisplay`, `streaming`, `maxSteps`, and runtime tools list remain unchanged.
 
 ## Stage 1: record the HITL capability and boundary
@@ -100,11 +101,17 @@ The authenticated inventory returned only `jamis` and no `ask_user` tool. The re
 
 ## Stage 3: roll out to iMessage and smoke the channel
 
-**Status.** Not started.
+**Status.** Functional channel smoke completed 2026-08-24 UTC. Security acceptance is blocked; do not send further Sendblue messages until Stage 4c verifies the trace boundary.
 
-**Goal.** Production Jamis asks cleanly over the current Sendblue line, re-asks when the reply is ambiguous, and posts one unfragmented text reply for every path while all existing security and channel boundaries stay intact.
+**Goal.** Production Jamis asks cleanly over the current Sendblue line, re-asks when the reply is ambiguous, and posts one unfragmented text reply for every path.
 
 **Critical files.** This plan, and ADR 0012 only if the rollout reveals a durable correction.
+
+**Result.** Production deployed `0411f1c1f3dfcfa6d6dc5323720083a16ccd6faf`. The weather, re-ask, direct, research, and Jamis-specific deployment chains passed in one continuous handset thread (`8b305343-7917-485d-bd34-22728e0857ac`). Research preserved its cited `Sources:` block in one message. Traces showed no `ask_user` span and `suspended-runs` returned no runs. Authenticated agent inventory returned only `jamis`; invalid bearer tokens returned `401`.
+
+A count-only production scan then found each Sendblue credential in ClickHouse `requestContext`, while Postgres messages had no matches. The existing `SensitiveDataFilter` does not process `requestContext`. This is an observability export defect, not a failure of the plain-text check design or `src/mastra/agents/jamis.ts`.
+
+The rollout matrix below is retained for the secured deployment repeat.
 
 1. Before deployment, record the current production SHA and target remote SHA. Confirm this branch changes no secrets, webhook, Cloudflare, database, or volume configuration.
 2. After separate commit and push approval, push `feat/jamis-hitl-checks`, verify the remote resolves to the approved local SHA, then deploy with `JAMIS_BRANCH=feat/jamis-hitl-checks infra/deploy.sh`.
@@ -124,9 +131,70 @@ The authenticated inventory returned only `jamis` and no `ask_user` tool. The re
 5. Confirm authenticated `agent list` still returns only `jamis`, the Sendblue webhook and Cloudflare Access are unchanged, and authenticated endpoints reject an invalid bearer token.
 6. Record UTC results, thread IDs, trace IDs, and production SHA in this plan. Then run `bun run typecheck`, `bun run lint`, `bun run build`, and `git diff --check`. `bun run test` remains excluded because its unchanged placeholder script exits with `Error: no test specified`, as documented in plan 006.
 
-Any failed smoke blocks further rollout. Report the evidence only; do not tune the prompt during rollout.
+Any failed smoke blocks further rollout. The Stage 3 secret check failed, so Stage 4 is required before release acceptance. Report the evidence only; do not tune the prompt during rollout.
 
-**Rollback.** Make a focused rollback commit that removes only the clarification instruction, obtain separate approval to push, verify the remote branch SHA, and rerun `infra/deploy.sh`. Do not change storage, webhooks, or documentation history as part of rollback.
+**Rollback.** A prompt rollback can remove only the clarification instruction. It does not contain exported credentials. If the trace boundary fails, pause Sendblue traffic and remediate the exporter; do not roll back the HITL instruction as a security response.
+
+**Future documentation commit.** Stage 4d records final rollout evidence.
+
+## Stage 4a: record the channel trace boundary
+
+**Status.** In review.
+
+**Goal.** Define the runtime-versus-observability boundary before changing code or production credentials.
+
+**Critical files.** `CONTEXT.md`, [ADR 0013](../adrs/0013-channel-render-context-trace-boundary.md), this plan.
+
+The glossary and ADR state that channel render context is runtime-only. This stage records why key-by-key secret redaction is insufficient and why `src/mastra/agents/jamis.ts` stays unchanged.
+
+**Verify.** Documentation links resolve, terminology matches `CONTEXT.md`, runtime code is unchanged, and `git diff --check` passes.
+
+**Proposed commit.** `docs: define channel trace boundary`
+
+## Stage 4b: remove channel render context before trace export
+
+**Status.** Not started.
+
+**Goal.** Prevent the complete channel render-context entry from reaching `MastraStorageExporter`, while preserving ordinary trace data and Sendblue rendering.
+
+**Critical files.** `src/mastra/index.ts` and the smallest focused regression check.
+
+1. Add one internal `SpanOutputProcessor` ahead of `SensitiveDataFilter`. It removes only `__mastra_chat_channel_render` from the span's exported `requestContext`.
+2. Preserve the existing `SensitiveDataFilter`, channel configuration, Sendblue protocol, and `src/mastra/agents/jamis.ts`. Do not redact a list of environment-variable names or disable observability.
+3. Prove the processor removes the render-context entry while retaining safe context, then run `bun run typecheck`, `bun run lint`, `bun run build`, and `git diff --check`. The unchanged placeholder `bun run test` remains excluded.
+
+**Acceptance.** A focused check fails if an exported span retains the render-context entry. No secret value appears in source, test fixtures, output, or Git history.
+
+**Proposed commit.** `fix: redact channel context from traces`
+
+## Stage 4c: verify containment and rotate Sendblue credentials
+
+**Status.** Not started.
+
+**Goal.** Prove the deployed filter works before introducing fresh credentials, then replace all three compromised Sendblue credentials without exposing values in transcripts or Git.
+
+1. With normal Sendblue traffic paused, deploy the approved Stage 4b commit.
+2. Send one controlled non-sensitive message and run a count-only scan scoped after deployment. It must report zero matches for the current credentials in ClickHouse and Postgres before any rotation.
+3. Record the exact affected historic trace-record identifiers, counts, and time range without printing credentials. This is read-only evidence for Stage 4d.
+4. Rotate the Sendblue API key, API secret, and webhook secret in the provider. Keep traffic paused until the production environment has the new values and the app has restarted.
+5. Send one controlled post-rotation message and run the same count-only scan for the new credentials. Any nonzero result pauses traffic and blocks Stage 4d.
+
+The operator performs credential-requiring commands one at a time. Secret values are never pasted into chat, committed, or printed.
+
+**Acceptance.** A controlled trace made before and after rotation contains no current Sendblue credential, and the channel still returns one normal reply.
+
+## Stage 4d: purge affected history and close rollout
+
+**Status.** Not started.
+
+**Goal.** Remove the historical leaked trace records, then repeat functional acceptance on the secured deployment.
+
+1. Before destructive work, inspect the Stage 4c record identifiers and exact row counts. Obtain explicit approval before deletion.
+2. Delete only rows proved to contain the compromised values. Do not truncate observability tables or delete Postgres messages.
+3. Re-run an all-history count-only scan for the previous credentials, then re-run the handset matrix from Stage 3 and confirm no `ask_user` span or suspended run exists.
+4. Record UTC results, thread IDs, trace IDs, production SHA, scan results, and rotation completion in this plan. Run `bun run typecheck`, `bun run lint`, `bun run build`, and `git diff --check`.
+
+**Acceptance.** Retained ClickHouse and Postgres records contain none of the compromised or current Sendblue credentials, all critical channel smoke paths pass, and authenticated endpoints still reject invalid bearer tokens.
 
 **Proposed commit.** `docs: record Jamis check rollout`
 
@@ -141,7 +209,8 @@ Any failed smoke blocks further rollout. Report the evidence only; do not tune t
 | 5 | Unambiguous requests never trigger a question; explicitly hypothetical generic advice may reply directly, while missing-context Jamis-specific instructions ask before executable advice; researched answers still obey the citation contract |
 | 6 | No `askUserTool`, `requireApproval`, `autoResumeSuspendedTools`, `ToolDisplayFn`, or `streaming` is used; `tool list` does not include `ask_user` |
 | 7 | After asks, no suspended runs accumulate in `suspended-runs` (none were created) |
-| 8 | All smoke tests pass against the current Sendblue line, and authenticated endpoints reject unauthenticated requests |
+| 8 | Channel render context is absent from every exported span; retained ClickHouse and Postgres records contain no current or compromised Sendblue credential |
+| 9 | All smoke tests pass against the current Sendblue line, and authenticated endpoints reject unauthenticated requests |
 
 ## Tuning and graduation
 
