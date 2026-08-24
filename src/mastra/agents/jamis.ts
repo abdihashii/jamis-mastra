@@ -1,5 +1,4 @@
 import { Agent } from '@mastra/core/agent';
-import { askUserTool } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 
 import { isOperator, sendblueAdapter } from '../channels/sendblue';
@@ -34,7 +33,6 @@ export const jamis = new Agent({
 `,
 	model: 'openai/gpt-5.6-terra',
 	agents: { weatherAgent, researchAgent },
-	tools: { askUserTool },
 	memory: new Memory({
 		options: {
 			observationalMemory: {
