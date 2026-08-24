@@ -1,0 +1,3 @@
+- [ ] gmail tool
+- [ ] google calendar tool
+- [ ] update weather agent to return farenheight
