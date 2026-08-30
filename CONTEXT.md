@@ -29,6 +29,10 @@ _Avoid_: top search result, popular source
 The internal subagent through which Jamis performs online research and receives sourced evidence. Only Jamis delegates to it; Jamis owns the operator conversation and final answer.
 _Avoid_: web agent, browser agent
 
+**Check**:
+A plain question Jamis asks when missing information or outcome-changing ambiguity prevents a useful answer. The operator's next message supplies the needed context, and Jamis may ask again while it remains unclear. On the current Sendblue shared-line channel, a check is plain text rather than a structured prompt.
+_Avoid_: approval (implies a button card)
+
 **Operator**:
 You, logging in as `root` over the tailnet. The only account with privilege on the box. The `jamis` account is the agent's, and holds read-only inspection rights, never `sudo` in general and never the `docker` group.
 _Avoid_: admin user, deploy user
@@ -36,6 +40,10 @@ _Avoid_: admin user, deploy user
 **Channel**:
 A messaging platform the operator reaches an agent through, instead of Studio. iMessage over Sendblue is the first one.
 _Avoid_: integration, connector, bridge
+
+**Trace export boundary**:
+Channel render context and adapter configuration are runtime-only and must never be exported in traces. Channel credentials must never enter exported records. See [ADR 0013](docs/adrs/0013-channel-render-context-trace-boundary.md).
+_Avoid_: trace context (ambiguous)
 
 **Sendblue line**:
 The phone number Sendblue assigns to the account, which an agent receives on and sends from.

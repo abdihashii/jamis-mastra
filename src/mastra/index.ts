@@ -12,6 +12,7 @@ import { PostgresStore } from '@mastra/pg';
 
 import { jamis } from './agents/jamis';
 import { requireEnv } from './env';
+import { redactChannelRenderContext } from './observability';
 
 export const mastra = new Mastra({
 	agents: { jamis },
@@ -46,6 +47,7 @@ export const mastra = new Mastra({
 					// new MastraPlatformExporter(), // needs MASTRA_PLATFORM_ACCESS_TOKEN
 				],
 				spanOutputProcessors: [
+					redactChannelRenderContext,
 					new SensitiveDataFilter(),
 				],
 			},
