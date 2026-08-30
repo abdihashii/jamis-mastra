@@ -1,6 +1,6 @@
 # 008: Jamis human-in-the-loop as plain-text asks on iMessage
 
-Status: **In progress. Plain-text HITL behavior passed production smoke on 2026-08-24 UTC; release acceptance is blocked by channel credentials reaching ClickHouse traces.**
+Status: **Feature implementation complete. Fresh trace containment passed on 2026-08-24 UTC. Historical credential remediation remains unresolved and is explicitly deferred by operator direction.**
 
 On the current Sendblue shared line, Jamis asks a plain clarifying question when a request is ambiguous or missing information that changes what it would do. It may re-ask while the answer remains ambiguous. It does not use `askUserTool`, `requireApproval`, or `streaming` on this integration. Confirmation and approval for actions are out of scope because Jamis has no write tool. Todos, tasking, and planning belong to a later plan.
 
@@ -101,7 +101,7 @@ The authenticated inventory returned only `jamis` and no `ask_user` tool. The re
 
 ## Stage 3: roll out to iMessage and smoke the channel
 
-**Status.** Functional channel smoke completed 2026-08-24 UTC. Security acceptance is blocked; do not send further Sendblue messages until Stage 4c verifies the trace boundary.
+**Status.** Functional channel smoke completed 2026-08-24 UTC. The deployed trace boundary later passed a controlled fresh-trace check. Historical remediation is deferred, so no additional Sendblue smoke is claimed by this plan.
 
 **Goal.** Production Jamis asks cleanly over the current Sendblue line, re-asks when the reply is ambiguous, and posts one unfragmented text reply for every path.
 
@@ -139,7 +139,7 @@ Any failed smoke blocks further rollout. The Stage 3 secret check failed, so Sta
 
 ## Stage 4a: record the channel trace boundary
 
-**Status.** In review.
+**Status.** Complete in `99dbe5d` (`docs: define channel trace boundary`).
 
 **Goal.** Define the runtime-versus-observability boundary before changing code or production credentials.
 
@@ -153,7 +153,7 @@ The glossary and ADR state that channel render context is runtime-only. This sta
 
 ## Stage 4b: remove channel render context before trace export
 
-**Status.** Not started.
+**Status.** Complete in `754d4aa` (`fix: redact channel context from traces`).
 
 **Goal.** Prevent the complete channel render-context entry from reaching `MastraStorageExporter`, while preserving ordinary trace data and Sendblue rendering.
 
@@ -165,11 +165,13 @@ The glossary and ADR state that channel render context is runtime-only. This sta
 
 **Acceptance.** A focused check fails if an exported span retains the render-context entry. No secret value appears in source, test fixtures, output, or Git history.
 
+**Result.** Deployed `754d4aab0f704f047e5f69b678a5fabdc0aba342` on 2026-08-24. The focused test, `bun run typecheck`, `bun run lint`, `bun run build`, and `git diff --check` passed before deployment.
+
 **Proposed commit.** `fix: redact channel context from traces`
 
 ## Stage 4c: verify containment and rotate Sendblue credentials
 
-**Status.** Not started.
+**Status.** Containment and historical scoping complete. The operator reported API-key rotation; production configuration update, webhook-secret rotation, and post-rotation verification are deferred by operator direction.
 
 **Goal.** Prove the deployed filter works before introducing fresh credentials, then replace all three compromised Sendblue credentials without exposing values in transcripts or Git.
 
@@ -179,13 +181,20 @@ The glossary and ADR state that channel render context is runtime-only. This sta
 4. Rotate the Sendblue API key, API secret, and webhook secret in the provider. Keep traffic paused until the production environment has the new values and the app has restarted.
 5. Send one controlled post-rotation message and run the same count-only scan for the new credentials. Any nonzero result pauses traffic and blocks Stage 4d.
 
-The operator performs credential-requiring commands one at a time. Secret values are never pasted into chat, committed, or printed.
+### Rollout record
 
-**Acceptance.** A controlled trace made before and after rotation contains no current Sendblue credential, and the channel still returns one normal reply.
+- Normal inbound traffic was paused. A controlled signed loopback message exercised the same Sendblue channel path and returned `acknowledged`.
+- The post-deployment scan began after `2026-08-24T21:10:59.975864186Z` and found zero matches for each configured Sendblue value in `mastra_span_events`, `mastra_trace_roots`, `mastra_trace_branches`, and `mastra_messages`.
+- Read-only historical evidence found 95 matching `mastra_span_events` rows, 19 `mastra_trace_roots` rows, and 62 `mastra_trace_branches` rows between `2026-08-23T02:24:14.673Z` and `2026-08-24T04:34:54.583Z`. Each affected trace row contained all three configured Sendblue values. Postgres had zero matching messages.
+- The original direct scan also created 30 `system.query_log` rows across 15 query IDs, from `2026-08-24T21:23:20.654347Z` to `2026-08-24T21:24:45.875313Z`. The restricted operator report holds the exact identifiers; no secret values were written to this plan or Git.
+
+On 2026-08-30, the operator reported API-key rotation and directed that no further Sendblue work proceed. This plan does not verify a production configuration update, webhook-secret rotation, post-rotation verification, or historical deletion. Steps 4 and 5 are therefore intentionally incomplete. This plan records containment evidence, not a claim that historical exposure was removed.
+
+**Acceptance.** Met for fresh-trace containment only: the controlled post-deployment trace contains no configured Sendblue value and the channel returns one normal reply. Rotation-specific acceptance is deferred.
 
 ## Stage 4d: purge affected history and close rollout
 
-**Status.** Not started.
+**Status.** Deferred by operator direction. No destructive work was performed.
 
 **Goal.** Remove the historical leaked trace records, then repeat functional acceptance on the secured deployment.
 
@@ -194,7 +203,9 @@ The operator performs credential-requiring commands one at a time. Secret values
 3. Re-run an all-history count-only scan for the previous credentials, then re-run the handset matrix from Stage 3 and confirm no `ask_user` span or suspended run exists.
 4. Record UTC results, thread IDs, trace IDs, production SHA, scan results, and rotation completion in this plan. Run `bun run typecheck`, `bun run lint`, `bun run build`, and `git diff --check`.
 
-**Acceptance.** Retained ClickHouse and Postgres records contain none of the compromised or current Sendblue credentials, all critical channel smoke paths pass, and authenticated endpoints still reject invalid bearer tokens.
+**Result.** The 206 scoped ClickHouse rows remain untouched: 176 trace-table rows and 30 query-log rows. Postgres messages remain outside the cleanup scope.
+
+**Acceptance.** Not claimed. Historical deletion, an all-history post-delete scan, and a post-rotation handset repeat were deferred.
 
 **Proposed commit.** `docs: record Jamis check rollout`
 
@@ -209,8 +220,8 @@ The operator performs credential-requiring commands one at a time. Secret values
 | 5 | Unambiguous requests never trigger a question; explicitly hypothetical generic advice may reply directly, while missing-context Jamis-specific instructions ask before executable advice; researched answers still obey the citation contract |
 | 6 | No `askUserTool`, `requireApproval`, `autoResumeSuspendedTools`, `ToolDisplayFn`, or `streaming` is used; `tool list` does not include `ask_user` |
 | 7 | After asks, no suspended runs accumulate in `suspended-runs` (none were created) |
-| 8 | Channel render context is absent from every exported span; retained ClickHouse and Postgres records contain no current or compromised Sendblue credential |
-| 9 | All smoke tests pass against the current Sendblue line, and authenticated endpoints reject unauthenticated requests |
+| 8 | Channel render context is absent from every fresh exported span; the controlled post-deployment scan reports zero configured Sendblue values in all known trace copies and Postgres messages. Historical remediation is explicitly deferred. |
+| 9 | The pre-boundary handset matrix passed against the then-current Sendblue line, and authenticated endpoints rejected unauthenticated requests. No later provider-state claim is made. |
 
 ## Tuning and graduation
 
