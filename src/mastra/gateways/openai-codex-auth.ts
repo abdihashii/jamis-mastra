@@ -16,7 +16,11 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
 
-;
+/**
+ * Thrown errors reach the operator's phone as chat text, so they must not
+ * name providers, scripts, or internals; the recovery detail goes to logs.
+ */
+export const MODEL_AUTH_FAILURE = 'Model authentication failed. The error was logged.';
 
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const ISSUER = 'https://auth.openai.com';
@@ -219,7 +223,8 @@ export async function refreshCredential(
 				client_id: CLIENT_ID,
 			});
 			if (!result.ok) {
-				throw new Error(`Codex credential refresh failed: ${result.error}. Re-login required.`);
+				console.error(`[openai-codex] Credential refresh failed: ${result.error}. Re-login required.`);
+				throw new Error(MODEL_AUTH_FAILURE);
 			}
 			const accountId = extractAccountId(result.idToken, result.access) ?? cred.accountId;
 			const next: CodexCredential = {
@@ -244,7 +249,8 @@ export async function getUsableCredential(
 ): Promise<{ cred: CodexCredential; refreshed: boolean }> {
 	const cred = await loadCredential(path);
 	if (!cred) {
-		throw new Error('No Codex credential. Run `bun scripts/openai-codex-login.ts` to log in.');
+		console.error('[openai-codex] No Codex credential. Log in with `bun scripts/openai-codex-login.ts`.');
+		throw new Error(MODEL_AUTH_FAILURE);
 	}
 	if (isExpiring(cred)) {
 		return { cred: await refreshCredential(cred, path), refreshed: true };

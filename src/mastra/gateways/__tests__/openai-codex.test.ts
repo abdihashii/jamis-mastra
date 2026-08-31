@@ -6,8 +6,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { defaultCredentialPath } from '../openai-codex-auth.js';
-import { codexFetch, forcingStoreFalse, MISSING_CREDENTIAL_MESSAGE, openAICodexGateway } from '../openai-codex-gateway.js';
+import { defaultCredentialPath, MODEL_AUTH_FAILURE } from '../openai-codex-auth.js';
+import { codexFetch, forcingStoreFalse, openAICodexGateway } from '../openai-codex-gateway.js';
 
 /** The credential path is cwd-relative, so each test runs in a temp dir. */
 let tempDir: string;
@@ -139,10 +139,21 @@ describe('resolveAuth', () => {
 		expect(fetchCalls.length).toBe(0);
 	});
 
-	test('getApiKey throws the login-required error naming the script', async () => {
-		const error = await captureError(() => openAICodexGateway.getApiKey('openai-codex/gpt-5.6-terra'));
-		expect(error.message).toContain('scripts/openai-codex-login.ts');
-		expect(error.message).toBe(MISSING_CREDENTIAL_MESSAGE);
+	test('getApiKey fails generically and logs the recovery detail', async () => {
+		const errors: string[] = [];
+		const originalError = console.error;
+		console.error = (message: string) => {
+			errors.push(message);
+		};
+		try {
+			const error = await captureError(() => openAICodexGateway.getApiKey('openai-codex/gpt-5.6-terra'));
+			expect(error.message).toBe(MODEL_AUTH_FAILURE);
+			expect(error.message).not.toContain('codex');
+			expect(errors.some(e => e.includes('scripts/openai-codex-login.ts'))).toBe(true);
+		}
+		finally {
+			console.error = originalError;
+		}
 	});
 });
 
@@ -407,15 +418,27 @@ describe('refresh rotation through resolveAuth', () => {
 			}),
 		);
 		mockFetch({ tokenEndpoint: () => new Response('{"error":"refresh_token_invalidated"}', { status: 401 }) });
-		const error = await captureError(() => openAICodexGateway.resolveAuth());
-		expect(error.message).toContain('Re-login required');
+		const errors: string[] = [];
+		const originalError = console.error;
+		console.error = (message: string) => {
+			errors.push(message);
+		};
+		try {
+			const error = await captureError(() => openAICodexGateway.resolveAuth());
+			expect(error.message).toBe(MODEL_AUTH_FAILURE);
+			expect(error.message).not.toContain('Re-login');
+			expect(errors.some(e => e.includes('Re-login required'))).toBe(true);
+		}
+		finally {
+			console.error = originalError;
+		}
 	});
 });
 
 describe('missing credential at fetch time', () => {
-	test('codexFetch throws the login-required error without any network call', async () => {
+	test('codexFetch fails generically with no network call', async () => {
 		const error = await captureError(() => performCodexFetch({ model: 'gpt-5.6-terra', input: [] }));
-		expect(error.message).toContain('scripts/openai-codex-login.ts');
+		expect(error.message).toBe(MODEL_AUTH_FAILURE);
 		expect(fetchCalls.length).toBe(0);
 	});
 

@@ -34,13 +34,11 @@ import {
 	CODEX_API_ENDPOINT,
 	getUsableCredential,
 	loadCredential,
+	MODEL_AUTH_FAILURE,
 } from './openai-codex-auth.js';
 
 /** `createOpenAI` takes a base URL and appends `/responses` itself. */
 const CODEX_BASE_URL = CODEX_API_ENDPOINT.replace(/\/responses$/, '');
-
-export const MISSING_CREDENTIAL_MESSAGE
-	= 'No Codex credential. Run `bun scripts/openai-codex-login.ts` to log in, then restart. There is no OpenAI API-key fallback for openai-codex models.';
 
 /**
  * The backend always answers over SSE, even for what the SDK thinks is a
@@ -184,9 +182,11 @@ export class OpenAICodexGateway extends MastraModelGateway {
 		};
 	}
 
-	/** No env var exists to return; the credential is the only auth path. */
+	/* No env var exists to return; the credential is the only auth path. */
 	async getApiKey(_modelId: string): Promise<string> {
-		throw new Error(MISSING_CREDENTIAL_MESSAGE);
+		/* Thrown errors reach the operator's phone; keep specifics in logs. */
+		console.error('[openai-codex] No Codex credential. Log in with `bun scripts/openai-codex-login.ts`.');
+		throw new Error(MODEL_AUTH_FAILURE);
 	}
 
 	async resolveLanguageModel({ modelId, providerId }: {
