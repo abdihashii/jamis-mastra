@@ -16,12 +16,14 @@
 	},
 	"dependencies": {
 		"@ai-sdk/openai": "3.0.88",
+		"@date-fns/tz": "^1.5.0",
 		"@mastra/clickhouse": "1.15.2",
 		"@mastra/core": "1.61.0",
 		"@mastra/memory": "1.27.0",
 		"@mastra/observability": "1.17.1",
 		"@mastra/pg": "1.21.1",
 		"chat-adapter-sendblue": "0.2.0",
+		"date-fns": "^4.4.0",
 		"firecrawl": "^4.32.2",
 		"zod": "^4.4.3"
 	},
