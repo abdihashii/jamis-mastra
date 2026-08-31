@@ -1,6 +1,6 @@
 # 009: Jamis model auth through the Codex subscription
 
-Status: **Planned 2026-08-31 UTC.**
+Status: **Stages 1–4 complete 2026-08-31 UTC; not yet pushed; Stage 5 pending.**
 
 Planned from `main` at `d7a8c89`.
 
@@ -60,6 +60,8 @@ Add one glossary entry to `CONTEXT.md`: **Codex credential** — the operator's 
 
 **Proposed commit.** `docs: define Codex subscription model auth`
 
+**Local verification 2026-08-31 UTC.** Complete. Committed as `408dae5` (links resolve, terminology recorded in `CONTEXT.md`, `git diff --check` clean).
+
 ## Stage 2: prove the OAuth flow and the codex protocol
 
 **Goal.** Prove the device flow, secret persistence, and the subscription inference endpoint with one real generation, without touching any agent or gateway code.
@@ -85,7 +87,7 @@ Add one glossary entry to `CONTEXT.md`: **Codex credential** — the operator's 
 
 **Proposed commit.** `feat: add Codex device-flow login and smoke`
 
-**Local verification 2026-08-31 UTC.** Complete. All gates pass: frozen install, login (URL + code only, no token printed), `0600` credential ignored by Git, real smoke reply (`gpt-5.6-terra: ok`), typecheck/lint/build, `git diff --check`, and no `src/mastra` file imports the module. Deviation: the Docker proof ran only the smoke script; the containerized smoke exercises the same module functions the login loop uses, and a containerized login would overwrite the valid credential for no new coverage. The VPS login still gets its real first exercise in Stage 5.
+**Local verification 2026-08-31 UTC.** Complete. All gates pass: frozen install, login (URL + code only, no token printed), `0600` credential ignored by Git, real smoke reply (`gpt-5.6-terra: ok`), typecheck/lint/build, `git diff --check`, and no `src/mastra` file imports the module. Deviation: the Docker proof ran only the smoke script; the containerized smoke exercises the same module functions the login loop uses, and a containerized login would overwrite the valid credential for no new coverage. The VPS login still gets its real first exercise in Stage 5. Committed as `15130de`.
 
 ## Stage 3: add the openai-codex gateway
 
@@ -110,7 +112,7 @@ Add one glossary entry to `CONTEXT.md`: **Codex credential** — the operator's 
 
 **Proposed commits.** `build: add ai-sdk openai dependency`, then `feat: add openai-codex gateway`
 
-**Local verification 2026-08-31 UTC.** All gates pass: frozen install, typecheck, lint, build, `bun test` (24 across both files), `git diff --check`, dev server accepting the registration with `jamis` unchanged, and the gateway smoke printing `ok` in both call modes (live run 2026-08-31). The smoke (added at the operator's request before Stage 4) caught two real defects the mocked tests could not: the backend requires `stream: true` unconditionally (400 otherwise), and its `response.completed` skeleton carries `output: []` with the real items only in `response.output_item.done` events. Both are now enforced in `applyCodexBodyRules`/the gateway fetch and covered by tests; ADR 0014 and the constraint table above record the rules.
+**Local verification 2026-08-31 UTC.** All gates pass: frozen install, typecheck, lint, build, `bun test` (24 across both files), `git diff --check`, dev server accepting the registration with `jamis` unchanged, and the gateway smoke printing `ok` in both call modes (live run 2026-08-31). The smoke (added at the operator's request before Stage 4) caught two real defects the mocked tests could not: the backend requires `stream: true` unconditionally (400 otherwise), and its `response.completed` skeleton carries `output: []` with the real items only in `response.output_item.done` events. Both are now enforced in `applyCodexBodyRules`/the gateway fetch and covered by tests; ADR 0014 and the constraint table above record the rules. Committed as `b5df23b` (dependency) + `a751b76` (gateway).
 
 ## Stage 4: point Jamis through the gateway
 
@@ -133,7 +135,7 @@ Change both `model:` strings from `'openai/gpt-5.6-terra'` to `'openai-codex/gpt
 
 **Local verification 2026-08-31 UTC.** Complete. Acceptance run through the dev server (corrected `memory` body curl, thread reuse across turns for the multi-turn case), first turn "Blue" and second turn "Black" both over the subscription — `CODEX_SMOKE_DEBUG` fingerprint shows `cf-ray` + `x-openai-proxy-wasm` and null `openai-*`, response headers show `x-codex-plan-type: plus`. ClickHouse trace `154a3cfb7a22170723de630a776e762d`: `provider: openai-codex`, `model: gpt-5.6-terra`, and 0 of 9 spans contain the account id, access token, refresh token, or any Bearer/Authorization/refresh material. Weather request delegated correctly, and a research run (trace `de69a32fdc0b9ac260c77745d47fb1e9`, latest-stable-Bun) answered through `openai-codex/gpt-5.6-terra` with the citation contract intact. Missing credential through the server was observed live earlier the same day (loud login-required error, no API-key fallback while `OPENAI_API_KEY` was still in `.env`), and the refresh-failure shape was exercised live by poisoning a backup of the credential (expired `expiresAt` + invalid refresh token → SSE error `Codex credential refresh failed: … Re-login required.`), with the credential restored byte-identical and a positive run confirming recovery.
 
-Verification surfaced four defects, all fixed with tests: (1) the dev server child runs the built output with cwd `src/mastra/public`, so the cwd-relative credential path missed — the resolver now walks up from cwd; (2) the SDK's input converter serialized prior turns as `item_reference` ids under default `store: true`, which 404 on the backend that never persists — the resolved model now forces `providerOptions.openai.store = false` so history replays by value; (3) the missing-credential error showed twice because Mastra wraps model calls in pRetry — retries are free here (the failure precedes any network call) and left as is; (4) the `CODEX_SMOKE_DEBUG` fingerprint flag was added for exactly this which-backend question. All gates pass: typecheck, lint, build, `bun test` (30), `git diff --check`.
+Verification surfaced four defects, all fixed with tests: (1) the dev server child runs the built output with cwd `src/mastra/public`, so the cwd-relative credential path missed — the resolver now walks up from cwd; (2) the SDK's input converter serialized prior turns as `item_reference` ids under default `store: true`, which 404 on the backend that never persists — the resolved model now forces `providerOptions.openai.store = false` so history replays by value; (3) the missing-credential error showed twice because Mastra wraps model calls in pRetry — retries are free here (the failure precedes any network call) and left as is; (4) the `CODEX_SMOKE_DEBUG` fingerprint flag was added for exactly this which-backend question. All gates pass: typecheck, lint, build, `bun test` (30), `git diff --check`. A pre-commit independent review (4 read-only reviewers) found no production-code issues and two test-hardening gaps, both fixed in the commit: the wrapper regression test was vacuous (mutation-proven: removing the wrapper now fails the `Object.hasOwn` assertion) and the fingerprint tests were order-dependent on `CODEX_SMOKE_DEBUG`. Committed as `a298c40`.
 
 ## Stage 5: roll out and close the gate
 
