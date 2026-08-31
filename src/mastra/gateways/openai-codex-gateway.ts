@@ -33,8 +33,10 @@ import {
 	buildCodexHeaders,
 	CODEX_API_ENDPOINT,
 	getUsableCredential,
+	isExpiring,
 	loadCredential,
 	MODEL_AUTH_FAILURE,
+	refreshCredential,
 } from './openai-codex-auth.js';
 
 /** `createOpenAI` takes a base URL and appends `/responses` itself. */
@@ -109,40 +111,39 @@ function debugFingerprint(url: string, response: Response): void {
  * rotation and refresh apply mid-flight), OpenAI-style auth headers are
  * replaced with the codex ones, and the undocumented body rules are
  * enforced. The placeholder apiKey never survives as a real header.
- * Exported for direct testing at the fetch boundary.
+ * Exported for direct testing at the fetch boundary and handed to
+ * `createOpenAI` as a plain function.
  */
-export function codexFetch() {
-	return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-		const { cred } = await getUsableCredential();
-		const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-		const headers = new Headers(init?.headers);
-		headers.delete('authorization');
-		headers.delete('api-key');
-		headers.delete('x-api-key');
-		for (const [key, value] of Object.entries(buildCodexHeaders(cred))) {
-			headers.set(key, value);
+export async function codexFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+	const cred = await getUsableCredential();
+	const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+	const headers = new Headers(init?.headers);
+	headers.delete('authorization');
+	headers.delete('api-key');
+	headers.delete('x-api-key');
+	for (const [key, value] of Object.entries(buildCodexHeaders(cred))) {
+		headers.set(key, value);
+	}
+	let body = init?.body;
+	let wasStreaming = true;
+	if (typeof body === 'string') {
+		try {
+			// Responses wire format is JSON; apply the backend's undocumented rules.
+			const parsed = JSON.parse(body) as Record<string, unknown>;
+			wasStreaming = parsed.stream === true;
+			body = JSON.stringify(applyCodexBodyRules(parsed));
 		}
-		let body = init?.body;
-		let wasStreaming = true;
-		if (typeof body === 'string') {
-			try {
-				// Responses wire format is JSON; apply the backend's undocumented rules.
-				const parsed = JSON.parse(body) as Record<string, unknown>;
-				wasStreaming = parsed.stream === true;
-				body = JSON.stringify(applyCodexBodyRules(parsed));
-			}
-			catch {
-				// Not JSON: pass through; the backend rejects it, loudly.
-			}
+		catch {
+			// Not JSON: pass through; the backend rejects it, loudly.
 		}
-		const response = await globalThis.fetch(url as RequestInfo | URL, { ...init, headers, body });
-		debugFingerprint(url, response);
-		// The SDK's non-streaming call still gets an SSE stream; translate it.
-		if (!wasStreaming && response.ok && response.body) {
-			return sseResponseAsJson(response);
-		}
-		return response;
-	};
+	}
+	const response = await globalThis.fetch(url as RequestInfo | URL, { ...init, headers, body });
+	debugFingerprint(url, response);
+	// The SDK's non-streaming call still gets an SSE stream; translate it.
+	if (!wasStreaming && response.ok && response.body) {
+		return sseResponseAsJson(response);
+	}
+	return response;
 }
 
 export class OpenAICodexGateway extends MastraModelGateway {
@@ -169,14 +170,14 @@ export class OpenAICodexGateway extends MastraModelGateway {
 
 	/** OAuth auth when the credential file exists (refreshing near expiry); `undefined` when it does not. */
 	async resolveAuth(): Promise<GatewayAuthResult | undefined> {
-		const existing = await loadCredential();
-		if (!existing)
+		const cred = await loadCredential();
+		if (!cred)
 			return undefined;
-		const { cred } = await getUsableCredential();
+		const usable = isExpiring(cred) ? await refreshCredential(cred) : cred;
 		return {
-			bearerToken: cred.access,
+			bearerToken: usable.access,
 			headers: {
-				'ChatGPT-Account-ID': cred.accountId,
+				'ChatGPT-Account-ID': usable.accountId,
 				'originator': 'jamis',
 			},
 		};
@@ -201,7 +202,7 @@ export class OpenAICodexGateway extends MastraModelGateway {
 			// Placeholder only: the real Bearer token is injected per request in codexFetch.
 			apiKey: 'oauth',
 			// Cast: bun's `typeof fetch` carries a `preconnect` member the SDK does not require.
-			fetch: codexFetch() as unknown as NonNullable<OpenAIProviderSettings['fetch']>,
+			fetch: codexFetch as unknown as NonNullable<OpenAIProviderSettings['fetch']>,
 		});
 		return forcingStoreFalse(provider.responses(modelId));
 	}

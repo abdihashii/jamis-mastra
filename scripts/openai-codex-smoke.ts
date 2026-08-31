@@ -11,10 +11,7 @@ import process from 'node:process';
 import { codexGenerate, getUsableCredential } from '../src/mastra/gateways/openai-codex-auth.js';
 
 const model = process.argv[2] ?? 'gpt-5.6-terra';
-const { cred, refreshed } = await getUsableCredential();
-if (refreshed) {
-	console.log('Credential was expired; refreshed and the rotated pair is persisted.');
-}
+const cred = await getUsableCredential();
 const reply = await codexGenerate({
 	cred,
 	model,

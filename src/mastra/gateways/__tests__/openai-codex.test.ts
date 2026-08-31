@@ -68,7 +68,7 @@ async function sentBody(): Promise<Record<string, unknown>> {
 }
 
 async function performCodexFetch(body: unknown): Promise<Response> {
-	return await codexFetch()('https://chatgpt.com/backend-api/codex/responses', {
+	return await codexFetch('https://chatgpt.com/backend-api/codex/responses', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', 'authorization': 'Bearer oauth' },
 		body: typeof body === 'string' ? body : JSON.stringify(body),
@@ -195,16 +195,10 @@ describe('codexFetch body rules', () => {
 		expect((await sentBody()).store).toBe(false);
 	});
 
-	test('fills empty instructions with a non-empty fallback', async () => {
+	test('fills empty or missing instructions with a non-empty fallback', async () => {
 		await writeCredential(makeCredential());
 		await performCodexFetch({ model: 'gpt-5.6-terra', input: [], instructions: '' });
-		const sent = await sentBody();
-		expect(typeof sent.instructions).toBe('string');
-		expect((sent.instructions as string).length).toBeGreaterThan(0);
-	});
-
-	test('fills missing instructions the same way', async () => {
-		await writeCredential(makeCredential());
+		expect(typeof (await sentBody()).instructions).toBe('string');
 		await performCodexFetch({ model: 'gpt-5.6-terra', input: [] });
 		const sent = await sentBody();
 		expect(typeof sent.instructions).toBe('string');
@@ -405,8 +399,19 @@ describe('refresh rotation through resolveAuth', () => {
 				earliestRefreshAt: Date.now() + 60 * 60 * 1000,
 			}),
 		);
-		const error = await captureError(() => openAICodexGateway.resolveAuth());
-		expect(error.message).toContain('server-gated');
+		const errors: string[] = [];
+		const originalError = console.error;
+		console.error = (message: string) => {
+			errors.push(message);
+		};
+		try {
+			const error = await captureError(() => openAICodexGateway.resolveAuth());
+			expect(error.message).toBe(MODEL_AUTH_FAILURE);
+			expect(errors.some(e => e.includes('server-gated'))).toBe(true);
+		}
+		finally {
+			console.error = originalError;
+		}
 		expect(fetchCalls.filter(call => call.url.includes('/oauth/token')).length).toBe(0);
 	});
 
@@ -437,8 +442,19 @@ describe('refresh rotation through resolveAuth', () => {
 
 describe('missing credential at fetch time', () => {
 	test('codexFetch fails generically with no network call', async () => {
-		const error = await captureError(() => performCodexFetch({ model: 'gpt-5.6-terra', input: [] }));
-		expect(error.message).toBe(MODEL_AUTH_FAILURE);
+		const errors: string[] = [];
+		const originalError = console.error;
+		console.error = (message: string) => {
+			errors.push(message);
+		};
+		try {
+			const error = await captureError(() => performCodexFetch({ model: 'gpt-5.6-terra', input: [] }));
+			expect(error.message).toBe(MODEL_AUTH_FAILURE);
+			expect(errors.some(e => e.includes('scripts/openai-codex-login.ts'))).toBe(true);
+		}
+		finally {
+			console.error = originalError;
+		}
 		expect(fetchCalls.length).toBe(0);
 	});
 
