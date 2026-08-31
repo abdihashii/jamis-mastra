@@ -1,5 +1,7 @@
 import type { OpenAIProviderSettings } from '@ai-sdk/openai';
+
 import type { GatewayAuthResult, GatewayLanguageModel, ProviderConfig } from '@mastra/core/llm';
+import process from 'node:process';
 /**
  * Custom Mastra model gateway for the `openai-codex/*` namespace: Jamis's
  * OpenAI models resolve through the operator's ChatGPT/Codex subscription
@@ -88,6 +90,23 @@ async function sseResponseAsJson(response: Response): Promise<Response> {
 }
 
 /**
+ * `CODEX_SMOKE_DEBUG=1` prints the response fingerprint so the operator can
+ * confirm requests are served by the chatgpt.com codex backend
+ * (`cf-ray` + `x-openai-proxy-wasm` present, `openai-*` absent) and not by
+ * an api.openai.com API-key path (which would carry `openai-organization`).
+ */
+function debugFingerprint(url: string, response: Response): void {
+	if (!process.env.CODEX_SMOKE_DEBUG)
+		return;
+	console.warn(`[openai-codex] ${url} -> ${response.status} ${JSON.stringify({
+		'cf-ray': response.headers.get('cf-ray'),
+		'x-openai-proxy-wasm': response.headers.get('x-openai-proxy-wasm'),
+		'openai-organization': response.headers.get('openai-organization'),
+		'openai-project': response.headers.get('openai-project'),
+	})}`);
+}
+
+/**
  * The wire-protocol fetch: the live credential is read per request (so
  * rotation and refresh apply mid-flight), OpenAI-style auth headers are
  * replaced with the codex ones, and the undocumented body rules are
@@ -119,6 +138,7 @@ export function codexFetch() {
 			}
 		}
 		const response = await globalThis.fetch(url as RequestInfo | URL, { ...init, headers, body });
+		debugFingerprint(url, response);
 		// The SDK's non-streaming call still gets an SSE stream; translate it.
 		if (!wasStreaming && response.ok && response.body) {
 			return sseResponseAsJson(response);
@@ -183,8 +203,36 @@ export class OpenAICodexGateway extends MastraModelGateway {
 			// Cast: bun's `typeof fetch` carries a `preconnect` member the SDK does not require.
 			fetch: codexFetch() as unknown as NonNullable<OpenAIProviderSettings['fetch']>,
 		});
-		return provider.responses(modelId);
+		return forcingStoreFalse(provider.responses(modelId));
 	}
+}
+
+/**
+ * The backend never persists items, but the SDK's input converter defaults
+ * `store` to true and then replays previous turns as `item_reference` ids,
+ * which 404 on a store-less backend. Forcing the provider option to false
+ * makes the converter send reasoning/text/tool calls by value instead (and
+ * requests `reasoning.encrypted_content`). The wire-level `body rules`
+ * remain the belt to this suspenders for bypassing callers.
+ */
+export function forcingStoreFalse(model: GatewayLanguageModel): GatewayLanguageModel {
+	interface AnyCall { providerOptions?: Record<string, any> }
+	const withStoreFalse = (args: AnyCall): AnyCall => ({
+		...args,
+		providerOptions: {
+			...args.providerOptions,
+			openai: { ...args.providerOptions?.openai, store: false },
+		},
+	});
+	const inner = model as unknown as Record<'doGenerate' | 'doStream', (args: AnyCall) => Promise<unknown>>;
+	const wrapped = Object.create(
+		Object.getPrototypeOf(model),
+		Object.getOwnPropertyDescriptors(model),
+	) as GatewayLanguageModel;
+	const target = wrapped as unknown as Record<'doGenerate' | 'doStream', (args: AnyCall) => Promise<unknown>>;
+	target.doGenerate = args => inner.doGenerate(withStoreFalse(args));
+	target.doStream = args => inner.doStream(withStoreFalse(args));
+	return wrapped;
 }
 
 export const openAICodexGateway = new OpenAICodexGateway();

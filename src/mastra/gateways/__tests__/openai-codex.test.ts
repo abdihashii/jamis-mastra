@@ -1,10 +1,13 @@
+import type { GatewayLanguageModel } from '@mastra/core/llm';
 import type { CodexCredential } from '../openai-codex-auth.js';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'node:path';
-import { codexFetch, MISSING_CREDENTIAL_MESSAGE, openAICodexGateway } from '../openai-codex-gateway.js';
+
+import { defaultCredentialPath } from '../openai-codex-auth.js';
+import { codexFetch, forcingStoreFalse, MISSING_CREDENTIAL_MESSAGE, openAICodexGateway } from '../openai-codex-gateway.js';
 
 /** The credential path is cwd-relative, so each test runs in a temp dir. */
 let tempDir: string;
@@ -222,6 +225,69 @@ describe('codexFetch body rules', () => {
 	});
 });
 
+describe('CODEX_SMOKE_DEBUG fingerprint', () => {
+	function captureWarns(): { warns: string[]; restore: () => void } {
+		const warns: string[] = [];
+		const originalWarn = console.warn;
+		console.warn = (message: string) => {
+			warns.push(message);
+		};
+		return { warns, restore: () => (console.warn = originalWarn) };
+	}
+
+	test('prints the endpoint and discriminating headers when set', async () => {
+		await writeCredential(makeCredential());
+		mockFetch({ generation: () => new Response('{}', { status: 200, headers: { 'cf-ray': 'ray-123', 'x-openai-proxy-wasm': 'v0.1' } }) });
+		const { warns, restore } = captureWarns();
+		process.env.CODEX_SMOKE_DEBUG = '1';
+		try {
+			await performCodexFetch({ model: 'gpt-5.6-terra', input: [], instructions: 'x', stream: true });
+		}
+		finally {
+			delete process.env.CODEX_SMOKE_DEBUG;
+			restore();
+		}
+		expect(warns.length).toBe(1);
+		expect(warns[0]).toContain('https://chatgpt.com/backend-api/codex/responses');
+		expect(warns[0]).toContain('ray-123');
+		expect(warns[0]).toContain('x-openai-proxy-wasm');
+		// Values that must NOT appear when served by the codex backend.
+		expect(warns[0]).not.toContain('openai-organization":"');
+	});
+
+	test('silent by default', async () => {
+		delete process.env.CODEX_SMOKE_DEBUG;
+		await writeCredential(makeCredential());
+		const { warns, restore } = captureWarns();
+		try {
+			await performCodexFetch({ model: 'gpt-5.6-terra', input: [], instructions: 'x', stream: true });
+		}
+		finally {
+			restore();
+		}
+		expect(warns.length).toBe(0);
+	});
+});
+
+describe('credential path resolution', () => {
+	test('resolves from ancestor directories when cwd is nested (mastra dev child cwd)', async () => {
+		await writeCredential(makeCredential());
+		// The dev server runs the built output with cwd at src/mastra/public,
+		// deep inside the repo; the walk-up must find the repo-root credential.
+		const nested = join(tempDir, 'src', 'mastra', 'public');
+		await mkdir(nested, { recursive: true });
+		process.chdir(nested);
+		// realpath: macOS tmpdirs sit behind the /var -> /private/var symlink.
+		expect(realpathSync(defaultCredentialPath())).toBe(realpathSync(join(tempDir, 'data', 'openai-codex-auth.json')));
+		// And the gateway actually resolves auth from there.
+		expect((await openAICodexGateway.resolveAuth())?.bearerToken).toBe('test-access-token');
+	});
+
+	test('falls back to cwd-relative when no ancestor has a credential', () => {
+		expect(defaultCredentialPath()).toBe(join(process.cwd(), 'data', 'openai-codex-auth.json'));
+	});
+});
+
 describe('codexFetch response translation (SDK non-streaming calls)', () => {
 	const messageItem = (text: string) => ({
 		type: 'message',
@@ -360,5 +426,33 @@ describe('missing credential at fetch time', () => {
 			apiKey: 'sentinel',
 		});
 		expect(model).toBeDefined();
+	});
+});
+
+describe('store:false forcing on the resolved language model', () => {
+	test('doGenerate and doStream serialize with providerOptions.openai.store false', async () => {
+		const calls: Array<Record<string, unknown>> = [];
+		const fake = {
+			doGenerate: async (args: Record<string, unknown>) => {
+				calls.push(args);
+				return {} as never;
+			},
+			doStream: async (args: Record<string, unknown>) => {
+				calls.push(args);
+				return {} as never;
+			},
+		} as unknown as GatewayLanguageModel;
+		const wrapped = forcingStoreFalse(fake);
+		await wrapped.doGenerate?.({ prompt: [] } as never);
+		await wrapped.doStream?.({ prompt: [], providerOptions: { openai: { store: true } } } as never);
+		expect((calls[0]!.providerOptions as any).openai.store).toBe(false);
+		expect((calls[1]!.providerOptions as any).openai.store).toBe(false);
+	});
+
+	test('resolveLanguageModel returns the wrapped provider model', async () => {
+		await writeCredential(makeCredential());
+		const model = await openAICodexGateway.resolveLanguageModel({ apiKey: '', modelId: 'gpt-5.6-terra', providerId: 'openai-codex' });
+		expect(Object.hasOwn(model, 'doGenerate')).toBe(true);
+		expect(Object.hasOwn(model, 'doStream')).toBe(true);
 	});
 });

@@ -11,9 +11,12 @@
  * and truncated server text only.
  */
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
+
+;
 
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const ISSUER = 'https://auth.openai.com';
@@ -43,7 +46,24 @@ export interface CodexCredential {
 }
 
 export function defaultCredentialPath(): string {
-	return join(process.cwd(), 'data', 'openai-codex-auth.json');
+	const cwd = process.cwd();
+	const candidate = (dir: string) => join(dir, 'data', 'openai-codex-auth.json');
+	if (existsSync(candidate(cwd)))
+		return candidate(cwd);
+	// `mastra dev` serves API requests from the bundler output with cwd inside
+	// the repo (src/mastra/public), so the walk-up finds the repo-root data dir.
+	// ponytail: bounded ancestor walk (6 levels), no .git/package.json anchors —
+	// add an env override only if some deployment needs it.
+	let dir = cwd;
+	for (let i = 0; i < 6; i++) {
+		const parent = dirname(dir);
+		if (parent === dir)
+			break;
+		dir = parent;
+		if (existsSync(candidate(dir)))
+			return candidate(dir);
+	}
+	return candidate(cwd);
 }
 
 export async function loadCredential(path: string = defaultCredentialPath()): Promise<CodexCredential | null> {

@@ -22,7 +22,7 @@ export const researchAgent = new Agent({
         - Return at most three sources. Use a concise evidence memo with an Evidence status, supported findings mapped to [1]-style source markers, and a Sources list of source titles and raw URLs.
         - When the available evidence is insufficient, return only: "Evidence status: insufficient. I could not verify the requested factual answer." Do not infer that a fact is false, fictional, or absent merely because search results or a page omit it. Do not include a factual finding, citation, or rejected lead. Do not fill gaps with model knowledge or unsupported inference.
 `,
-	model: 'openai/gpt-5.6-terra',
+	model: 'openai-codex/gpt-5.6-terra',
 	tools: { firecrawlSearch, firecrawlScrape },
 	defaultOptions: {
 		maxSteps: 5,
