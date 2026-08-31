@@ -156,13 +156,15 @@ Verification surfaced four defects, all fixed with tests: (1) the dev server chi
 
 **Proposed commits.** `build: mount Codex credential in the prod app`, then `docs: record Codex gateway rollout`
 
-**Production verification 2026-08-31 UTC evening (09-01 UTC).** Complete, against the box deployed from `JAM-48-codex-gateway` at `0c888bd`, then redeployed at `9d2061a` for the error-display change below. The `./data:/app/data` mount verified live (`docker inspect`: `/root/jamis-mastra/data -> /app/data`); app user confirmed `uid=1000(bun)`; `data/` created `0700` owner 1000. Device login ran on the box through the exact oven/bun invocation from Stage 2 — token endpoint returned all fields (`expires_in=864000`, `earliest_refresh_at` present), credential saved `0600` uid 1000 and visible inside the container at `/app/data`. VPS smoke: `gpt-5.6-terra: ok`. `OPENAI_API_KEY` removed from `.env.prod` (grep count 0), app recreated on the key-less env (`up -d`, container `env` count 0), booted clean with the Sendblue adapter up.
+**Production verification 2026-09-01 UTC.** Complete, against the box deployed from `JAM-48-codex-gateway` at `0c888bd`, then redeployed at `9d2061a` for the error-display change below. The `./data:/app/data` mount verified live (`docker inspect`: `/root/jamis-mastra/data -> /app/data`); app user confirmed `uid=1000(bun)`; `data/` created `0700` owner 1000. Device login ran on the box through the exact oven/bun invocation from Stage 2 — token endpoint returned all fields (`expires_in=864000`, `earliest_refresh_at` present), credential saved `0600` uid 1000 and visible inside the container at `/app/data`. VPS smoke: `gpt-5.6-terra: ok`. `OPENAI_API_KEY` removed from `.env.prod` (grep count 0), app recreated on the key-less env (`up -d`, container `env` count 0), booted clean with the Sendblue adapter up.
 
-Real Sendblue traffic answered correctly through the subscription: one ordinary turn ("Blue") and one research run (latest stable Bun, citation contract intact). ClickHouse trace audit: all llm spans on `openai-codex/gpt-5.6-terra` (plus the expected fireworks deepseek rows for the research agent's observational memory), 0 spans containing `Bearer `/`Authorization`/`refresh_token`/`ChatGPT-Account-ID`/`openai-codex-auth.json`, and 0 spans containing the account id (36-char needle). Audit lesson recorded twice now: an empty needle matches every row (`position(attributes, '') = 1`) — always assert the needle length first. Postgres audit over `mastra_messages`: 0 matches for refresh token, credential path, or account id, and the only two `Bearer ` matches are the literal placeholder string `Bearer token` inside a config snippet in two ordinary 21:14–21:15 assistant replies — no credential material. Postgres/ClickHouse audits were run read-only over a one-time operator ssh grant.
+Real Sendblue traffic answered correctly through the subscription: one ordinary turn ("Blue") and one research run (latest stable Bun, citation contract intact). ClickHouse trace audit: all llm spans on `openai-codex/gpt-5.6-terra` (plus the expected fireworks deepseek rows for the research agent's observational memory), 0 spans containing `Bearer `/`Authorization`/`refresh_token`/`ChatGPT-Account-ID`/`openai-codex-auth.json`, and 0 spans containing the account id (36-char needle). Audit lesson recorded twice now: an empty needle matches every row (`position(attributes, '') = 1`) — always assert the needle length first. Postgres audit over `mastra_messages`: 0 matches for refresh token, credential path, or account id, and the only two `Bearer ` matches are the literal placeholder string `Bearer token` inside a config snippet in two ordinary assistant replies (box-local 21:14–21:15) — no credential material. Postgres/ClickHouse audits were run read-only over a one-time operator ssh grant.
 
 Failure-mode proof: with the credential moved out of the mount, a real iMessage returned the loud error and no OpenAI traffic ran; server logs showed the `[openai-codex]` recovery line (twice — pRetry, documented); moving the credential back restored normal answers on the next message. Operator-requested change during rollout: thrown model-auth errors now render generically over iMessage (`Model authentication failed. The error was logged.` — `MODEL_AUTH_FAILURE` in openai-codex-auth.ts) with the actionable recovery detail in server logs only; shipped as `fix: generic model-auth error over the channel` (`9d2061a`) and re-proved live on the box after redeploy.
 
 Deviations, same rationale both times: a fresh device-flow grant adds no coverage the box login has not already proven, so the failure-mode proof restored the same credential with `mv` instead of `rm` + re-login (mirroring the Stage 2 Docker-login deviation).
+
+Final gate 2026-09-01 UTC: `bun run typecheck`, `bun run lint`, `bun run build`, `bun test` (30 across 2 files), `git diff --check` — all pass.
 
 ## Acceptance
 
@@ -172,7 +174,7 @@ Deviations, same rationale both times: a fresh device-flow grant adds no coverag
 | 2 | The smoke script performs one real `gpt-5.6-terra` generation at `max` effort through the codex backend with the header and body rules applied |
 | 3 | Jamis and `researchAgent` use `openai-codex/gpt-5.6-terra`; weather, memory, and channel paths are unchanged |
 | 4 | With the credential present, auth resolves through OAuth; refreshes persist the rotated pair before use |
-| 5 | Without the credential, model resolution fails with a clear re-login error; no OpenAI traffic runs under any other credential |
+| 5 | Without the credential, model resolution fails loud — generic text over the channel, recovery detail in server logs; no OpenAI traffic runs under any other credential |
 | 6 | A failed request-time refresh produces a visible error through the channel error path |
 | 7 | No token or credential value appears in Git, logs, Postgres, or ClickHouse; spans expose only gateway id and name |
 | 8 | `bun test` covers header injection, body rules, refresh rotation, and the missing-credential error; the placeholder test script is replaced |
@@ -186,7 +188,7 @@ Deviations, same rationale both times: a fresh device-flow grant adds no coverag
 - Other subscription providers, multi-account support, or an account-switching mechanism
 - Old-gen gpt-5.x to `-codex` variant remapping; revisit with any future model change
 - `@mastra/code-sdk`, the `ai` package, or any middleware framework beyond the gateway's custom fetch
-- Changes to `.env` templates, model selection mechanics, or the fireworks-based weather and observational models
+- Changes to `.env` templates beyond removing the OpenAI entry, model selection mechanics, or the fireworks-based weather and observational models
 - An OpenAI API-key fallback path; rejected by the operator for a single-credential auth surface
 - Encryption-at-rest beyond the `0600` file and private-ops disk boundaries
 
