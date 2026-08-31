@@ -15,6 +15,7 @@
 		"lint:fix": "bun run --bun eslint --fix"
 	},
 	"dependencies": {
+		"@ai-sdk/openai": "3.0.88",
 		"@mastra/clickhouse": "1.15.2",
 		"@mastra/core": "1.61.0",
 		"@mastra/memory": "1.27.0",
