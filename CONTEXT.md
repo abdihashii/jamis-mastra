@@ -17,6 +17,14 @@ An internal agent that accepts bounded delegated work from Jamis. Jamis owns the
 Jamis's capability to discover relevant public webpages from a question, read selected pages, and use what it finds to answer the operator with source URLs. It excludes whole-site crawling and interactive browser work.
 _Avoid_: web browsing, web search
 
+**Personal-accounts agent**:
+The internal subagent that owns tool integrations with the operator's personal accounts (first: Gmail over the Google API). Jamis delegates personal-account requests to it; its result is evidence for Jamis's final reply, not a channel reply itself. One delegation boundary for the whole personal-account class, not one subagent per account provider.
+_Avoid_: email agent, gmail subagent, google agent
+
+**Google credential**:
+The operator's Google OAuth desktop-app credential (access and refresh tokens, expiry) stored in a 0600 gitignored JSON file in `data/`. Captured headless by a `login:google` script over SSH using a loopback redirect reached through `ssh -L`; a missing or dead credential is a hard failure until re-login, with no fallback. Gmail-scoped refresh tokens die if the operator changes their Google account password. See [ADR 0015](docs/adrs/0015-personal-accounts-agent.md).
+_Avoid_: Google API key, Gmail login
+
 **Verification-required claim**:
 An external claim about current or changeable facts, numbers, dates, quotes, named-person or organization status, product or API behavior, high-stakes matters, or a recommendation that depends on such facts. Jamis states it only when supported by evidence; otherwise, Jamis says it could not verify enough to give a factual answer.
 _Avoid_: uncertain claim
