@@ -7,7 +7,7 @@
 	"license": "ISC",
 	"keywords": [],
 	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1",
+		"test": "bun test",
 		"dev": "bun run --bun mastra dev",
 		"build": "bun run --bun mastra build --studio",
 		"typecheck": "bun run --bun tsc --noEmit",

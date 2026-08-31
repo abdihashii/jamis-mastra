@@ -355,7 +355,9 @@ const FALLBACK_INSTRUCTIONS = 'You are Jamis, a personal agent. Be concise.';
 
 /** The undocumented backend rejects `store` and empty `instructions`, and `temperature` together with `topP`. */
 export function applyCodexBodyRules(body: Record<string, unknown>): Record<string, unknown> {
-	const next: Record<string, unknown> = { ...body, store: false };
+	// `stream: true` is unconditional: the backend rejects non-streaming
+	// requests with 400 "Stream must be set to true".
+	const next: Record<string, unknown> = { ...body, store: false, stream: true };
 	if (typeof next.instructions !== 'string' || next.instructions.length === 0) {
 		next.instructions = FALLBACK_INSTRUCTIONS;
 	}
