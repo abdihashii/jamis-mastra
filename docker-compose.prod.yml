@@ -31,6 +31,12 @@ services:
     # takes PID 1 and forwards the signal. Measured: 8s and exit 137 without it,
     # 0.2s and exit 143 with it.
     init: true
+    # Codex subscription credential for the openai-codex gateway. The resolver
+    # checks /app/data first, so the mount lands where the app looks. The
+    # login/smoke scripts are not in the image (only src/ is copied); they run
+    # through the oven/bun Docker invocation from the plan, mounting the repo.
+    volumes:
+      - ./data:/app/data
     restart: unless-stopped
     logging:
       driver: json-file

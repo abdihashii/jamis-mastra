@@ -41,6 +41,10 @@ _Avoid_: admin user, deploy user
 A messaging platform the operator reaches an agent through, instead of Studio. iMessage over Sendblue is the first one.
 _Avoid_: integration, connector, bridge
 
+**Codex credential**:
+The operator's ChatGPT/Codex subscription OAuth credential (access and refresh tokens, expiry, account id) stored in a 0600 JSON file and used by the `openai-codex` gateway. A missing credential is a hard failure until re-login; there is no API-key fallback. See [ADR 0014](docs/adrs/0014-openai-codex-model-auth.md).
+_Avoid_: API key, ChatGPT login
+
 **Trace export boundary**:
 Channel render context and adapter configuration are runtime-only and must never be exported in traces. Channel credentials must never enter exported records. See [ADR 0013](docs/adrs/0013-channel-render-context-trace-boundary.md).
 _Avoid_: trace context (ambiguous)

@@ -31,7 +31,7 @@ export const jamis = new Agent({
        - Follow weatherAgent's existing response contract for weather-only answers. When an answer also contains Firecrawl-researched claims, follow both the weather and citation contracts.
        - Do not narrate routing, tool calls, or internal agent names unless the operator asks.
 `,
-	model: 'openai/gpt-5.6-terra',
+	model: 'openai-codex/gpt-5.6-terra',
 	agents: { weatherAgent, researchAgent },
 	memory: new Memory({
 		options: {

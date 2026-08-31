@@ -12,10 +12,12 @@ import { PostgresStore } from '@mastra/pg';
 
 import { jamis } from './agents/jamis';
 import { requireEnv } from './env';
+import { openAICodexGateway } from './gateways/openai-codex-gateway.js';
 import { redactChannelRenderContext } from './observability';
 
 export const mastra = new Mastra({
 	agents: { jamis },
+	gateways: { 'openai-codex': openAICodexGateway },
 	server: {
 		// One token, one operator. SimpleAuth checks Authorization and
 		// X-Playground-Access by default, so Studio authenticates with an
