@@ -1,6 +1,6 @@
 # 009: Jamis model auth through the Codex subscription
 
-Status: **Stages 1–5 complete 2026-09-01 UTC; not yet merged to main; production live on the JAM-48-codex-gateway branch.**
+Status: **Complete. All stages delivered; squash-merged to main as `5c48ff0` (PR [#20](https://github.com/abdihashii/jamis-mastra/pull/20)); production live.**
 
 Planned from `main` at `d7a8c89`.
 
@@ -165,6 +165,8 @@ Failure-mode proof: with the credential moved out of the mount, a real iMessage 
 Deviations, same rationale both times: a fresh device-flow grant adds no coverage the box login has not already proven, so the failure-mode proof restored the same credential with `mv` instead of `rm` + re-login (mirroring the Stage 2 Docker-login deviation).
 
 Final gate 2026-09-01 UTC: `bun run typecheck`, `bun run lint`, `bun run build`, `bun test` (30 across 2 files), `git diff --check` — all pass.
+
+Merge and production SHA: squash-merged to main as `5c48ff0` (PR #20, with the pre-merge review fixes `ab0abb7`–`62ab271` folded in — the server-gated refresh refusal also routes through the generic channel error, and the `.dockerignore` keeps the credential out of build contexts). The box was redeployed from main at `5c48ff0` on 2026-09-01 UTC and answered a real Sendblue confirmation normally. The per-stage SHAs cited above live on the `JAM-48-codex-gateway` branch (kept for provenance; deleting it orphans them from main's squashed history).
 
 ## Acceptance
 
