@@ -211,9 +211,9 @@ export async function refreshCredential(
 ): Promise<CodexCredential> {
 	// Refreshing before the server-declared window invalidates the refresh token — refuse instead.
 	if (cred.earliestRefreshAt && Date.now() < cred.earliestRefreshAt - CLOCK_SKEW_MS) {
-		throw new Error(
-			`Codex credential refresh is server-gated until ${new Date(cred.earliestRefreshAt).toISOString()}; the access token is valid until ${new Date(cred.expiresAt).toISOString()}.`,
-		);
+		/* Thrown errors reach the operator's phone; keep specifics in logs. */
+		console.error(`[openai-codex] Credential refresh is server-gated until ${new Date(cred.earliestRefreshAt).toISOString()}; the access token is valid until ${new Date(cred.expiresAt).toISOString()}.`);
+		throw new Error(MODEL_AUTH_FAILURE);
 	}
 	if (!refreshInFlight) {
 		refreshInFlight = (async () => {
@@ -246,16 +246,16 @@ export async function refreshCredential(
 /** Load the credential, refreshing (and persisting rotation) when near expiry. */
 export async function getUsableCredential(
 	path: string = defaultCredentialPath(),
-): Promise<{ cred: CodexCredential; refreshed: boolean }> {
+): Promise<CodexCredential> {
 	const cred = await loadCredential(path);
 	if (!cred) {
 		console.error('[openai-codex] No Codex credential. Log in with `bun scripts/openai-codex-login.ts`.');
 		throw new Error(MODEL_AUTH_FAILURE);
 	}
 	if (isExpiring(cred)) {
-		return { cred: await refreshCredential(cred, path), refreshed: true };
+		return refreshCredential(cred, path);
 	}
-	return { cred, refreshed: false };
+	return cred;
 }
 
 export interface DeviceLoginPending {
@@ -413,7 +413,6 @@ export async function codexGenerate(options: {
 				// The backend rejects a string input: it must be a Responses API message list.
 				input: [{ role: 'user', content: [{ type: 'input_text', text: options.prompt }] }],
 				...(options.effort ? { reasoning: { effort: options.effort } } : {}),
-				stream: true,
 			}),
 		),
 		signal: options.signal,
