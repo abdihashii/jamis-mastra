@@ -16,7 +16,8 @@ export async function fetchJson(url: string, signal?: AbortSignal): Promise<{ ok
 		if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
 			throw error;
 		}
-		const host = new URL(url).host;
-		throw new Error(`Request to ${host} failed: ${error instanceof Error ? error.message : error}`);
+		// ponytail: server-side detail only; the thrown class stays provider-free
+		console.error(`[fetch] ${new URL(url).host} unreachable:`, error);
+		throw new Error('Service unreachable.');
 	}
 }

@@ -50,7 +50,7 @@ test('rethrows aborts instead of masking them', async () => {
 	}
 });
 
-test('wraps connection failures with the host name', async () => {
+test('wraps connection failures as a class, detail to the server log', async () => {
 	const { port } = server;
 	await server.stop(true);
 	try {
@@ -58,6 +58,6 @@ test('wraps connection failures with the host name', async () => {
 		expect.unreachable();
 	}
 	catch (error) {
-		expect((error as Error).message).toContain(`localhost:${port}`);
+		expect((error as Error).message).toBe('Service unreachable.');
 	}
 });

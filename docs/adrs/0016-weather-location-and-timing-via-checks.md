@@ -10,7 +10,7 @@ Jamis answers weather over iMessage. The channel metadata carries no place and n
 
 - No operator-location state exists in code, env, or memory. Unclear or missing place in a weather request → the weather agent checks the operator in plain text, then proceeds.
 - `jamis` delegates every weather-shaped request — current conditions or forecasts — to weatherAgent in one rule, and no longer screens for location itself. The screening bullet's removal means the check contract lives in exactly one place; the change additionally routes forecast questions onto the weather path (before this, they routed to the research agent and never reached `forecastTool` over the channel).
-- `forecastTool` resolves relative dates itself: input is an optional YYYY-MM-DD `date` or an optional `weekday` name (exactly one required). A weekday resolves to its nearest upcoming occurrence **inclusive of today** in the destination zone: `(targetDow − todayDow + 7) % 7`, computed and unit-tested in `src/lib/time.ts`.
+- `forecastTool` resolves relative dates itself: input is an optional YYYY-MM-DD `date` or an optional `day` name (exactly one required). A day name resolves to its nearest upcoming occurrence **inclusive of today** in the destination zone: `(targetDow − todayDow + 7) % 7`, computed and unit-tested in `src/lib/time.ts`.
 - The weather agent's instructions carry one injected fact — today's UTC date — as a floor for count phrasings ("in 3 days") that are not weekday names. Wording that leaves the operator's intended day materially ambiguous (user traveling across zones, "Saturday" said near midnight) triggers a check first, per the ask-instead-of-guess rule already in the glossary.
 
 ## Alternatives not taken

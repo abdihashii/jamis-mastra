@@ -29,7 +29,9 @@ export const weatherAgent = new Agent({
         ("New York, NY" -> "New York").
       - Tie advice (clothing, walks) to feelsLike, precipitation, and wind rather than raw temperature.
       - If a tool errors: "not found" → ask for a clearer city, state, or country;
-        "unreachable" or "failed" → say the weather service is having trouble and to try again later.
+        "authentication failed" → say the weather service key needs the operator's attention;
+        anything else ("rate-limited", "unreachable", "failed", "unusable") → say the weather
+        service is having trouble and to try again later.
 `,
 	model: 'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
 	tools: { weatherTool, forecastTool },

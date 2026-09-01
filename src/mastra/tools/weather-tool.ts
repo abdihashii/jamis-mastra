@@ -33,7 +33,7 @@ interface CurrentWeatherConditions {
 	precipitationMmPerHour?: number;
 	windMph: number;
 	gustMph?: number;
-	visibilityMiles: number;
+	visibilityMiles?: number;
 	humidityPercent: number;
 	sunrise: string;
 	sunset: string;
@@ -96,12 +96,18 @@ interface ForecastSummary {
 	humidityPercent: number;
 }
 
-function statusHint(status: number): string {
+function serviceError(action: string, status: number): Error {
+	console.error(`[weather-tool] ${action} failed with status ${status}`);
 	if (status === 401)
-		return ' - check OPEN_WEATHER_API_KEY';
+		return new Error('Weather service authentication failed.');
 	if (status === 429)
-		return ' - rate limited, try again later';
-	return '';
+		return new Error('Weather service is rate-limited. Try again later.');
+	return new Error('Weather service request failed.');
+}
+
+function unusableData(action: string): Error {
+	console.error(`[weather-tool] ${action} returned unusable data`);
+	return new Error('Weather service returned unusable data.');
 }
 
 async function geocode(location: string, signal?: AbortSignal): Promise<GeoResult> {
@@ -109,7 +115,7 @@ async function geocode(location: string, signal?: AbortSignal): Promise<GeoResul
 	const res = await fetchJson(url, signal);
 
 	if (!res.ok) {
-		throw new Error(`Geocoding request for "${location}" failed (${res.status})${statusHint(res.status)}.`);
+		throw serviceError(`geocoding for "${location}"`, res.status);
 	}
 	if (!Array.isArray(res.json) || res.json.length === 0) {
 		throw new Error(`Location "${location}" not found. Try "City" or "City, CC".`);
@@ -124,11 +130,17 @@ export async function getCurrentWeather(location: string, signal?: AbortSignal):
 	const url = `${openWeatherBaseUrl}/data/2.5/weather?lat=${geo.lat}&lon=${geo.lon}&units=imperial&appid=${openWeatherApiKey}`;
 	const res = await fetchJson(url, signal);
 
-	if (!res.ok || !(res.json as CurrentWeatherResult | null)?.main) {
-		throw new Error(`Weather request for "${location}" failed (${res.status})${statusHint(res.status)}.`);
+	if (!res.ok) {
+		throw serviceError(`current weather for "${location}"`, res.status);
 	}
 
-	const w = res.json as CurrentWeatherResult;
+	const w = res.json as CurrentWeatherResult | null;
+	if (!w?.main) {
+		throw unusableData(`current weather for "${location}"`);
+	}
+
+	const rain1h = w.rain?.['1h'] ?? 0;
+	const snow1h = w.snow?.['1h'] ?? 0;
 
 	return {
 		location: geo.state ? `${geo.name}, ${geo.state}` : geo.name,
@@ -138,10 +150,10 @@ export async function getCurrentWeather(location: string, signal?: AbortSignal):
 		feelsLike: Math.round(w.main.feels_like),
 		condition: w.weather[0]?.description ?? 'unknown',
 		isDay: (w.weather[0]?.icon ?? '').endsWith('d'),
-		precipitationMmPerHour: w.rain?.['1h'] ?? w.snow?.['1h'],
+		precipitationMmPerHour: rain1h + snow1h > 0 ? rain1h + snow1h : undefined,
 		windMph: Math.round(w.wind.speed),
 		gustMph: w.wind.gust !== undefined ? Math.round(w.wind.gust) : undefined,
-		visibilityMiles: Math.round(w.visibility / 1609),
+		visibilityMiles: w.visibility !== undefined ? Math.round(w.visibility / 1609) : undefined,
 		humidityPercent: w.main.humidity,
 		sunrise: localTime(w.sys.sunrise, w.timezone),
 		sunset: localTime(w.sys.sunset, w.timezone),
@@ -156,21 +168,25 @@ export async function getForecast(
 	if ((ref.date === undefined) === (ref.day === undefined)) {
 		throw new Error('Pass exactly one of date ("YYYY-MM-DD") or day ("saturday").');
 	}
-	if (ref.date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(ref.date)) {
-		throw new Error(`date must be YYYY-MM-DD, got "${ref.date}".`);
+	if (ref.date !== undefined && (!/^\d{4}-\d{2}-\d{2}$/.test(ref.date) || Number.isNaN(Date.parse(ref.date)))) {
+		throw new Error(`Invalid date "${ref.date}". Use a real calendar date as YYYY-MM-DD.`);
 	}
 
 	const geo = await geocode(location, signal);
 	const url = `${openWeatherBaseUrl}/data/2.5/forecast?lat=${geo.lat}&lon=${geo.lon}&units=imperial&appid=${openWeatherApiKey}`;
 	const res = await fetchJson(url, signal);
 
-	if (!res.ok || !Array.isArray((res.json as ForecastResult | null)?.list)) {
-		throw new Error(`Forecast request for "${location}" failed (${res.status})${statusHint(res.status)}.`);
+	if (!res.ok) {
+		throw serviceError(`forecast for "${location}"`, res.status);
 	}
 
-	const data = res.json as ForecastResult;
-	const { list } = data;
-	const tz = data.city.timezone;
+	const data = res.json as ForecastResult | null;
+	if (!Array.isArray(data?.list) || typeof (data as ForecastResult).city?.timezone !== 'number') {
+		throw unusableData(`forecast for "${location}"`);
+	}
+
+	const { list } = data as ForecastResult;
+	const tz = (data as ForecastResult).city.timezone;
 	const date = ref.date ?? nextWeekdayDate(ref.day!, tz);
 	const entries = list.filter(e => localDate(e.dt, tz) === date);
 
@@ -219,7 +235,7 @@ export const weatherTool = createTool({
 		precipitationMmPerHour: z.number().optional(),
 		windMph: z.number(),
 		gustMph: z.number().optional(),
-		visibilityMiles: z.number(),
+	visibilityMiles: z.number().optional(),
 		humidityPercent: z.number(),
 		sunrise: z.string(),
 		sunset: z.string(),
