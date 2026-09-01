@@ -2,6 +2,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
 import { fetchJson } from '../../lib/fetch';
+import { geocodeQueries, zipQuery } from '../../lib/geocode';
 import { localDate, localTime, nextDayDate } from '../../lib/time';
 import { requireEnv } from '../env';
 
@@ -15,6 +16,14 @@ interface GeoResult {
 	lat: number;
 	lon: number;
 }
+
+export interface LatLon {
+	lat: number;
+	lon: number;
+}
+
+/** A place to fetch weather for: a query string ("Mundelein, IL", "60060") or coordinates. */
+export type Where = string | LatLon;
 
 interface Weather {
 	main: string;
@@ -40,6 +49,7 @@ interface CurrentWeatherConditions {
 }
 
 interface CurrentWeatherResult {
+	name?: string;
 	main: {
 		temp: number;
 		feels_like: number;
@@ -80,7 +90,7 @@ interface ForecastEntry {
 
 interface ForecastResult {
 	list: ForecastEntry[];
-	city: { timezone: number };
+	city: { timezone: number; name?: string; };
 }
 
 interface ForecastSummary {
@@ -111,40 +121,58 @@ function unusableData(action: string): Error {
 }
 
 async function geocode(location: string, signal?: AbortSignal): Promise<GeoResult> {
-	const url = `${openWeatherBaseUrl}/geo/1.0/direct?q=${encodeURIComponent(location)}&limit=1&appid=${openWeatherApiKey}`;
-	const res = await fetchJson(url, signal);
-
-	if (!res.ok) {
-		throw serviceError(`geocoding for "${location}"`, res.status);
+	const zip = zipQuery(location);
+	if (zip) {
+		const res = await fetchJson(`${openWeatherBaseUrl}/geo/1.0/zip?zip=${zip.zip},${zip.country}&appid=${openWeatherApiKey}`, signal);
+		if (!res.ok) {
+			throw serviceError(`zip geocoding for "${location}"`, res.status);
+		}
+		const z = res.json as Partial<GeoResult> | null;
+		if (z && typeof z.lat === 'number' && typeof z.lon === 'number') {
+			return { name: z.name ?? zip.zip, state: z.state, country: z.country ?? zip.country, lat: z.lat, lon: z.lon };
+		}
+		throw new Error(`Location "${location}" not found. Try a city, "City, CC", a ZIP, or coordinates.`);
 	}
-	if (!Array.isArray(res.json) || res.json.length === 0) {
-		throw new Error(`Location "${location}" not found. Try "City" or "City, CC".`);
+
+	for (const q of geocodeQueries(location)) {
+		const url = `${openWeatherBaseUrl}/geo/1.0/direct?q=${encodeURIComponent(q)}&limit=1&appid=${openWeatherApiKey}`;
+		const res = await fetchJson(url, signal);
+		if (!res.ok) {
+			throw serviceError(`geocoding for "${location}"`, res.status);
+		}
+		if (Array.isArray(res.json) && res.json.length > 0) {
+			const { name, state, country, lat, lon } = res.json[0];
+			return { name, state, country, lat, lon };
+		}
 	}
 
-	const { name, state, country, lat, lon } = res.json[0];
-	return { name, state, country, lat, lon };
+	throw new Error(`Location "${location}" not found. Try a city, "City, CC", a ZIP, or coordinates.`);
 }
 
-export async function getCurrentWeather(location: string, signal?: AbortSignal): Promise<CurrentWeatherConditions> {
-	const geo = await geocode(location, signal);
-	const url = `${openWeatherBaseUrl}/data/2.5/weather?lat=${geo.lat}&lon=${geo.lon}&units=imperial&appid=${openWeatherApiKey}`;
+export async function getCurrentWeather(where: Where, signal?: AbortSignal): Promise<CurrentWeatherConditions> {
+	const label = typeof where === 'string' ? where : `${where.lat},${where.lon}`;
+	const fromText = typeof where === 'string' ? await geocode(where, signal) : null;
+	const { lat, lon } = fromText ?? (where as LatLon);
+	const url = `${openWeatherBaseUrl}/data/2.5/weather?lat=${lat}&lon=${lon}&units=imperial&appid=${openWeatherApiKey}`;
 	const res = await fetchJson(url, signal);
 
 	if (!res.ok) {
-		throw serviceError(`current weather for "${location}"`, res.status);
+		throw serviceError(`current weather for "${label}"`, res.status);
 	}
 
 	const w = res.json as CurrentWeatherResult | null;
 	if (!w?.main) {
-		throw unusableData(`current weather for "${location}"`);
+		throw unusableData(`current weather for "${label}"`);
 	}
 
 	const rain1h = w.rain?.['1h'] ?? 0;
 	const snow1h = w.snow?.['1h'] ?? 0;
 
 	return {
-		location: geo.state ? `${geo.name}, ${geo.state}` : geo.name,
-		country: geo.country,
+		location: fromText
+			? (fromText.state ? `${fromText.name}, ${fromText.state}` : fromText.name)
+			: (w.name?.trim() || `${lat.toFixed(2)}, ${lon.toFixed(2)}`),
+		country: fromText?.country ?? w.sys?.country ?? '',
 		localTime: localTime(w.dt, w.timezone),
 		temperature: Math.round(w.main.temp),
 		feelsLike: Math.round(w.main.feels_like),
@@ -161,7 +189,7 @@ export async function getCurrentWeather(location: string, signal?: AbortSignal):
 }
 
 export async function getForecast(
-	location: string,
+	where: Where,
 	ref: { date?: string; day?: string },
 	signal?: AbortSignal,
 ): Promise<ForecastSummary> {
@@ -172,17 +200,19 @@ export async function getForecast(
 		throw new Error(`Invalid date "${ref.date}". Use a real calendar date as YYYY-MM-DD.`);
 	}
 
-	const geo = await geocode(location, signal);
-	const url = `${openWeatherBaseUrl}/data/2.5/forecast?lat=${geo.lat}&lon=${geo.lon}&units=imperial&appid=${openWeatherApiKey}`;
+	const label = typeof where === 'string' ? where : `${where.lat},${where.lon}`;
+	const fromText = typeof where === 'string' ? await geocode(where, signal) : null;
+	const { lat, lon } = fromText ?? (where as LatLon);
+	const url = `${openWeatherBaseUrl}/data/2.5/forecast?lat=${lat}&lon=${lon}&units=imperial&appid=${openWeatherApiKey}`;
 	const res = await fetchJson(url, signal);
 
 	if (!res.ok) {
-		throw serviceError(`forecast for "${location}"`, res.status);
+		throw serviceError(`forecast for "${label}"`, res.status);
 	}
 
 	const data = res.json as ForecastResult | null;
 	if (!Array.isArray(data?.list) || typeof (data as ForecastResult).city?.timezone !== 'number') {
-		throw unusableData(`forecast for "${location}"`);
+		throw unusableData(`forecast for "${label}"`);
 	}
 
 	const { list } = data as ForecastResult;
@@ -203,7 +233,9 @@ export async function getForecast(
 	const precipitationMm = entries.reduce((sum, e) => sum + (e.rain?.['3h'] ?? 0) + (e.snow?.['3h'] ?? 0), 0);
 
 	return {
-		location: geo.state ? `${geo.name}, ${geo.state}` : geo.name,
+		location: fromText
+			? (fromText.state ? `${fromText.name}, ${fromText.state}` : fromText.name)
+			: (data.city.name?.trim() || `${lat.toFixed(2)}, ${lon.toFixed(2)}`),
 		date,
 		high: Math.round(Math.max(...entries.map(e => e.main.temp_max))),
 		low: Math.round(Math.min(...entries.map(e => e.main.temp_min))),
@@ -216,13 +248,25 @@ export async function getForecast(
 	};
 }
 
+function toWhere(location: string | undefined, lat: number | undefined, lon: number | undefined): Where {
+	if (location !== undefined && (lat !== undefined || lon !== undefined)) {
+		throw new Error('Pass either location or lat/lon, not both.');
+	}
+	if (location === undefined && (lat === undefined || lon === undefined)) {
+		throw new Error('Pass a location string, or both lat and lon.');
+	}
+	return location ?? { lat: lat!, lon: lon! };
+}
+
 export const weatherTool = createTool({
 	id: 'weather-tool',
 	description:
     'Current weather conditions for a location. '
     + 'Use for "now" questions like "what\'s the weather" or "is it safe to walk outside".',
 	inputSchema: z.object({
-		location: z.string().describe('City name, e.g. "Chicago" or "Paris, FR"'),
+		location: z.string().optional().describe('City name, e.g. "Chicago" or "Paris, FR"'),
+		lat: z.number().min(-90).max(90).optional().describe('Latitude, when the operator gives coordinates'),
+		lon: z.number().min(-180).max(180).optional().describe('Longitude, when the operator gives coordinates'),
 	}),
 	outputSchema: z.object({
 		location: z.string(),
@@ -240,8 +284,8 @@ export const weatherTool = createTool({
 		sunrise: z.string(),
 		sunset: z.string(),
 	}),
-	execute: async ({ location }, { abortSignal }) => {
-		return await getCurrentWeather(location, abortSignal ?? undefined);
+	execute: async ({ location, lat, lon }, { abortSignal }) => {
+		return await getCurrentWeather(toWhere(location, lat, lon), abortSignal ?? undefined);
 	},
 });
 
@@ -252,7 +296,9 @@ export const forecastTool = createTool({
     + 'Use for questions like "what should we wear to the zoo on Saturday". '
     + 'Prefer day for day-name phrasing ("Saturday") and date for absolute references.',
 	inputSchema: z.object({
-		location: z.string().describe('City name, e.g. "Chicago" or "Paris, FR"'),
+		location: z.string().optional().describe('City name, e.g. "Chicago" or "Paris, FR"'),
+		lat: z.number().min(-90).max(90).optional().describe('Latitude, when the operator gives coordinates'),
+		lon: z.number().min(-180).max(180).optional().describe('Longitude, when the operator gives coordinates'),
 		date: z.string().optional().describe('Target date as YYYY-MM-DD, in the location\'s local time'),
 		day: z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
 			.optional()
@@ -270,7 +316,7 @@ export const forecastTool = createTool({
 		windMph: z.number(),
 		humidityPercent: z.number(),
 	}),
-	execute: async ({ location, date, day }, { abortSignal }) => {
-		return await getForecast(location, { date, day }, abortSignal ?? undefined);
+	execute: async ({ location, lat, lon, date, day }, { abortSignal }) => {
+		return await getForecast(toWhere(location, lat, lon), { date, day }, abortSignal ?? undefined);
 	},
 });

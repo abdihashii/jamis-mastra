@@ -25,8 +25,10 @@ export const weatherAgent = new Agent({
         phrasing leaves the intended day unclear, ask the operator before guessing. Beyond the
         5-day forecast → say so instead of guessing.
       - Ask the operator for the location if the request names no usable place — never guess.
-        Translate non-English location names and use the most relevant part of multi-part names
-        ("New York, NY" -> "New York").
+        Translate non-English location names. Pass bare city names when possible ("Mundelein"),
+        and the most relevant part of multi-part names ("New York, NY" -> "New York"); ZIPs
+        and "City, ST" also work. Both tools accept lat/lon — if lookups keep failing, ask the
+        operator for coordinates and pass those instead.
       - Tie advice (clothing, walks) to feelsLike, precipitation, and wind rather than raw temperature.
       - If a tool errors: "not found" → ask for a clearer city, state, or country;
         "authentication failed" → say the weather service key needs the operator's attention;

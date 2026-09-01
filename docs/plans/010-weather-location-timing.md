@@ -39,6 +39,18 @@ Weather requests need two context facts the channel never supplies: where the op
 
 **Commit:** `feat: weather checks live inside weatherAgent`
 
+## Stage 5: geocoder input UX (post-deploy finding)
+
+**Files:** `src/lib/geocode.ts` (new, pure), `src/lib/__tests__/geocode.test.ts`, `src/mastra/tools/weather-tool.ts`, `src/mastra/agents/weather-agent.ts`.
+
+- "City, ST" text: OpenWeather reads "IL" as a country code, so the tool tries [as-typed, US-state form, bare city] in order
+- ZIP inputs hit the `/geo/1.0/zip` endpoint
+- Both tools accept `lat`/`lon` directly; the agent asks the operator for coordinates when place lookups keep failing, cutting failed round-trips
+
+**Verify:** geocode tests; live smokes for "Mundelein, IL", "60060", and direct coordinates.
+
+**Commit:** one geocode-UX commit.
+
 ## Gate: repo-wide
 
 `bun test` (suite plus new cases), `bun run --bun tsc --noEmit`, and one final jamis smoke per stage-3 verify list.
