@@ -90,7 +90,7 @@ interface ForecastEntry {
 
 interface ForecastResult {
 	list: ForecastEntry[];
-	city: { timezone: number; name?: string; };
+	city: { timezone: number; name?: string };
 }
 
 interface ForecastSummary {
@@ -120,8 +120,23 @@ function unusableData(action: string): Error {
 	return new Error('Weather service returned unusable data.');
 }
 
-const notFound = (location: string) =>
-	new Error(`Location "${location}" not found. Try a city, "City, CC", a ZIP, or coordinates.`);
+/** Any non-finite input (null, undefined, NaN) becomes NaN so it trips the return-time check. */
+function finite(value: unknown): number {
+	return typeof value === 'number' && Number.isFinite(value) ? value : Number.NaN;
+}
+
+/** Guards the tool's numeric output contract: throw a clean class instead of letting zod reject NaN. */
+function assertNumericFields(fields: Record<string, number | undefined>, action: string): void {
+	for (const [field, value] of Object.entries(fields)) {
+		if (value !== undefined && !Number.isFinite(value)) {
+			throw unusableData(`${action}: field "${field}" is not a finite number`);
+		}
+	}
+}
+
+function notFound(location: string) {
+	return new Error(`Location "${location}" not found. Try a city, "City, CC", a ZIP, or coordinates.`);
+}
 
 async function geocode(location: string, signal?: AbortSignal): Promise<GeoResult> {
 	if (!location.trim()) {
@@ -171,31 +186,44 @@ export async function getCurrentWeather(where: Where, signal?: AbortSignal): Pro
 	}
 
 	const w = res.json as CurrentWeatherResult | null;
-	if (!w?.main) {
+	if (!w?.main || !Array.isArray(w.weather) || !w.wind || !w.sys
+		|| typeof w.dt !== 'number' || typeof w.timezone !== 'number'
+		|| typeof w.sys.sunrise !== 'number' || typeof w.sys.sunset !== 'number') {
 		throw unusableData(`current weather for "${label}"`);
 	}
 
 	const rain1h = w.rain?.['1h'] ?? 0;
 	const snow1h = w.snow?.['1h'] ?? 0;
 
-	return {
+	const result: CurrentWeatherConditions = {
 		location: fromText
 			? (fromText.state ? `${fromText.name}, ${fromText.state}` : fromText.name)
 			: (w.name?.trim() || `${lat.toFixed(2)}, ${lon.toFixed(2)}`),
 		country: fromText?.country ?? w.sys?.country ?? '',
 		localTime: localTime(w.dt, w.timezone),
-		temperature: Math.round(w.main.temp),
-		feelsLike: Math.round(w.main.feels_like),
+		temperature: Math.round(finite(w.main.temp)),
+		feelsLike: Math.round(finite(w.main.feels_like)),
 		condition: w.weather[0]?.description ?? 'unknown',
 		isDay: (w.weather[0]?.icon ?? '').endsWith('d'),
 		precipitationMmPerHour: rain1h + snow1h > 0 ? rain1h + snow1h : undefined,
-		windMph: Math.round(w.wind.speed),
-		gustMph: w.wind.gust !== undefined ? Math.round(w.wind.gust) : undefined,
-		visibilityMiles: w.visibility !== undefined ? Math.round(w.visibility / 1609) : undefined,
-		humidityPercent: w.main.humidity,
+		windMph: Math.round(finite(w.wind.speed)),
+		gustMph: w.wind.gust !== undefined ? Math.round(finite(w.wind.gust)) : undefined,
+		visibilityMiles: w.visibility !== undefined ? Math.round(finite(w.visibility) / 1609) : undefined,
+		humidityPercent: finite(w.main.humidity),
 		sunrise: localTime(w.sys.sunrise, w.timezone),
 		sunset: localTime(w.sys.sunset, w.timezone),
 	};
+	assertNumericFields({
+		temperature: result.temperature,
+		feelsLike: result.feelsLike,
+		windMph: result.windMph,
+		gustMph: result.gustMph,
+		visibilityMiles: result.visibilityMiles,
+		humidityPercent: result.humidityPercent,
+		precipitationMmPerHour: result.precipitationMmPerHour,
+	}, `current weather for "${label}"`);
+
+	return result;
 }
 
 export async function getForecast(
@@ -242,20 +270,31 @@ export async function getForecast(
 	);
 	const precipitationMm = entries.reduce((sum, e) => sum + (e.rain?.['3h'] ?? 0) + (e.snow?.['3h'] ?? 0), 0);
 
-	return {
+	const result: ForecastSummary = {
 		location: fromText
 			? (fromText.state ? `${fromText.name}, ${fromText.state}` : fromText.name)
 			: (data.city.name?.trim() || `${lat.toFixed(2)}, ${lon.toFixed(2)}`),
 		date,
-		high: Math.round(Math.max(...entries.map(e => e.main.temp_max))),
-		low: Math.round(Math.min(...entries.map(e => e.main.temp_min))),
-		feelsLike: Math.round(midday.main.feels_like),
+		high: Math.round(Math.max(...entries.map(e => finite(e.main.temp_max)))),
+		low: Math.round(Math.min(...entries.map(e => finite(e.main.temp_min)))),
+		feelsLike: Math.round(finite(midday.main.feels_like)),
 		condition: midday.weather[0]?.description ?? 'unknown',
-		precipChancePercent: Math.round(Math.max(...entries.map(e => e.pop)) * 100),
+		precipChancePercent: Math.round(Math.max(...entries.map(e => finite(e.pop))) * 100),
 		precipitationMm: precipitationMm > 0 ? Math.round(precipitationMm) : undefined,
-		windMph: Math.round(Math.max(...entries.map(e => e.wind.speed))),
-		humidityPercent: midday.main.humidity,
+		windMph: Math.round(Math.max(...entries.map(e => finite(e.wind.speed)))),
+		humidityPercent: finite(midday.main.humidity),
 	};
+	assertNumericFields({
+		high: result.high,
+		low: result.low,
+		feelsLike: result.feelsLike,
+		precipChancePercent: result.precipChancePercent,
+		windMph: result.windMph,
+		humidityPercent: result.humidityPercent,
+		precipitationMm: result.precipitationMm,
+	}, `forecast for "${label}"`);
+
+	return result;
 }
 
 function toWhere(location: string | undefined, lat: number | undefined, lon: number | undefined): Where {
@@ -289,7 +328,7 @@ export const weatherTool = createTool({
 		precipitationMmPerHour: z.number().optional(),
 		windMph: z.number(),
 		gustMph: z.number().optional(),
-	visibilityMiles: z.number().optional(),
+		visibilityMiles: z.number().optional(),
 		humidityPercent: z.number(),
 		sunrise: z.string(),
 		sunset: z.string(),
