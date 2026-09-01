@@ -120,10 +120,20 @@ function unusableData(action: string): Error {
 	return new Error('Weather service returned unusable data.');
 }
 
+const notFound = (location: string) =>
+	new Error(`Location "${location}" not found. Try a city, "City, CC", a ZIP, or coordinates.`);
+
 async function geocode(location: string, signal?: AbortSignal): Promise<GeoResult> {
+	if (!location.trim()) {
+		throw new Error('Location must be a place name, ZIP, or coordinates.');
+	}
+
 	const zip = zipQuery(location);
 	if (zip) {
 		const res = await fetchJson(`${openWeatherBaseUrl}/geo/1.0/zip?zip=${zip.zip},${zip.country}&appid=${openWeatherApiKey}`, signal);
+		if (res.status === 404) {
+			throw notFound(location);
+		}
 		if (!res.ok) {
 			throw serviceError(`zip geocoding for "${location}"`, res.status);
 		}
@@ -131,7 +141,7 @@ async function geocode(location: string, signal?: AbortSignal): Promise<GeoResul
 		if (z && typeof z.lat === 'number' && typeof z.lon === 'number') {
 			return { name: z.name ?? zip.zip, state: z.state, country: z.country ?? zip.country, lat: z.lat, lon: z.lon };
 		}
-		throw new Error(`Location "${location}" not found. Try a city, "City, CC", a ZIP, or coordinates.`);
+		throw notFound(location);
 	}
 
 	for (const q of geocodeQueries(location)) {
@@ -146,7 +156,7 @@ async function geocode(location: string, signal?: AbortSignal): Promise<GeoResul
 		}
 	}
 
-	throw new Error(`Location "${location}" not found. Try a city, "City, CC", a ZIP, or coordinates.`);
+	throw notFound(location);
 }
 
 export async function getCurrentWeather(where: Where, signal?: AbortSignal): Promise<CurrentWeatherConditions> {
