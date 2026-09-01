@@ -1,40 +1,260 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
+import { fetchJson } from '../../lib/fetch';
+import { localDate, localTime, nextWeekdayDate } from '../../lib/time';
+import { requireEnv } from '../env';
+
+const openWeatherApiKey = requireEnv('OPEN_WEATHER_API_KEY');
+const openWeatherBaseUrl = 'https://api.openweathermap.org';
+
+interface GeoResult {
+	name: string;
+	state?: string;
+	country: string;
+	lat: number;
+	lon: number;
+}
+
+interface Weather {
+	main: string;
+	description: string;
+	icon: string;
+}
+
+interface CurrentWeatherConditions {
+	location: string;
+	country: string;
+	localTime: string;
+	temperature: number;
+	feelsLike: number;
+	condition: string;
+	isDay: boolean;
+	precipitationMmPerHour?: number;
+	windMph: number;
+	gustMph?: number;
+	visibilityMiles: number;
+	humidityPercent: number;
+	sunrise: string;
+	sunset: string;
+}
+
+interface CurrentWeatherResult {
+	main: {
+		temp: number;
+		feels_like: number;
+		humidity: number;
+	};
+	weather: Weather[];
+	visibility: number;
+	wind: {
+		speed: number;
+		gust?: number;
+	};
+	rain?: { '1h': number };
+	snow?: { '1h': number };
+	dt: number;
+	sys: {
+		country: string;
+		sunrise: number;
+		sunset: number;
+	};
+	timezone: number;
+}
+
+interface ForecastEntry {
+	dt: number;
+	main: {
+		temp: number;
+		feels_like: number;
+		temp_min: number;
+		temp_max: number;
+		humidity: number;
+	};
+	weather: Weather[];
+	wind: { speed: number };
+	pop: number;
+	rain?: { '3h': number };
+	snow?: { '3h': number };
+}
+
+interface ForecastResult {
+	list: ForecastEntry[];
+	city: { timezone: number };
+}
+
+interface ForecastSummary {
+	location: string;
+	date: string;
+	high: number;
+	low: number;
+	feelsLike: number;
+	condition: string;
+	precipChancePercent: number;
+	precipitationMm?: number;
+	windMph: number;
+	humidityPercent: number;
+}
+
+function statusHint(status: number): string {
+	if (status === 401)
+		return ' - check OPEN_WEATHER_API_KEY';
+	if (status === 429)
+		return ' - rate limited, try again later';
+	return '';
+}
+
+async function geocode(location: string, signal?: AbortSignal): Promise<GeoResult> {
+	const url = `${openWeatherBaseUrl}/geo/1.0/direct?q=${encodeURIComponent(location)}&limit=1&appid=${openWeatherApiKey}`;
+	const res = await fetchJson(url, signal);
+
+	if (!res.ok) {
+		throw new Error(`Geocoding request for "${location}" failed (${res.status})${statusHint(res.status)}.`);
+	}
+	if (!Array.isArray(res.json) || res.json.length === 0) {
+		throw new Error(`Location "${location}" not found. Try "City" or "City, CC".`);
+	}
+
+	const { name, state, country, lat, lon } = res.json[0];
+	return { name, state, country, lat, lon };
+}
+
+export async function getCurrentWeather(location: string, signal?: AbortSignal): Promise<CurrentWeatherConditions> {
+	const geo = await geocode(location, signal);
+	const url = `${openWeatherBaseUrl}/data/2.5/weather?lat=${geo.lat}&lon=${geo.lon}&units=imperial&appid=${openWeatherApiKey}`;
+	const res = await fetchJson(url, signal);
+
+	if (!res.ok || !(res.json as CurrentWeatherResult | null)?.main) {
+		throw new Error(`Weather request for "${location}" failed (${res.status})${statusHint(res.status)}.`);
+	}
+
+	const w = res.json as CurrentWeatherResult;
+
+	return {
+		location: geo.state ? `${geo.name}, ${geo.state}` : geo.name,
+		country: geo.country,
+		localTime: localTime(w.dt, w.timezone),
+		temperature: Math.round(w.main.temp),
+		feelsLike: Math.round(w.main.feels_like),
+		condition: w.weather[0]?.description ?? 'unknown',
+		isDay: (w.weather[0]?.icon ?? '').endsWith('d'),
+		precipitationMmPerHour: w.rain?.['1h'] ?? w.snow?.['1h'],
+		windMph: Math.round(w.wind.speed),
+		gustMph: w.wind.gust !== undefined ? Math.round(w.wind.gust) : undefined,
+		visibilityMiles: Math.round(w.visibility / 1609),
+		humidityPercent: w.main.humidity,
+		sunrise: localTime(w.sys.sunrise, w.timezone),
+		sunset: localTime(w.sys.sunset, w.timezone),
+	};
+}
+
+export async function getForecast(
+	location: string,
+	ref: { date?: string; day?: string },
+	signal?: AbortSignal,
+): Promise<ForecastSummary> {
+	if ((ref.date === undefined) === (ref.day === undefined)) {
+		throw new Error('Pass exactly one of date ("YYYY-MM-DD") or day ("saturday").');
+	}
+	if (ref.date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(ref.date)) {
+		throw new Error(`date must be YYYY-MM-DD, got "${ref.date}".`);
+	}
+
+	const geo = await geocode(location, signal);
+	const url = `${openWeatherBaseUrl}/data/2.5/forecast?lat=${geo.lat}&lon=${geo.lon}&units=imperial&appid=${openWeatherApiKey}`;
+	const res = await fetchJson(url, signal);
+
+	if (!res.ok || !Array.isArray((res.json as ForecastResult | null)?.list)) {
+		throw new Error(`Forecast request for "${location}" failed (${res.status})${statusHint(res.status)}.`);
+	}
+
+	const data = res.json as ForecastResult;
+	const { list } = data;
+	const tz = data.city.timezone;
+	const date = ref.date ?? nextWeekdayDate(ref.day!, tz);
+	const entries = list.filter(e => localDate(e.dt, tz) === date);
+
+	if (entries.length === 0) {
+		throw new Error(`No forecast for ${date}. The forecast only covers the next 5 days.`);
+	}
+
+	const midday = entries.reduce((best, e) =>
+		Math.abs((new Date((e.dt + tz) * 1000).getUTCHours()) - 12)
+		< Math.abs((new Date((best.dt + tz) * 1000).getUTCHours()) - 12)
+			? e
+			: best,
+	);
+	const precipitationMm = entries.reduce((sum, e) => sum + (e.rain?.['3h'] ?? 0) + (e.snow?.['3h'] ?? 0), 0);
+
+	return {
+		location: geo.state ? `${geo.name}, ${geo.state}` : geo.name,
+		date,
+		high: Math.round(Math.max(...entries.map(e => e.main.temp_max))),
+		low: Math.round(Math.min(...entries.map(e => e.main.temp_min))),
+		feelsLike: Math.round(midday.main.feels_like),
+		condition: midday.weather[0]?.description ?? 'unknown',
+		precipChancePercent: Math.round(Math.max(...entries.map(e => e.pop)) * 100),
+		precipitationMm: precipitationMm > 0 ? Math.round(precipitationMm) : undefined,
+		windMph: Math.round(Math.max(...entries.map(e => e.wind.speed))),
+		humidityPercent: midday.main.humidity,
+	};
+}
+
 export const weatherTool = createTool({
 	id: 'weather-tool',
-	description: 'Fetches weather for a location',
+	description:
+    'Current weather conditions for a location. '
+    + 'Use for "now" questions like "what\'s the weather" or "is it safe to walk outside".',
 	inputSchema: z.object({
-		location: z.string().describe('Location name'),
+		location: z.string().describe('City name, e.g. "Chicago" or "Paris, FR"'),
 	}),
 	outputSchema: z.object({
 		location: z.string(),
-		temperatureCelcius: z.number(),
-		conditions: z.string(),
+		country: z.string(),
+		localTime: z.string(),
+		temperature: z.number().describe('°F'),
+		feelsLike: z.number().describe('°F'),
+		condition: z.string(),
+		isDay: z.boolean(),
+		precipitationMmPerHour: z.number().optional(),
+		windMph: z.number(),
+		gustMph: z.number().optional(),
+		visibilityMiles: z.number(),
+		humidityPercent: z.number(),
+		sunrise: z.string(),
+		sunset: z.string(),
 	}),
 	execute: async ({ location }, { abortSignal }) => {
-		const response = await fetch(`https://wttr.in/${location}?format=j1`, {
-			signal: abortSignal,
-		});
+		return await getCurrentWeather(location, abortSignal ?? undefined);
+	},
+});
 
-		if (!response.ok) {
-			throw new Error(`Weather lookup for "${location}" failed: wttr.in returned ${response.status}.`);
-		}
-
-		// wttr.in answers 200 with a plain-text error body for locations it cannot
-		// resolve, so check both the parse and the shape.
-		const data = await response.json().catch(() => null);
-		const current = data?.current_condition?.[0];
-		const temperatureCelcius = Number(current?.temp_C);
-
-		if (!current || !Number.isFinite(temperatureCelcius)) {
-			throw new Error(`No weather data for "${location}". Try a city name like "Berlin".`);
-		}
-
-		return {
-			location,
-			temperatureCelcius,
-			conditions: current.weatherDesc?.[0]?.value ?? 'Unknown',
-		};
+export const forecastTool = createTool({
+	id: 'forecast-tool',
+	description:
+    'Weather forecast for a location on a future date, up to 5 days out. '
+    + 'Use for questions like "what should we wear to the zoo on Saturday". '
+    + 'Prefer day for day-name phrasing ("Saturday") and date for absolute references.',
+	inputSchema: z.object({
+		location: z.string().describe('City name, e.g. "Chicago" or "Paris, FR"'),
+		date: z.string().optional().describe('Target date as YYYY-MM-DD, in the location\'s local time'),
+		day: z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
+			.optional()
+			.describe('Nearest upcoming occurrence in the location\'s local calendar, e.g. "saturday" for next Saturday'),
+	}),
+	outputSchema: z.object({
+		location: z.string(),
+		date: z.string(),
+		high: z.number().describe('°F'),
+		low: z.number().describe('°F'),
+		feelsLike: z.number().describe('midday °F'),
+		condition: z.string(),
+		precipChancePercent: z.number(),
+		precipitationMm: z.number().optional(),
+		windMph: z.number(),
+		humidityPercent: z.number(),
+	}),
+	execute: async ({ location, date, day }, { abortSignal }) => {
+		return await getForecast(location, { date, day }, abortSignal ?? undefined);
 	},
 });
