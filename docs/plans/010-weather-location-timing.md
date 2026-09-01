@@ -11,7 +11,7 @@ Weather requests need two context facts the channel never supplies: where the op
 - **Relative dates resolve in the destination's zone, in code.** `forecastTool` accepts `day` ('monday'...'sunday') for day-name phrasings and keeps `date` (YYYY-MM-DD) for absolute references; exactly one is required. The model never does offset arithmetic.
 - **Weekday rule is nearest-upcoming, inclusive of today.** `(targetDow − todayDow + 7) % 7`. Saying "Saturday" on a Saturday means today's remaining hours — matching conversational usage and guaranteed inside the 5-day window. Ambiguous phrasing is a check, not a guess.
 - **Everything resolves deterministically and is unit-testable.** Date math lives in `src/lib/time.ts` as `nextDayDate(day, offsetSec, nowSec)` with an injectable clock. The existing UTC-date injection in weatherAgent instructions stays as the model's only floor for count-style phrasings ("in 3 days").
-- **Out of scope:** hourly forecast granularity, DST-crossing ±1h entry bucketing (twice yearly per zone; OpenWeather returns one frozen offset), One Call 3.0, any location memory.
+- **Out of scope:** hourly forecast granularity, One Call 3.0, any location memory.
 
 ## Stage 1: deterministic date math in the lib
 

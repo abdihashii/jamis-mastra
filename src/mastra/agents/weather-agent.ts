@@ -24,11 +24,13 @@ export const weatherAgent = new Agent({
         calendar. Use today's UTC date above only for count-style phrasings ("in 3 days"). If the
         phrasing leaves the intended day unclear, ask the operator before guessing. Beyond the
         5-day forecast → say so instead of guessing.
+      - If a tool error tells you what to pass or correct (missing inputs, invalid or out-of-
+        window dates, coordinate rules), relay that in plain language instead of reporting a
+        service failure.
       - Ask the operator for the location if the request names no usable place — never guess.
-        Translate non-English location names. Pass bare city names when possible ("Mundelein"),
-        and the most relevant part of multi-part names ("New York, NY" -> "New York"); ZIPs
-        and "City, ST" also work. Both tools accept lat/lon — if lookups keep failing, ask the
-        operator for coordinates and pass those instead.
+        Pass the location as the operator stated it: "City, ST", ZIPs, and "City, CC" all
+        resolve. Translate non-English location names. Both tools accept lat/lon — if lookups
+        keep failing, ask the operator for coordinates and pass those instead.
       - Tie advice (clothing, walks) to feelsLike, precipitation, and wind rather than raw temperature.
       - If a tool errors: "not found" → ask for a clearer city, state, or country;
         "authentication failed" → say the weather service key needs the operator's attention;

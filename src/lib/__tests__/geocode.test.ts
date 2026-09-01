@@ -6,8 +6,9 @@ test('geocodeQueries tries the text as typed, then the US-state form, then the b
 	expect(geocodeQueries('Mundelein, IL')).toEqual(['Mundelein, IL', 'Mundelein,IL,US', 'Mundelein']);
 });
 
-test('geocodeQueries keeps a valid-looking country form but still falls back to the bare city', () => {
-	expect(geocodeQueries('Toronto, CA')).toEqual(['Toronto, CA', 'Toronto,CA,US', 'Toronto']);
+test('geocodeQueries never guesses a US state for non-US codes, so "London, ON" resolves to the bare city', () => {
+	expect(geocodeQueries('Toronto, CA')).toEqual(['Toronto, CA', 'Toronto']);
+	expect(geocodeQueries('London, ON')).toEqual(['London, ON', 'London']);
 });
 
 test('geocodeQueries passes a bare city through once', () => {

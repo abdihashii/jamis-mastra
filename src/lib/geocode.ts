@@ -1,3 +1,7 @@
+const US_STATE_CODES = new Set(
+	'AL,AK,AZ,AR,CO,CT,DE,FL,GA,HI,ID,IL,IN,IA,KS,KY,LA,ME,MD,MA,MI,MN,MS,MO,MT,NE,NV,NH,NJ,NM,NY,NC,ND,OH,OK,OR,PA,RI,SC,SD,TN,TX,UT,VT,VA,WA,WV,WI,WY,DC'.split(','),
+);
+
 /**
  * Query shapes OpenWeather's geocoding endpoints accept, derived from one operator input.
  * "Mundelein, IL" fails as typed (IL parses as Israel), so we also try the US-state form
@@ -9,7 +13,7 @@ export function geocodeQueries(location: string): string[] {
 	const trimmed = location.trim();
 	const attempts = [trimmed];
 	const twoPart = trimmed.match(/^(.+),\s*([A-Za-z]{2})$/);
-	if (twoPart) {
+	if (twoPart && US_STATE_CODES.has(twoPart[2].toUpperCase())) {
 		attempts.push(`${twoPart[1]},${twoPart[2].toUpperCase()},US`);
 	}
 	const city = trimmed.split(',')[0].trim();

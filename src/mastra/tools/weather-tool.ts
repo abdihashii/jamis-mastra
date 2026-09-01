@@ -134,6 +134,13 @@ function assertNumericFields(fields: Record<string, number | undefined>, action:
 	}
 }
 
+function placeLabel(fromText: GeoResult | null, serviceName: string | undefined, lat: number, lon: number): string {
+	if (fromText) {
+		return fromText.state ? `${fromText.name}, ${fromText.state}` : fromText.name;
+	}
+	return serviceName?.trim() || `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+}
+
 function notFound(location: string) {
 	return new Error(`Location "${location}" not found. Try a city, "City, CC", a ZIP, or coordinates.`);
 }
@@ -196,9 +203,7 @@ export async function getCurrentWeather(where: Where, signal?: AbortSignal): Pro
 	const snow1h = w.snow?.['1h'] ?? 0;
 
 	const result: CurrentWeatherConditions = {
-		location: fromText
-			? (fromText.state ? `${fromText.name}, ${fromText.state}` : fromText.name)
-			: (w.name?.trim() || `${lat.toFixed(2)}, ${lon.toFixed(2)}`),
+		location: placeLabel(fromText, w.name, lat, lon),
 		country: fromText?.country ?? w.sys?.country ?? '',
 		localTime: localTime(w.dt, w.timezone),
 		temperature: Math.round(finite(w.main.temp)),
@@ -256,7 +261,11 @@ export async function getForecast(
 	const { list } = data as ForecastResult;
 	const tz = (data as ForecastResult).city.timezone;
 	const date = ref.date ?? nextDayDate(ref.day!, tz);
-	const entries = list.filter(e => localDate(e.dt, tz) === date);
+	const clean = list.filter(e => e.main !== undefined && e.wind !== undefined);
+	if (clean.length === 0) {
+		throw unusableData(`forecast for "${label}"`);
+	}
+	const entries = clean.filter(e => localDate(e.dt, tz) === date);
 
 	if (entries.length === 0) {
 		throw new Error(`No forecast for ${date}. The forecast only covers the next 5 days.`);
@@ -271,9 +280,7 @@ export async function getForecast(
 	const precipitationMm = entries.reduce((sum, e) => sum + (e.rain?.['3h'] ?? 0) + (e.snow?.['3h'] ?? 0), 0);
 
 	const result: ForecastSummary = {
-		location: fromText
-			? (fromText.state ? `${fromText.name}, ${fromText.state}` : fromText.name)
-			: (data.city.name?.trim() || `${lat.toFixed(2)}, ${lon.toFixed(2)}`),
+		location: placeLabel(fromText, data.city.name, lat, lon),
 		date,
 		high: Math.round(Math.max(...entries.map(e => finite(e.main.temp_max)))),
 		low: Math.round(Math.min(...entries.map(e => finite(e.main.temp_min)))),
