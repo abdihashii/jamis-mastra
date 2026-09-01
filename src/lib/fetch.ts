@@ -1,10 +1,12 @@
-export interface FetchJsonResult {
-	ok: boolean;
-	status: number;
-	json: unknown;
-}
-
-export async function fetchJson(url: string, signal?: AbortSignal): Promise<FetchJsonResult> {
+/**
+ * GET a URL and parse its JSON body. Aborts propagate untouched; network
+ * failures are rethrown as an Error naming the host.
+ *
+ * @param url - URL to fetch
+ * @param signal - Optional abort signal
+ * @returns Status plus parsed body; `json` is `null` on bad JSON
+ */
+export async function fetchJson(url: string, signal?: AbortSignal): Promise<{ ok: boolean; status: number; json: unknown }> {
 	try {
 		const response = await fetch(url, { signal });
 		const json = await response.json().catch(() => null);
@@ -12,9 +14,10 @@ export async function fetchJson(url: string, signal?: AbortSignal): Promise<Fetc
 	}
 	catch (error) {
 		if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
-			throw error; // let cancellation propagate, don't mask it as a failure
+			throw error;
 		}
-		const host = new URL(url).host;
-		throw new Error(`Request to ${host} failed: ${error instanceof Error ? error.message : error}`);
+		// ponytail: server-side detail only; the thrown class stays provider-free
+		console.error(`[fetch] ${new URL(url).host} unreachable:`, error);
+		throw new Error('Service unreachable.');
 	}
 }

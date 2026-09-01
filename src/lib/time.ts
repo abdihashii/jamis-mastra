@@ -1,5 +1,5 @@
 import { TZDate } from '@date-fns/tz';
-import { format } from 'date-fns';
+import { addDays, format } from 'date-fns';
 
 /**
  * @param offsetSec - OpenWeather `timezone` (seconds from UTC)
@@ -11,6 +11,24 @@ function offsetString(offsetSec: number): string {
 	const h = String(Math.floor(abs / 3600)).padStart(2, '0');
 	const m = String(Math.floor((abs % 3600) / 60)).padStart(2, '0');
 	return `${sign}${h}:${m}`;
+}
+
+const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+/**
+ * @param day - Lowercase day name, e.g. `"saturday"`
+ * @param offsetSec - Seconds from UTC, e.g. OpenWeather's `timezone` field
+ * @param nowSec - Unix time in seconds; injectable for tests
+ * @returns Date of the nearest upcoming `day` in that offset, inclusive of today, e.g. `"2025-01-04"`
+ */
+export function nextDayDate(day: string, offsetSec: number, nowSec = Math.floor(Date.now() / 1000)): string {
+	const target = DAYS.indexOf(day);
+	if (target < 0) {
+		throw new Error(`Unknown day "${day}". Use one of: ${DAYS.join(', ')}.`);
+	}
+	const now = new TZDate(nowSec * 1000, offsetString(offsetSec));
+	const delta = (target - now.getDay() + 7) % 7;
+	return format(addDays(now, delta), 'yyyy-MM-dd');
 }
 
 /**
