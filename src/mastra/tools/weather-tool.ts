@@ -2,7 +2,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
 import { fetchJson } from '../../lib/fetch';
-import { localDate, localTime, nextWeekdayDate } from '../../lib/time';
+import { localDate, localTime, nextDayDate } from '../../lib/time';
 import { requireEnv } from '../env';
 
 const openWeatherApiKey = requireEnv('OPEN_WEATHER_API_KEY');
@@ -187,7 +187,7 @@ export async function getForecast(
 
 	const { list } = data as ForecastResult;
 	const tz = (data as ForecastResult).city.timezone;
-	const date = ref.date ?? nextWeekdayDate(ref.day!, tz);
+	const date = ref.date ?? nextDayDate(ref.day!, tz);
 	const entries = list.filter(e => localDate(e.dt, tz) === date);
 
 	if (entries.length === 0) {

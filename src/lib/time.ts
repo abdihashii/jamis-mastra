@@ -13,18 +13,18 @@ function offsetString(offsetSec: number): string {
 	return `${sign}${h}:${m}`;
 }
 
-const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 /**
- * @param weekday - Lowercase day name, e.g. `"saturday"`
+ * @param day - Lowercase day name, e.g. `"saturday"`
  * @param offsetSec - Seconds from UTC, e.g. OpenWeather's `timezone` field
  * @param nowSec - Unix time in seconds; injectable for tests
- * @returns Date of the nearest upcoming `weekday` in that offset, inclusive of today, e.g. `"2025-01-04"`
+ * @returns Date of the nearest upcoming `day` in that offset, inclusive of today, e.g. `"2025-01-04"`
  */
-export function nextWeekdayDate(weekday: string, offsetSec: number, nowSec = Math.floor(Date.now() / 1000)): string {
-	const target = WEEKDAYS.indexOf(weekday);
+export function nextDayDate(day: string, offsetSec: number, nowSec = Math.floor(Date.now() / 1000)): string {
+	const target = DAYS.indexOf(day);
 	if (target < 0) {
-		throw new Error(`Unknown weekday "${weekday}". Use one of: ${WEEKDAYS.join(', ')}.`);
+		throw new Error(`Unknown day "${day}". Use one of: ${DAYS.join(', ')}.`);
 	}
 	const now = new TZDate(nowSec * 1000, offsetString(offsetSec));
 	const delta = (target - now.getDay() + 7) % 7;
