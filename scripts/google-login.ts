@@ -10,7 +10,7 @@ import { stat } from 'node:fs/promises';
  * Google records is exactly http://127.0.0.1:<port>.
  *
  * Mac (dev):  export GOOGLE_CLIENT_ID=... && export GOOGLE_CLIENT_SECRET=...
- *             pnpm run login:google
+ *             bun run login:google
  * VPS (prod): ssh -L 53682:127.0.0.1:53682 vps   (then, on the box)
  *             set -a && . /root/jamis-mastra/.env.prod && set +a
  *             docker run --rm -it --network host --user 1000:1000 \

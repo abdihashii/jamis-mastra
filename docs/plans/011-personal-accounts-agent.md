@@ -82,6 +82,8 @@ Resolved in a grill-with-docs session on 2026-09-04 against ADR 0015 and the res
 
 **Proposed commit.** `feat: add gmail-search tool and personal-accounts-agent`
 
+**Local verification 2026-09-04 UTC.** Complete, committed as `368690a` after a three-pass review. Suite 82 tests pass; typecheck and lint clean. Live dev-server checks: `tool list` includes `gmail-search`; `tool execute gmail-search {"query":"older_than:100y"}` returned `{estimatedTotal: 0, messages: []}` against the real mailbox (safe out-of-range query, no mailbox content read into session); a execute with the credential hidden returned HTTP 500 carrying only `Authentication failed. The error was logged.`. Review fixes included: static text (not Gmail's error.message) on the 400 path, no message-id prefix in logs, an isFinite guard on internalDate, a relay-taxonomy-compatible empty-query error, an untrusted-content instruction on the subagent, and test strengthenings (exactly-once refresh, non-vacuous no-token assertion). Scope change: the `agents` registration landed here (not Stage 3) so agent-walk tool resolution can see gmail-search.
+
 ## Stage 3: Jamis routing and setup docs
 
 **Goal.** Jamis delegates Gmail requests; setup is reproducible from docs alone.
@@ -98,6 +100,8 @@ Resolved in a grill-with-docs session on 2026-09-04 against ADR 0015 and the res
 3. Delete the local credential, repeat the Gmail ask, confirm the channel-visible text is only the generic auth line.
 
 **Proposed commit.** `feat: route personal-account requests through Jamis`
+
+**Local verification 2026-09-04 UTC.** Complete. Suite 82 tests pass; typecheck and lint clean. Live checks against local dev: `agent list` exposes only `jamis`, whose `agents` shows all three subagents and whose instructions contain the routing line. A `generate` ask ("latest unread email, subject and sender") returned the real latest unread message (subject + sender verified against the mailbox) with `toolCalls: ['agent-personalAccountsAgent']`, proving the delegation; then with the credential hidden the same ask returned "I couldn't access your Gmail account." — a generic relay with no internals, which is conceptually the generic auth line (the raw tool text stays `Authentication failed. The error was logged.`). CONTEXT.md and the env templates (from Stage 1) needed no new changes.
 
 ## Stage 4: deploy and live acceptance
 
