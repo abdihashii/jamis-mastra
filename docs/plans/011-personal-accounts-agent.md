@@ -68,10 +68,10 @@ Resolved in a grill-with-docs session on 2026-09-04 against ADR 0015 and the res
 
 **Goal.** Read-only Gmail reachable through the new subagent, verified via the API CLI against local dev.
 
-**Critical files.** New `src/mastra/tools/gmail-search.ts`, new `src/mastra/agents/personal-accounts-agent.ts`, new `src/mastra/tools/__tests__/gmail-search.test.ts`. Neither is imported by `jamis.ts` yet (registration lands in Stage 3, keeping this diff mechanical).
+**Critical files.** New `src/mastra/tools/gmail-search.ts`, new `src/mastra/agents/personal-accounts-agent.ts`, new `src/mastra/tools/__tests__/gmail-search.test.ts`. Only the two new files plus the one-line `jamis.ts` agents registration change.
 
 - `gmail-search`: `requireEnv` reads the client pair at load; `users.messages.list?q&maxResults` then per-id `users.messages.get?format=full`; header extraction (`Subject`, `From`, `internalDate`→ISO UTC); base64url decode of the first `text/plain` part (single-part or multipart); 4000-char body truncation; snippet-only fallback. Error classes weather-style: 401 after one silent-refresh retry → the generic auth error; 429 → rate-limited; 5xx/network → service trouble; shape surprises → unusable data.
-- `personal-accounts-agent`: flash model, weather-style instructions (answer with subject/sender/date and a summary; auth-error and service-error relay rules from Decisions), `tools: { gmailSearchTool }`. Not on the root Mastra instance.
+- `personal-accounts-agent`: flash model, weather-style instructions (answer with subject/sender/date and a summary; auth-error and service-error relay rules from Decisions), `tools: { gmailSearchTool }`. Registered on `jamis.agents` in this stage (not the root Mastra instance) so the acceptance command's agent-walk tool resolution can see `gmail-search`; Jamis's instructions line and the messageFilter extension stay in Stage 3, so nothing routes to it yet.
 - Tests mock fetch for list+get (happy path incl. multipart, truncation, no-plain-text fallback, query validation) and credential failure propagation (generic string, no token material in any thrown error).
 
 **Verify.**
@@ -88,7 +88,7 @@ Resolved in a grill-with-docs session on 2026-09-04 against ADR 0015 and the res
 
 **Critical files.** `src/mastra/agents/jamis.ts`, `docs/setup-gmail.md`.
 
-- `jamis.ts`: `agents: { weatherAgent, researchAgent, personalAccountsAgent }`; instructions gain the personal-accounts routing line (Gmail requested → delegate, only the task; relay auth failures with the generic text; never offer email actions it does not have); `messageFilter` strips history for both `research-agent` and `personal-accounts-agent`.
+- `jamis.ts`: instructions gain the personal-accounts routing line (the agents registration already landed in Stage 2) (Gmail requested → delegate, only the task; relay auth failures with the generic text; never offer email actions it does not have); `messageFilter` strips history for both `research-agent` and `personal-accounts-agent`.
 - `docs/setup-gmail.md`: full manual path — Google Cloud project, consent screen (External; publish to Production; advance through the unverified warning; user cap), Desktop OAuth client, placing `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` into `.env` and the VPS `.env.prod`, `pnpm run login:google` locally, and on the VPS: `ssh -L 53682:127.0.0.1:53682 vps` plus the `oven/bun` script invocation from plan 009's container pattern. Password-change/revocation/disuse caveats from the research table, with re-login as recovery.
 
 **Verify.**

@@ -2,6 +2,7 @@ import { Agent } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
 
 import { isOperator, sendblueAdapter } from '../channels/sendblue';
+import { personalAccountsAgent } from './personal-accounts-agent';
 import { researchAgent } from './research-agent';
 import { weatherAgent } from './weather-agent';
 
@@ -31,7 +32,7 @@ export const jamis = new Agent({
        - Do not narrate routing, tool calls, or internal agent names unless the operator asks.
 `,
 	model: 'openai-codex/gpt-5.6-terra',
-	agents: { weatherAgent, researchAgent },
+	agents: { weatherAgent, researchAgent, personalAccountsAgent },
 	memory: new Memory({
 		options: {
 			observationalMemory: {
