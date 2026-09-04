@@ -58,9 +58,11 @@ Resolved in a grill-with-docs session on 2026-09-04 against ADR 0015 and the res
 **Verify.**
 
 1. `bun install --frozen-lockfile` (no change), `bun test`, `bun run typecheck`, `bun run lint` all pass.
-2. Operator-run: real `pnpm run login:google` locally against the operator's Google account writes `data/google-oauth.json` with `0600` and scope `gmail.readonly`; deleting the file and rerunning re-captures it (proves `prompt=consent` re-issues the refresh token).
+2. Operator-run: real `bun run login:google` locally against the operator's Google account writes `data/google-oauth.json` with `0600` and scope `gmail.readonly`; deleting the file and rerunning re-captures it (proves `prompt=consent` re-issues the refresh token).
 
 **Proposed commit.** `feat: add Google OAuth credential plumbing and login:google`
+
+**Local verification 2026-09-04 UTC.** Complete. Committed as `f89c33b` after a four-pass review (066/66 tests, typecheck, lint clean; 8 findings fixed). Real Mac login captured `data/google-oauth.json` (0600, exactly `https://www.googleapis.com/auth/gmail.readonly`, 1-hour expiry); listener branches smoke-tested via curl: stray hits and wrong-state denials keep serving, real denial and exchange failure exit cleanly without a file.
 
 ## Stage 2: gmail-search tool and personal-accounts-agent
 
