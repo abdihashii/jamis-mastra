@@ -14,6 +14,7 @@ Jamis gains its first personal-account integration (read-only Gmail). Unlike ADR
 - **Per-API subagents (email-agent, calendar-agent...)**: multiplies prompts, credentials plumbing, and trace homes for one shared auth surface.
 - **Tool on Jamis directly**: contradicts ADR 0009 scoped ownership; blurs the credential boundary.
 - **Gmail MCP server**: no auth story in this repo for remote MCP with user credentials.
+- **Composio (managed integration platform)**: on self-serve plans the OAuth callback runs through Composio's backend and tokens are stored in Composio's cloud even with a bring-your-own OAuth app; keeping Gmail tokens on-premises means self-hosting their full platform runtime. For one operator and one restricted scope, a third-party cloud in the credential path contradicts ADR 0014's on-box stance.
 - **Refresh token in env / `.env.prod`**: contradicts ADR 0014's stance for OAuth refresh tokens.
 - **OOB paste or device flow**: invalid for Gmail scopes per Google's docs.
 - **Redacting bodies from ClickHouse spans**: Postgres retains full results regardless; lopsided until message-level retention exists.
