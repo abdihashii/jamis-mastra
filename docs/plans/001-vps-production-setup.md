@@ -81,7 +81,7 @@ gh repo deploy-key add <pubkey-file> --title 'jamis-prod (read-only)' --repo abd
 # back on the box
 git clone git@github.com:abdihashii/jamis-mastra.git /root/jamis-mastra
 cd /root/jamis-mastra/apps/agent && cp .env.prod.example .env.prod && chmod 600 .env.prod
-# edit .env.prod: FIREWORKS_API_KEY, API_TOKEN (openssl rand -hex 32), DB passwords
+# edit .env.prod: NEURALWATT_API_KEY, API_TOKEN (openssl rand -hex 32), DB passwords
 
 # publish the app to the tailnet. Compose binds 127.0.0.1 only, so without this
 # Studio is unreachable. --bg survives reboots and tailscaled restarts.
@@ -125,7 +125,7 @@ Goal: `.env.prod` ignored, template committed.
 - Remaining: new `apps/agent/.env.prod.example`:
 
 ```
-FIREWORKS_API_KEY=
+NEURALWATT_API_KEY=
 API_TOKEN=            # openssl rand -hex 32
 TUNNEL_TOKEN=         # from Cloudflare dashboard (B6)
 POSTGRES_PASSWORD=
@@ -267,7 +267,7 @@ server: {
 
 ### B5. First deploy (done)
 
-The two prerequisites were completed on the box, in this order: `.env.prod` filled and `chmod 600` (`API_TOKEN`, the postgres password, and the clickhouse password all generated with `openssl rand -hex`; `FIREWORKS_API_KEY` copied from the Mac; `TUNNEL_TOKEN` left blank for B6), then `tailscale serve --bg --http=4111 localhost:4111`.
+The two prerequisites were completed on the box, in this order: `.env.prod` filled and `chmod 600` (`API_TOKEN`, the postgres password, and the clickhouse password all generated with `openssl rand -hex`; `NEURALWATT_API_KEY` copied from the Mac; `TUNNEL_TOKEN` left blank for B6), then `tailscale serve --bg --http=4111 localhost:4111`.
 
 Deploy is one non-interactive command from the Mac: `JAMIS_HOST=100.105.239.41 ./infra/deploy.sh`. It connects as root, fetches, checks out `JAMIS_BRANCH` (default `main`, which now carries this work), and runs `docker compose up -d --build` with both compose files. Build on the box succeeded on the CX23 without OOM, and all four services came up.
 

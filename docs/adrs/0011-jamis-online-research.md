@@ -64,7 +64,7 @@ The broader guidance agrees with keeping one agent in control:
 - The code-enforced starting bounds are three results per search and five research steps. The instruction-level targets are one search and three page reads. If trace-reviewed coverage is poor, first try five results, five reads, and eight steps. If category routing is repeatedly poor, broaden research to all factual requests; if unsupported claims persist, prefer a separate verifier as the long-term architecture.
 - Scraped public page bodies increase private Postgres and ClickHouse retention volume. The existing private storage and access boundary, including potentially indefinite retention without a TTL, is accepted for this first version. Add pruning or payload filtering only if observed volume or sensitivity requires it.
 - Firecrawl may retain request data under its standard service policy even with response caching disabled. Zero Data Retention is deferred while research inputs are restricted to public queries, URLs, and page content.
-- `FIREWORKS_API_KEY` remains required for observational memory; `OPENAI_API_KEY` and `FIRECRAWL_API_KEY` become part of the application and deployment contract.
+- `NEURALWATT_API_KEY` remains required for observational memory; `OPENAI_API_KEY` and `FIRECRAWL_API_KEY` become part of the application and deployment contract.
 
 ## Future model evaluation record
 
