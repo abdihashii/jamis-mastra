@@ -81,7 +81,7 @@ gh repo deploy-key add <pubkey-file> --title 'jamis-prod (read-only)' --repo abd
 # back on the box
 git clone git@github.com:abdihashii/jamis-mastra.git /root/jamis-mastra
 cd /root/jamis-mastra/apps/agent && cp .env.prod.example .env.prod && chmod 600 .env.prod
-# edit .env.prod: FIREWORKS_API_KEY, API_TOKEN (openssl rand -hex 32), DB passwords
+# edit .env.prod: NEURALWATT_API_KEY, API_TOKEN (openssl rand -hex 32), DB passwords
 
 # publish the app to the tailnet. Compose binds 127.0.0.1 only, so without this
 # Studio is unreachable. --bg survives reboots and tailscaled restarts.
@@ -125,7 +125,7 @@ Goal: `.env.prod` ignored, template committed.
 - Remaining: new `apps/agent/.env.prod.example`:
 
 ```
-FIREWORKS_API_KEY=
+NEURALWATT_API_KEY=
 API_TOKEN=            # openssl rand -hex 32
 TUNNEL_TOKEN=         # from Cloudflare dashboard (B6)
 POSTGRES_PASSWORD=

@@ -54,7 +54,7 @@ Research used Firecrawl against primary or official sources before this plan was
 - After Mastra resolves `researchAgent`, authenticated Studio and `/api/tools` may list or execute the intrinsic tool IDs `firecrawl-search` and `firecrawl-scrape` through Mastra's runtime tool registry. Agent configuration and traces use the object keys `firecrawlSearch` and `firecrawlScrape`. The tools are not configured on Jamis or sibling agents, so those agents cannot select them directly.
 - An explicit online-research request can now make Jamis search for relevant pages, scrape selected pages, and answer from the resulting evidence.
 - Responses containing researched factual claims gain inline citation markers and a Sources list.
-- `FIREWORKS_API_KEY`, `OPENAI_API_KEY`, and `FIRECRAWL_API_KEY` become required in local and production configuration. The values are never committed or logged.
+- `NEURALWATT_API_KEY`, `OPENAI_API_KEY`, and `FIRECRAWL_API_KEY` become required in local and production configuration. The values are never committed or logged.
 - Scraped markdown is retained in existing private Postgres message records and ClickHouse spans. No database schema, ClickHouse schema, Cloudflare rule, Sendblue webhook, or unauthenticated route changes.
 
 ## Stage 1: record the online-research capability and boundary

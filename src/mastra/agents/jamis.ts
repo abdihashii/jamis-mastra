@@ -36,7 +36,7 @@ export const jamis = new Agent({
 	memory: new Memory({
 		options: {
 			observationalMemory: {
-				model: 'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
+				model: 'neuralwatt/deepseek-v4-flash',
 			},
 		},
 	}),

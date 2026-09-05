@@ -37,6 +37,6 @@ export const weatherAgent = new Agent({
         anything else ("rate-limited", "unreachable", "failed", "unusable") → say the weather
         service is having trouble and to try again later.
 `,
-	model: 'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
+	model: 'neuralwatt/deepseek-v4-flash',
 	tools: { weatherTool, forecastTool },
 });
