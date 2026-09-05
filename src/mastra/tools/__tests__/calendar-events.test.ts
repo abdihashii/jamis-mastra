@@ -265,6 +265,26 @@ describe('listCalendarEvents per-event shaping', () => {
 		expect(out.events[0].description).toHaveLength(1000);
 	});
 
+	test('private-visibility events (no summary) still surface attributed to their calendar', async () => {
+		mockFetch({
+			events: (calId) => {
+				if (calId === 'primary@example.com') {
+					return eventsJson([
+						{ summary: 'Public', start: { dateTime: '2026-09-05T09:00:00-05:00' }, end: { dateTime: '2026-09-05T09:30:00-05:00' } },
+					]);
+				}
+				// Work calendar: summary absent (private visibility), must not be dropped.
+				return eventsJson([
+					{ start: { dateTime: '2026-09-05T10:30:00-05:00' }, end: { dateTime: '2026-09-05T11:00:00-05:00' } },
+				]);
+			},
+		});
+		const out = await listCalendarEvents({});
+		expect(out.events).toHaveLength(2);
+		expect(out.events.map(e => e.title)).toEqual(['Public', '(Private event)']);
+		expect(out.events[1].calendar).toBe('Team');
+	});
+
 	test('cancelled events are dropped', async () => {
 		mockFetch({
 			events: (calId) => {

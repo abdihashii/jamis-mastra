@@ -37,6 +37,8 @@ interface CalendarEventsListResult {
 
 export interface CalendarEventSummary {
 	title: string;
+	/** Which picked calendar the event came from (its name from the pool). */
+	calendar: string;
 	/** ISO 8601 with zone offset (or a bare date for all-day events), straight from Google. */
 	start: string;
 	end: string;
@@ -152,10 +154,11 @@ export async function listCalendarEvents(
 				continue;
 			const start = ev.start?.dateTime ?? ev.start?.date;
 			const end = ev.end?.dateTime ?? ev.end?.date;
-			if (!ev.summary || !start || !end)
+			if (!start || !end)
 				continue;
 			events.push({
-				title: ev.summary,
+				title: ev.summary || '(Private event)',
+				calendar: cal.summary,
 				start,
 				end,
 				...(ev.location ? { location: ev.location } : {}),
@@ -176,7 +179,7 @@ export const calendarEventsTool = createTool({
 		'List events from the operator\'s picked calendars (read-only), merged and chronological. '
 		+ 'daysAhead is a whole-day window starting today (1 = today, 2 = today and tomorrow, 90 max). '
 		+ 'q is optional free-text match across title, location, description, and attendee names ("dentist", "Sarah"). '
-		+ 'Returns each event\'s title, start, end, optional location and description.',
+		+ 'Returns each event\'s calendar, title, start, end, optional location and description.',
 	inputSchema: z.object({
 		daysAhead: z.number().int().min(1).max(90).optional().describe('Whole days to look ahead from today (default 1 = today only). Tomorrow alone: 2, then read the second day.'),
 		q: z.string().optional().describe('Optional free-text filter, e.g. "dentist" or "gym". Matches title, location, description, attendee names.'),
@@ -186,7 +189,8 @@ export const calendarEventsTool = createTool({
 		to: z.string().describe('Window end (exclusive), ISO 8601 with zone offset'),
 		truncated: z.boolean().describe('True when more events matched than returned; narrow daysAhead or q'),
 		events: z.array(z.object({
-			title: z.string(),
+			title: z.string().describe('Event title; "(Private event)" when Google withholds the name on private-visibility events'),
+			calendar: z.string().describe('Which of the operator\'s picked calendars this event belongs to'),
 			start: z.string().describe('ISO 8601 with zone offset, or a date for all-day events'),
 			end: z.string().describe('ISO 8601 with zone offset, or a date for all-day events'),
 			location: z.string().optional(),
