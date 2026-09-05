@@ -267,7 +267,7 @@ server: {
 
 ### B5. First deploy (done)
 
-The two prerequisites were completed on the box, in this order: `.env.prod` filled and `chmod 600` (`API_TOKEN`, the postgres password, and the clickhouse password all generated with `openssl rand -hex`; `NEURALWATT_API_KEY` copied from the Mac; `TUNNEL_TOKEN` left blank for B6), then `tailscale serve --bg --http=4111 localhost:4111`.
+The two prerequisites were completed on the box, in this order: `.env.prod` filled and `chmod 600` (`API_TOKEN`, the postgres password, and the clickhouse password all generated with `openssl rand -hex`; `FIREWORKS_API_KEY` copied from the Mac; `TUNNEL_TOKEN` left blank for B6), then `tailscale serve --bg --http=4111 localhost:4111`.
 
 Deploy is one non-interactive command from the Mac: `JAMIS_HOST=100.105.239.41 ./infra/deploy.sh`. It connects as root, fetches, checks out `JAMIS_BRANCH` (default `main`, which now carries this work), and runs `docker compose up -d --build` with both compose files. Build on the box succeeded on the CX23 without OOM, and all four services came up.
 
