@@ -36,6 +36,7 @@ import {
 	generatePkceAndState,
 	hasCalendarListScope,
 	listOperatorCalendars,
+	loadCredential,
 	saveCalendarPool,
 	saveCredential,
 } from '../src/lib/google-oauth.js';
@@ -105,6 +106,10 @@ const server = createServer((req, res) => {
 		exchangeStarted = true;
 		try {
 			const cred = await exchangeCode({ code, codeVerifier, clientId, clientSecret, redirectUri });
+			if (skipPool) {
+				// A skip-flag re-login must not destroy an existing stored pool.
+				cred.calendars = (await loadCredential(credentialPath))?.calendars;
+			}
 			await saveCredential(cred, credentialPath);
 			// Print confirmation BEFORE ending the response: finish() exits the process.
 			const info = await stat(credentialPath);

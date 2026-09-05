@@ -4,7 +4,7 @@
  * Node builtins and plain fetch only: this module must stay runnable inside
  * `oven/bun` with no node_modules (the login and smoke scripts run on the VPS
  * that way). Desktop-app client, loopback redirect, credential must carry
- * every scope in GOOGLE_REQUIRED_SCOPES (plan 012 superset membership). Wire format from
+ * every scope in GOOGLE_REQUIRED_SCOPES (plan 012). Wire format from
  * https://developers.google.com/identity/protocols/oauth2/native-app — the
  * loopback listener and any-port redirect remain supported for Desktop clients.
  *
@@ -261,7 +261,7 @@ export async function listOperatorCalendars(accessToken: string): Promise<Array<
 		}));
 }
 
-/** Whether the granted scope set carries the calendar-list scope (drives the login-time pool picker). */
+/** Whether the granted scope set carries the calendar-list scope. */
 export function hasCalendarListScope(scope: string): boolean {
 	return scope.split(/\s+/).includes(CALENDAR_LIST_READONLY_SCOPE);
 }
