@@ -1,5 +1,5 @@
 import { TZDate } from '@date-fns/tz';
-import { addDays, format } from 'date-fns';
+import { addDays, format, startOfDay } from 'date-fns';
 
 /**
  * @param offsetSec - OpenWeather `timezone` (seconds from UTC)
@@ -47,4 +47,15 @@ export function localTime(unixSec: number, offsetSec: number): string {
  */
 export function localDate(unixSec: number, offsetSec: number): string {
 	return format(new TZDate(unixSec * 1000, offsetString(offsetSec)), 'yyyy-MM-dd');
+}
+
+/**
+ * @param timeZone - IANA zone name, e.g. `"America/Chicago"`
+ * @param daysAhead - Window size in whole days
+ * @param nowMs - Epoch ms; injectable for tests
+ * @returns [start of today, start of today + daysAhead] in that zone, RFC3339 with zone offset
+ */
+export function zonedDayWindow(timeZone: string, daysAhead: number, nowMs = Date.now()): [string, string] {
+	const start = startOfDay(new TZDate(nowMs, timeZone));
+	return [format(start, 'yyyy-MM-dd\'T\'HH:mm:ssxxx'), format(addDays(start, daysAhead), 'yyyy-MM-dd\'T\'HH:mm:ssxxx')];
 }

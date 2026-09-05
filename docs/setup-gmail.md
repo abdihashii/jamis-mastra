@@ -1,18 +1,20 @@
-# Gmail setup for the personal-accounts agent
+# Google setup for the personal-accounts agent
 
 One-time setup of the Google side and the Jamis runtime secrets. End state: a
-gitignored `data/google-oauth.json` (0600) on each machine that runs Gmail
-tooling, holding exactly the `gmail.readonly` scope for the operator's
-account. See ADR 0015 for the design and CONTEXT.md for terminology.
+gitignored `data/google-oauth.json` (0600) on each machine that runs Google
+tooling, holding exactly the scopes Jamis needs (`gmail.readonly` plus the two
+calendar scopes) and the operator's picked calendar pool. See ADR 0015 for the
+design, plan 012 for the calendar extension, and CONTEXT.md for terminology.
 
 ## 1. Google Cloud project
 
 1. console.cloud.google.com → create a project named `jamis`.
-2. Enable the **Gmail API** (APIs & Services → Library).
+2. Enable the **Gmail API** and **Google Calendar API** (APIs & Services → Library).
 3. OAuth consent screen → External:
    - App name `Jamis`, support email and developer contact email: the
      operator's address.
-   - Add the scope `.../auth/gmail.readonly`.
+   - Add the scopes `.../auth/gmail.readonly`, `.../auth/calendar.events.readonly`,
+     and `.../auth/calendar.calendarlist.readonly`.
    - Set **Publishing status: In production**. In Testing, refresh tokens die
      after 7 days; In production, the unverified-app warning is accepted for
      one operator (see [Google's verification exceptions](https://support.google.com/cloud/answer/13463073)).
@@ -45,8 +47,20 @@ bun run login:google
 
 The script opens the Google consent URL; complete it in the browser. Google
 redirects to `http://127.0.0.1:53682/?code=...`; the script writes
-`data/google-oauth.json` (mode 0600) and prints only the file path and mode.
-It never prints a token.
+`data/google-oauth.json` (mode 0600) and confirms the path and mode. It never
+prints a token.
+
+### 3a. Calendar pool pick
+
+With the calendar scopes granted, the script then lists every calendar on the
+account (name + zone) and asks which to keep, comma-separated (Enter = primary
+only): the pool lands under the credential's `calendars` key and is what the
+`calendar-events` tool queries. Pool change = re-run the script and re-pick.
+To re-login without changing the pool: `GOOGLE_LOGIN_CALENDAR_POOL=skip`.
+
+Day boundaries for asks like "tomorrow" come from the primary calendar's zone
+(the first pick's zone if the primary calendar was not picked); the rule lives
+in `src/mastra/tools/calendar-events.ts`, plan 012 for the why.
 
 **VPS (prod):** the box has no browser, and Google requires a loopback
 redirect, so the trick is: the consent flow runs in your Mac's browser, the
@@ -108,8 +122,11 @@ git check-ignore data/google-oauth.json     # expect exit 0
 # local dev API check
 bun dev &
 bun run --bun mastra api --url http://127.0.0.1:4111 \
-  --header "Authorization: Bearer $API_TOKEN" tool list | grep gmail-search
+  --header "Authorization: Bearer $API_TOKEN" tool list | grep -E 'gmail-search|calendar-events'
 bun run --bun mastra api --timeout 60000 --url http://127.0.0.1:4111 \
   --header "Authorization: Bearer $API_TOKEN" \
   tool execute gmail-search '{"query":"is:unread"}'
+bun run --bun mastra api --timeout 60000 --url http://127.0.0.1:4111 \
+  --header "Authorization: Bearer $API_TOKEN" \
+  tool execute calendar-events '{"daysAhead":1}'
 ```
