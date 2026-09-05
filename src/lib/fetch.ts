@@ -4,11 +4,12 @@
  *
  * @param url - URL to fetch
  * @param signal - Optional abort signal
+ * @param headers - Optional request headers (e.g. Gmail's Bearer token)
  * @returns Status plus parsed body; `json` is `null` on bad JSON
  */
-export async function fetchJson(url: string, signal?: AbortSignal): Promise<{ ok: boolean; status: number; json: unknown }> {
+export async function fetchJson(url: string, signal?: AbortSignal, headers?: Record<string, string>): Promise<{ ok: boolean; status: number; json: unknown }> {
 	try {
-		const response = await fetch(url, { signal });
+		const response = await fetch(url, { signal, headers });
 		const json = await response.json().catch(() => null);
 		return { ok: response.ok, status: response.status, json };
 	}
