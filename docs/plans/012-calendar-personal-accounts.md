@@ -1,6 +1,30 @@
 # 012: Google Calendar read-only via personal-accounts-agent
 
-Status: **Planned.**
+Status: **Complete.** Production verification 2026-09-05 UTC.
+
+- Branch `JAM-52-extend-personal-accounts-agent-with-read-only-google`, PR #23.
+- Stage 1 (superset scope + login pool picker): `727afa7`, 90 tests, real
+  `login:google` capture on Mac (0600, 3 scopes, 6-calendar pool picked).
+- Stage 2 (`calendar-events` tool + agent wiring): `1363197`, 114 tests, live
+  `mastra api tool execute` sanity against the real primary-plus-pick pool.
+- Stage 3 (setup-gmail.md Calendar section + skip-flag pool preservation): `50e151f`.
+- Stage 4 (prod): re-captured credential on VPS over `ssh -L` against the
+  JAM-52 branch checkout (0600, uid 1000, superset 3 scopes, 6 calendars).
+  Deployed via `infra/deploy.sh` with `JAMIS_BRANCH=JAM-52-...`.
+  `tool list` shows `calendar-events`; `tool execute '{"daysAhead":1}'`
+  returns real events from prod (Walmart Delivery, LGI FF Draft).
+  iMessage smoke: "what's on my calendar tomorrow?" → Jamis answered with a
+  real empty-day list for Sunday 2026-09-06, proving per-calendar
+  window logic end to end. Silent-refresh proven by back-dating `expiresAt`
+  on the box and re-executing the tool (access token rotated in place, file
+  rewritten with future expiry).
+  Post-deploy leak scans: Postgres `mastra_messages` clean (0 hits for
+  `calendar.events.readonly` / `calendarlist` / `ya29.`), ClickHouse
+  `mastra_span_events` clean across attributes/input/output/error/requestContext.
+
+Known v1 cut corners: all-day multi-day spans keep bare dates (Jamis relays
+"all day" fine); pool change = re-run `login:google` (established in plan);
+calendar events with >20 hits per window surface only as `truncated: true`.
 
 Linear: [JAM-52](https://linear.app/abdirahman-haji/issue/JAM-52/extend-personal-accounts-agent-with-read-only-google-calendar-v1).
 
