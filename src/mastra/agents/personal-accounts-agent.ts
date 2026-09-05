@@ -36,6 +36,6 @@ export const personalAccountsAgent = new Agent({
           else; anything else ("rate-limited", "unreachable", "failed", "unusable") → say the
           corresponding service (Gmail or Calendar) is having trouble and to try again later.
 `,
-	model: 'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
+	model: 'neuralwatt/deepseek-v4-flash',
 	tools: { gmailSearchTool, calendarEventsTool },
 });
