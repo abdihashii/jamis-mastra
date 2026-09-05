@@ -126,3 +126,13 @@ Resolved in a grill-with-docs session on 2026-09-04 against ADR 0015 and the res
 - Bodies are truncated at 4000 characters in the tool result; Postgres retains the full record per ADR 0015's accepted retention posture.
 - One refresh per account assumption: prod and dev each hold a credential; the 100-live-token-per-client cap is far away.
 - Google's unverified-app posture can change; reversal is deleting the OAuth client and reverting these commits.
+
+**Production verification 2026-09-05 UTC.** Complete against the box deployed from branch `jam-50-add-personal-accounts-agent-with-read-only-gmail-v1` (squash-merged to main as part of this landing).
+
+- `.env.prod` now carries `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (boot required them; requireEnv passed — clean boot observed in `docker compose logs app` with Sendblue adapter up).
+- `login:google` over SSH on the box via `docker run`+`--network host` and `ssh -L 53682` captured `data/google-oauth.json` (stat: `600 1000`; jq: `scope = "https://www.googleapis.com/auth/gmail.readonly"` exactly). `git check-ignore` clean.
+- Tailnet AC: `mastra api tool list` shows `gmail-search`; `tool execute '{/?query":"is:unread"}'` over the SSH-forwarded loopback returned the operator's actual first-page unread mail (201 estimated, Uber Receipts/Papa Johns/USPS/LinkedIn/FantasyPros subjects verified).
+- iMessage AC: phone ask "what's my latest unread email?" answered correctly with subject, sender, date, and a plain summary.
+- Silent refresh: credential back-dated (`expiresAt=1757010000000`), `tool execute` returned mail with no auth error, file rewritten with a fresh `expiresAt` (~1h later). **Probe lesson, twice now: keep the forge schema-accurate. A jq assignment of an ISO string into a numeric `expiresAt` field is rejected by `loadCredential`'s typeof guard and surfaces as the dead-credential path — the failure shape looks like blindness but is correct rejection of a malformed file. Use epoch-ms integers in probes.**
+- Fail-closure: actual file moved aside, iMessage reply was "I can't check Gmail right now; authentication failed." (channel-visible generic text; logs carried `[google-oauth] No Google credential` + stack). Restore verified (600/1000, scope intact).
+- Post-deploy scan (ADR 0013 pattern, needles length-asserted): Postgres `mastra_messages` = 0 rows and ClickHouse `mastra_span_events` = 0 spans containing the full refresh token, refresh-token prefix, access-token prefix, client ID, client secret, `google-oauth.json` path, `GOOGLE_CLIENT_SECRET`, or the oauth2 endpoint domain. Note for future audits: ClickHouse table here is `mastra_span_events` (not `otel_traces`), with text columns `attributes`, `input`, `output`, `error`, `requestContext`.
