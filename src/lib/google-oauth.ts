@@ -3,8 +3,8 @@
  *
  * Node builtins and plain fetch only: this module must stay runnable inside
  * `oven/bun` with no node_modules (the login and smoke scripts run on the VPS
- * that way). Desktop-app client, loopback redirect, scope pinned to
- * gmail.readonly. Wire format from
+ * that way). Desktop-app client, loopback redirect, credential must carry
+ * every scope in GOOGLE_REQUIRED_SCOPES (plan 012 superset membership). Wire format from
  * https://developers.google.com/identity/protocols/oauth2/native-app — the
  * loopback listener and any-port redirect remain supported for Desktop clients.
  *
@@ -26,6 +26,14 @@ export const GOOGLE_AUTH_FAILURE = 'Authentication failed. The error was logged.
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 export const GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+export const CALENDAR_EVENTS_READONLY_SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
+export const CALENDAR_LIST_READONLY_SCOPE = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly';
+/**
+ * Every scope Jamis needs; the granted set must contain all of them. A miss
+ * fails generic, so a stale file never reaches the API.
+ */
+export const GOOGLE_REQUIRED_SCOPES = [GMAIL_READONLY_SCOPE, CALENDAR_EVENTS_READONLY_SCOPE, CALENDAR_LIST_READONLY_SCOPE] as const;
+const GOOGLE_CALENDARLIST_URL = 'https://www.googleapis.com/calendar/v3/users/me/calendarList';
 const DEFAULT_EXPIRES_IN_SECONDS = 3599;
 /** Treat the credential as expiring this long before the real expiry so clock skew cannot ship a dead token. */
 const CLOCK_SKEW_MS = 60_000;
@@ -37,8 +45,10 @@ export interface GoogleCredential {
 	refresh: string;
 	/** Epoch ms when `access` expires. */
 	expiresAt: number;
-	/** Granted scopes, space-delimited; must be exactly GMAIL_READONLY_SCOPE. */
+	/** Granted scopes, space-delimited; must contain every GOOGLE_REQUIRED_SCOPES member. */
 	scope: string;
+	/** Calendar pool picked at login (plan 012). */
+	calendars?: Array<{ id: string; summary: string; timeZone: string; primary?: boolean }>;
 }
 
 export function defaultCredentialPath(): string {
@@ -79,11 +89,29 @@ export async function loadCredential(path: string = defaultCredentialPath()): Pr
 			|| typeof parsed.scope !== 'string' || parsed.scope.length === 0) {
 			return null;
 		}
+		// The pool is operator-picked data, not auth material; malformed entries
+		// drop silently instead of hard-failing the credential.
+		const calendars = Array.isArray(parsed.calendars)
+			? parsed.calendars.filter((c): c is { id: string; summary: string; timeZone: string; primary?: boolean } =>
+					typeof c === 'object' && c !== null
+					&& typeof (c as { id?: unknown }).id === 'string'
+					&& typeof (c as { summary?: unknown }).summary === 'string'
+					&& typeof (c as { timeZone?: unknown }).timeZone === 'string')
+					// Re-normalize each entry: no raw spread, so stray keys or a
+					// string "primary" cannot survive into agent context.
+					.map(c => ({
+						id: c.id,
+						summary: c.summary,
+						timeZone: c.timeZone,
+						...(c.primary === true ? { primary: true } : {}),
+					}))
+			: undefined;
 		return {
 			access: parsed.access,
 			refresh: parsed.refresh,
 			expiresAt: parsed.expiresAt,
 			scope: parsed.scope,
+			...(calendars?.length ? { calendars } : {}),
 		};
 	}
 	catch {
@@ -99,11 +127,12 @@ export async function saveCredential(cred: GoogleCredential, path: string = defa
 	await rename(tmp, path);
 }
 
-/** Granted scopes must be exactly gmail.readonly — nothing more, nothing less (JAM-50 AC). */
+/** Granted scopes must contain every GOOGLE_REQUIRED_SCOPES member. */
 export function checkScope(scope: string): string {
 	const granted = new Set(scope.trim().split(/\s+/).filter(Boolean));
-	if (granted.size !== 1 || !granted.has(GMAIL_READONLY_SCOPE)) {
-		console.error(`[google-oauth] token scope is "${scope}", expected exactly ${GMAIL_READONLY_SCOPE}`);
+	const missing = GOOGLE_REQUIRED_SCOPES.filter(required => !granted.has(required));
+	if (missing.length > 0) {
+		console.error(`[google-oauth] token scope is "${scope}", missing required: ${missing.join(', ')}`);
 		throw new Error(GOOGLE_AUTH_FAILURE);
 	}
 	return scope;
@@ -176,6 +205,7 @@ export async function refreshCredential(
 				refresh: result.refresh ?? cred.refresh,
 				expiresAt: result.expiresAt,
 				scope,
+				...(cred.calendars ? { calendars: cred.calendars } : {}),
 			};
 			await saveCredential(next, path);
 			return next;
@@ -196,12 +226,52 @@ export async function getUsableCredential(
 		console.error('[google-oauth] No Google credential. Log in with `bun scripts/google-login.ts`.');
 		throw new Error(GOOGLE_AUTH_FAILURE);
 	}
-	// A hand-edited credential widened beyond gmail.readonly fails here, not at the first refresh.
+	// A hand-edited credential missing a required scope fails here, not at the first refresh.
 	checkScope(cred.scope);
 	if (isExpiring(cred)) {
 		return refreshCredential(cred, auth, path);
 	}
 	return cred;
+}
+
+/**
+ * List the operator's calendars for the login-time pool picker (plan 012).
+ * Callers check `hasCalendarListScope` first. Never logs calendar data.
+ */
+export async function listOperatorCalendars(accessToken: string): Promise<Array<{ id: string; summary: string; timeZone: string; primary?: boolean }>> {
+	// ponytail: one page of 250 covers any sane account (operator has ~6); add
+	// nextPageToken loop if someone ever hits the cap.
+	const response = await fetch(`${GOOGLE_CALENDARLIST_URL}?maxResults=250`, {
+		headers: { Authorization: `Bearer ${accessToken}` },
+	});
+	if (!response.ok) {
+		const text = await response.text().catch(() => '');
+		throw new Error(`calendarList failed with status ${response.status}${text ? ` ${text.slice(0, 200)}` : ''}`);
+	}
+	const json = (await response.json()) as {
+		items?: Array<{ id?: string; summary?: string; timeZone?: string; primary?: boolean }>;
+	};
+	return (json.items ?? [])
+		.filter((c): c is { id: string; summary?: string; timeZone: string; primary?: boolean } => typeof c.id === 'string' && c.id.length > 0 && typeof c.timeZone === 'string')
+		.map(c => ({
+			id: c.id,
+			summary: c.summary ?? c.id,
+			timeZone: c.timeZone,
+			...(c.primary === true ? { primary: true } : {}),
+		}));
+}
+
+/** Whether the granted scope set carries the calendar-list scope (drives the login-time pool picker). */
+export function hasCalendarListScope(scope: string): boolean {
+	return scope.split(/\s+/).includes(CALENDAR_LIST_READONLY_SCOPE);
+}
+
+/** Persist a calendar pool onto the stored credential (atomic, 0600). */
+export async function saveCalendarPool(calendars: Array<{ id: string; summary: string; timeZone: string; primary?: boolean }>, path: string = defaultCredentialPath()): Promise<void> {
+	const cred = await loadCredential(path);
+	if (!cred)
+		throw new Error(GOOGLE_AUTH_FAILURE);
+	await saveCredential({ ...cred, calendars }, path);
 }
 
 /** PKCE pair (S256) plus a CSRF state token for one login attempt. */
@@ -222,7 +292,7 @@ export function buildAuthUrl(options: {
 		client_id: options.clientId,
 		redirect_uri: options.redirectUri,
 		response_type: 'code',
-		scope: GMAIL_READONLY_SCOPE,
+		scope: GOOGLE_REQUIRED_SCOPES.join(' '),
 		state: options.state,
 		code_challenge: options.codeChallenge,
 		code_challenge_method: 'S256',

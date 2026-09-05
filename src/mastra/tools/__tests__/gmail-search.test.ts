@@ -8,8 +8,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-	GMAIL_READONLY_SCOPE,
 	GOOGLE_AUTH_FAILURE,
+	GOOGLE_REQUIRED_SCOPES,
 	GOOGLE_TOKEN_URL,
 	saveCredential,
 } from '../../../lib/google-oauth.js';
@@ -31,7 +31,7 @@ const FRESH_CRED: GoogleCredential = {
 	access: 'stored-access-token',
 	refresh: 'stored-refresh-token',
 	expiresAt: Date.now() + 30 * 60 * 1000,
-	scope: GMAIL_READONLY_SCOPE,
+	scope: GOOGLE_REQUIRED_SCOPES.join(' '),
 };
 
 function b64(text: string): string {
@@ -89,7 +89,7 @@ function mockFetch(options: {
 		fetchCalls.push({ url: String(input), init });
 		const url = String(input);
 		if (url.startsWith(GOOGLE_TOKEN_URL))
-			return options.token?.() ?? json({ access_token: 'fresh-access-token', expires_in: 3599, scope: GMAIL_READONLY_SCOPE });
+			return options.token?.() ?? json({ access_token: 'fresh-access-token', expires_in: 3599, scope: GOOGLE_REQUIRED_SCOPES.join(' ') });
 		if (url.includes('/messages?')) {
 			if (options.lists)
 				return options.lists[Math.min(listCalls++, options.lists.length - 1)]!();
