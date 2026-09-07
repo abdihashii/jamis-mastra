@@ -1,8 +1,23 @@
 import type { MatchupResult, WeekFacts } from '../src/fantasy/analysis';
+import type { SleeperManager } from '../src/fantasy/sleeper';
 
+import { readFile } from 'node:fs/promises';
 import process from 'node:process';
+import { Mastra } from '@mastra/core/mastra';
+import { PostgresStore } from '@mastra/pg';
 import { buildWeekFacts } from '../src/fantasy/analysis';
 import { parseFantasyConfig } from '../src/fantasy/config';
+import {
+	buildRecapPrompt,
+	createFantasyAgent,
+	FANTASY_GENERATOR_VERSION,
+	recapShapingSchema,
+	ShapingValidationError,
+	toChatContext,
+	validateShaping,
+} from '../src/fantasy/generate';
+import { ensureFantasyRecapsTable, recordGeneration } from '../src/fantasy/recaps';
+import { RECAP_MAX_LENGTH, renderWeekRecap } from '../src/fantasy/render';
 import {
 	championshipWeek,
 	getLeague,
@@ -14,12 +29,17 @@ import {
 	SleeperDataError,
 	withBracketRounds,
 } from '../src/fantasy/sleeper';
+import { openAICodexGateway } from '../src/mastra/gateways/openai-codex-gateway.js';
 
-const usage = 'bun run fantasy:recap inspect --week <number> [--allow-incomplete]';
+const usage = 'bun run fantasy:recap <inspect|preview> --week <number> [--allow-incomplete] [--model <id>] [--chat <file.json>]';
+
+// TODO(ponytail): --model and FANTASY_RECAP_MODEL exist for the A/B voice window.
+// Once a winner ships, hardcode the winner here and delete the override machinery.
+const DEFAULT_RECAP_MODEL = 'neuralwatt/kimi-k3';
 
 async function main() {
 	const [command, ...flags] = process.argv.slice(2);
-	if (command !== 'inspect')
+	if (command !== 'inspect' && command !== 'preview')
 		fail(usage, 1);
 
 	const weekFlag = flags.indexOf('--week');
@@ -59,7 +79,107 @@ async function main() {
 	const needsNextMatchups = week + 1 < league.playoffWeekStart;
 	const nextWeekScores = needsNextMatchups ? await getScores(config.sleeperLeagueId, week + 1) : undefined;
 
-	print(buildWeekFacts({ league, week, managers, bracket, scoresByWeek, nextWeekScores }), !completed);
+	const facts = buildWeekFacts({ league, week, managers, bracket, scoresByWeek, nextWeekScores });
+	if (command === 'inspect') {
+		print(facts, !completed);
+		return;
+	}
+
+	const modelFlag = flags.indexOf('--model');
+	const modelFlagValue = flags[modelFlag + 1];
+	const model = (modelFlag >= 0 && modelFlagValue && !modelFlagValue.startsWith('--') ? modelFlagValue : undefined)
+		?? config.recapModel
+		?? DEFAULT_RECAP_MODEL;
+
+	const chatFlag = flags.indexOf('--chat');
+	const chatPath = chatFlag >= 0 ? flags[chatFlag + 1] : undefined;
+	if (chatFlag >= 0 && (!chatPath || chatPath.startsWith('--')))
+		fail(usage, 1);
+	const context = chatPath
+		? await loadChatFixture(chatPath, managers)
+		: toChatContext(await readThreadMessages(config.sendblueGroupId), config, managers);
+
+	// A bare Mastra instance only so custom gateways (openai-codex/*) resolve.
+	const mastra = new Mastra({
+		gateways: { 'openai-codex': openAICodexGateway },
+		agents: { fantasy: createFantasyAgent(model) },
+	});
+	const result = await mastra.getAgent('fantasy').generate(buildRecapPrompt(facts, context), {
+		structuredOutput: { schema: recapShapingSchema },
+	});
+	if (!result.object)
+		fail('The model returned no structured recap output.', 1);
+	const shaping = validateShaping(result.object, context, facts);
+	const text = renderWeekRecap(facts, shaping, context);
+
+	console.log(text);
+	console.log(`\n(${FANTASY_GENERATOR_VERSION} / ${model} — ${text.length}/${RECAP_MAX_LENGTH} chars, ${shaping.callbacks.length} callbacks)`);
+
+	try {
+		await ensureFantasyRecapsTable();
+		await recordGeneration({
+			leagueId: league.id,
+			fantasyWeek: week,
+			generatorVersion: FANTASY_GENERATOR_VERSION,
+			model,
+			finalText: text,
+			facts,
+		});
+		console.log('(recorded in fantasy_recap_generations)');
+	}
+	catch (error) {
+		console.error('[fantasy-recap] generation not recorded:', error);
+	}
+}
+
+interface ChatFixtureEntry {
+	id: string;
+	senderNumber: string;
+	text: string;
+}
+
+/** Debug helper: load a synthetic banter file so voice tests use shared chat input. */
+async function loadChatFixture(path: string, managers: SleeperManager[]) {
+	let raw: string;
+	try {
+		raw = await readFile(path, 'utf8');
+	}
+	catch {
+		throw new SleeperDataError(`--chat file is unreadable: ${path}`);
+	}
+	let entries: ChatFixtureEntry[];
+	try {
+		entries = JSON.parse(raw) as ChatFixtureEntry[];
+	}
+	catch {
+		throw new SleeperDataError(`--chat file is not valid JSON: ${path}`);
+	}
+	const displayNameByUserId = new Map(managers.map(m => [m.userId, m.displayName]));
+	const config = parseFantasyConfig();
+	return entries.map(entry => ({
+		id: entry.id,
+		text: entry.text,
+		sender: (config && displayNameByUserId.get(config.managerMap[entry.senderNumber])) || 'unknown sender',
+	}));
+}
+
+/** Reads the archived fantasy thread newest-first; anything odd reads as an empty week. */
+async function readThreadMessages(groupId: string) {
+	try {
+		const store = await new PostgresStore({ url: process.env.DATABASE_URL! }).getStore('memory');
+		if (!store)
+			throw new Error('no memory store');
+		const { messages } = await store.listMessages({
+			threadId: `fantasy-group-${groupId}`,
+			perPage: 40,
+			orderBy: { field: 'createdAt', direction: 'DESC' },
+		});
+		return messages;
+	}
+	catch (error) {
+		console.error('[fantasy-recap] could not read chat context; proceeding with none:', error);
+		return [];
+	}
 }
 
 function print(facts: WeekFacts, provisional: boolean) {
@@ -115,7 +235,7 @@ function fail(message: string, code: number): never {
 }
 
 main().catch((error) => {
-	if (error instanceof SleeperDataError)
+	if (error instanceof SleeperDataError || error instanceof ShapingValidationError)
 		fail(error.message, 1);
 	throw error;
 });
