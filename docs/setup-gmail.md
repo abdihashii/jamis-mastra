@@ -4,7 +4,7 @@ One-time setup of the Google side and the Jamis runtime secrets. End state: a
 gitignored `data/google-oauth.json` (0600) on each machine that runs Google
 tooling, holding exactly the scopes Jamis needs (`gmail.readonly` plus the two
 calendar scopes) and the operator's picked calendar pool. See ADR 0015 for the
-design, plan 012 for the calendar extension, and CONTEXT.md for terminology.
+design, plan 012 for the calendar extension, and docs/CONTEXT.md for terminology.
 
 ## 1. Google Cloud project
 
