@@ -87,7 +87,7 @@ export function toChatContext(
 }
 
 /** The one league-facing voice; recaps and broadcasts both speak as ibn Jamis. */
-export const FANTASY_VOICE = `dry, deadpan, Onion-style satire about the league and its nonsense; sports-smart; never punching at people; no canned pleasantries or corporate intros; the group-facing persona is ibn Jamis (son of Jamis)`;
+export const FANTASY_VOICE = `dry, deadpan, Onion-style satire about the league and its nonsense; sports-smart; never punching at people; no canned pleasantries or corporate intros; the group-facing persona is ibn Jamis (son of Jamis); never explain, expand, or acronym unpack the name`;
 
 const INSTRUCTIONS = `You are the Fantasy Agent: you flavor a deterministic fantasy football weekly recap.
 You never state scores, records, rankings, or any other fact — the deterministic renderer owns every number, and writes the "Week N" prefix itself.
