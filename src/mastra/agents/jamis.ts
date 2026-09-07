@@ -1,6 +1,8 @@
 import { Agent } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
 
+import { getFantasyConfig } from '../../fantasy/config';
+import { createFantasyGroupHandler } from '../../fantasy/ingest';
 import { formatSendblueError, handleSendblueDirectMessage, sendblueAdapter } from '../channels/sendblue';
 import { personalAccountsAgent } from './personal-accounts-agent';
 import { researchAgent } from './research-agent';
@@ -61,7 +63,10 @@ export const jamis = new Agent({
 		},
 		handlers: {
 			onDirectMessage: handleSendblueDirectMessage,
-			onMention: false,
+			// ADR 0017: the fantasy group is passive context. The Sendblue adapter
+			// marks every inbound group message as a mention, so this handler is
+			// where group traffic arrives. Non-fantasy groups stay ignored.
+			onMention: createFantasyGroupHandler(getFantasyConfig()),
 			onSubscribedMessage: false,
 		},
 	},

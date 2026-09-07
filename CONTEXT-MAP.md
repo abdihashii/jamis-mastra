@@ -3,7 +3,7 @@
 ## Contexts
 
 - [Jamis](docs/CONTEXT.md): the operator's personal agent system and its infrastructure.
-- [Fantasy Companion](docs/FANTASY-CONTEXT.md): the passive Sleeper league companion and its weekly editorial recap.
+- [Fantasy Companion](src/fantasy/CONTEXT.md): the passive Sleeper league companion and its weekly editorial recap.
 
 ## Relationships
 
