@@ -133,32 +133,42 @@ export async function claimRun(
 }
 
 /** Stamps the exact text before the outbound request ever fires (ADR 0018). */
-export async function recordAttemptText(leagueId: string, week: number, finalText: string, sql: SqlLike): Promise<void> {
-	await sql`
+export async function recordAttemptText(leagueId: string, week: number, claimToken: string, finalText: string, sql: SqlLike): Promise<boolean> {
+	const rows = (await sql`
 		UPDATE fantasy_recap_runs SET final_text = ${finalText}, updated_at = now()
 		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
-	`;
+			AND status = 'started' AND claim_token = ${claimToken}
+		RETURNING 1
+	`) as unknown[];
+	return rows.length === 1;
 }
 
-export async function markSent(leagueId: string, week: number, handle: string, sql: SqlLike): Promise<void> {
-	await sql`
+export async function markSent(leagueId: string, week: number, claimToken: string, handle: string, sql: SqlLike): Promise<boolean> {
+	const rows = (await sql`
 		UPDATE fantasy_recap_runs
 		SET status = 'sent', message_handle = ${handle}, delivery_source = 'api', sent_at = now(), updated_at = now()
 		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
-	`;
+			AND status = 'started' AND claim_token = ${claimToken}
+		RETURNING 1
+	`) as unknown[];
+	return rows.length === 1;
 }
 
-export async function markFailed(leagueId: string, week: number, error: string, sql: SqlLike): Promise<void> {
-	await sql`
+export async function markFailed(leagueId: string, week: number, claimToken: string, error: string, sql: SqlLike): Promise<boolean> {
+	const rows = (await sql`
 		UPDATE fantasy_recap_runs SET status = 'failed', last_error = ${error}, updated_at = now()
 		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
-	`;
+			AND status = 'started' AND claim_token = ${claimToken}
+		RETURNING 1
+	`) as unknown[];
+	return rows.length === 1;
 }
 
-export async function markDeliveryUnknown(leagueId: string, week: number, error: string, sql: SqlLike): Promise<void> {
+export async function markDeliveryUnknown(leagueId: string, week: number, claimToken: string, error: string, sql: SqlLike): Promise<void> {
 	await sql`
 		UPDATE fantasy_recap_runs SET status = 'delivery_unknown', last_error = ${error}, updated_at = now()
 		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
+			AND status = 'started' AND claim_token = ${claimToken}
 	`;
 }
 
@@ -218,10 +228,10 @@ export interface RunsStore {
 	claimRun: (week: number, claimToken: string, leaseExpiresAt: Date, now: Date) => Promise<ClaimResult>;
 	/** Returns the claimed row's stored final_text (the exact text to resend), or null when unclaimable. */
 	claimForRetry: (week: number, claimToken: string, leaseExpiresAt: Date, now: Date) => Promise<string | null>;
-	recordAttemptText: (week: number, finalText: string) => Promise<void>;
-	markSent: (week: number, handle: string) => Promise<void>;
-	markFailed: (week: number, error: string) => Promise<void>;
-	markDeliveryUnknown: (week: number, error: string) => Promise<void>;
+	recordAttemptText: (week: number, claimToken: string, finalText: string) => Promise<boolean>;
+	markSent: (week: number, claimToken: string, handle: string) => Promise<boolean>;
+	markFailed: (week: number, claimToken: string, error: string) => Promise<boolean>;
+	markDeliveryUnknown: (week: number, claimToken: string, error: string) => Promise<void>;
 	confirmSentByOperator: (week: number) => Promise<boolean>;
 	/** Atomic expired-lease sweep; transitioned rows (each needs an operator DM). */
 	expireStaleLeases: (now: Date, reason: string) => Promise<RecapRun[]>;
@@ -246,10 +256,10 @@ export function createRunsStore(leagueId: string, sql: SqlLike): RunsStore {
 			`) as { final_text: string }[];
 			return rows.length === 1 ? rows[0]!.final_text : null;
 		},
-		recordAttemptText: (week, finalText) => recordAttemptText(leagueId, week, finalText, sql),
-		markSent: (week, handle) => markSent(leagueId, week, handle, sql),
-		markFailed: (week, error) => markFailed(leagueId, week, error, sql),
-		markDeliveryUnknown: (week, error) => markDeliveryUnknown(leagueId, week, error, sql),
+		recordAttemptText: (week, claimToken, finalText) => recordAttemptText(leagueId, week, claimToken, finalText, sql),
+		markSent: (week, claimToken, handle) => markSent(leagueId, week, claimToken, handle, sql),
+		markFailed: (week, claimToken, error) => markFailed(leagueId, week, claimToken, error, sql),
+		markDeliveryUnknown: (week, claimToken, error) => markDeliveryUnknown(leagueId, week, claimToken, error, sql),
 		confirmSentByOperator: week => confirmSentByOperator(leagueId, week, sql),
 		expireStaleLeases: (now, reason) => expireStaleLeases(leagueId, now, reason, sql),
 		hasNewerActiveRun: week => hasNewerActiveRun(leagueId, week, sql),

@@ -83,9 +83,9 @@ async function generateWithRepair(
 	}
 }
 
-async function preserveUnknownDelivery(week: number, error: string, deps: CoordinatorDeps): Promise<CoordinatorResult> {
+async function preserveUnknownDelivery(week: number, claimToken: string, error: string, deps: CoordinatorDeps): Promise<CoordinatorResult> {
 	try {
-		await deps.runs.markDeliveryUnknown(week, error);
+		await deps.runs.markDeliveryUnknown(week, claimToken, error);
 	}
 	catch { /* the started lease will expire to delivery_unknown */ }
 	await tryDm(deps.send, `[fantasy-recap] week ${week} recap delivery is unknown (${error}). Check the group, then run confirm-sent --week ${week} if it landed, or retry --week ${week} --operator-verified-absent if not.`);
@@ -95,6 +95,7 @@ async function preserveUnknownDelivery(week: number, error: string, deps: Coordi
 /** Sends `text` for the claimed week and records the outcome per ADR 0018. Text is persisted first. */
 async function deliverStoredText(
 	week: number,
+	claimToken: string,
 	text: string,
 	generation: { model: string; facts: WeekFacts } | null,
 	deps: CoordinatorDeps,
@@ -110,24 +111,25 @@ async function deliverStoredText(
 			facts: generation.facts,
 		});
 	}
-	await runs.recordAttemptText(week, text);
+	if (!await runs.recordAttemptText(week, claimToken, text))
+		return { outcome: 'blocked-active-claim', week };
 
 	const outcome = await send.sendToGroup(deps.groupId, text);
 	if (outcome.kind === 'sent') {
 		try {
-			await runs.markSent(week, outcome.handle);
+			if (await runs.markSent(week, claimToken, outcome.handle))
+				return { outcome: 'sent', week };
 		}
-		catch {
-			return preserveUnknownDelivery(week, 'delivery result could not be recorded', deps);
-		}
-		return { outcome: 'sent', week };
+		catch { /* handled as delivery_unknown below */ }
+		return preserveUnknownDelivery(week, claimToken, 'delivery result could not be recorded', deps);
 	}
 	if (outcome.kind === 'failed') {
-		await runs.markFailed(week, outcome.error);
+		if (!await runs.markFailed(week, claimToken, outcome.error))
+			return { outcome: 'blocked-active-claim', week };
 		await tryDm(send, `[fantasy-recap] week ${week} recap failed before Sendblue accepted it (${outcome.error}). The daily run retries automatically.`);
 		return { outcome: 'failed', week, error: outcome.error };
 	}
-	return preserveUnknownDelivery(week, outcome.error, deps);
+	return preserveUnknownDelivery(week, claimToken, outcome.error, deps);
 }
 
 export interface RunWeeklyArgs {
@@ -162,14 +164,15 @@ export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps)
 	if (existing?.status === 'delivery_unknown')
 		return { outcome: 'blocked-delivery-unknown', week };
 
-	const claim = await runs.claimRun(week, randomUUID(), new Date(deps.now().getTime() + LEASE_MS), deps.now());
+	const claimToken = randomUUID();
+	const claim = await runs.claimRun(week, claimToken, new Date(deps.now().getTime() + LEASE_MS), deps.now());
 	if (!claim.claimed)
 		return { outcome: claim.run?.status === 'delivery_unknown' ? 'blocked-delivery-unknown' : 'blocked-active-claim', week };
 
 	// Safe failure + stored text: retry the identical stored text, never regenerate
 	// (ADR 0018). A failed row from a pre-send error has no text and regenerates.
 	if (claim.run?.finalText)
-		return deliverStoredText(week, claim.run.finalText, null, deps);
+		return deliverStoredText(week, claimToken, claim.run.finalText, null, deps);
 	const facts = args.facts!;
 
 	try {
@@ -189,7 +192,7 @@ export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps)
 		validateShaping(shaping, context, facts);
 		const text = renderWeekRecap(facts, shaping, context);
 
-		return await deliverStoredText(week, text, { model: args.model, facts }, deps);
+		return await deliverStoredText(week, claimToken, text, { model: args.model, facts }, deps);
 	}
 	catch (error) {
 		// Shaping messages carry only field labels/ids; other errors (LLM/provider) get the
@@ -197,7 +200,8 @@ export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps)
 		const bound = error instanceof ShapingValidationError ? 300 : 120;
 		const message = error instanceof Error ? error.message.slice(0, bound) : 'unknown failure';
 		try {
-			await runs.markFailed(week, message);
+			if (!await runs.markFailed(week, claimToken, message))
+				return { outcome: 'blocked-active-claim', week };
 		}
 		catch {
 			// store down: leave the claimed row; the lease sweep recovers it next run
@@ -229,11 +233,14 @@ export async function retryWeek(week: number, operatorVerifiedAbsent: boolean, d
 	if (await runs.hasNewerActiveRun(week))
 		return { ok: false, reason: `a newer week already has an active recap; week ${week} is stale and cannot retry` };
 
-	const storedText = await runs.claimForRetry(week, randomUUID(), new Date(deps.now().getTime() + LEASE_MS), deps.now());
+	const claimToken = randomUUID();
+	const storedText = await runs.claimForRetry(week, claimToken, new Date(deps.now().getTime() + LEASE_MS), deps.now());
 	if (storedText == null)
 		return { ok: false, reason: `week ${week} was claimed concurrently; try again` };
 
-	const result = await deliverStoredText(week, storedText, null, deps);
+	const result = await deliverStoredText(week, claimToken, storedText, null, deps);
+	if (result.outcome === 'blocked-active-claim')
+		return { ok: false, reason: `week ${week} lost its send claim` };
 	return { ok: true, week, outcome: result.outcome as 'sent' | 'failed' | 'delivery_unknown' };
 }
 

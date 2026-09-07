@@ -78,17 +78,31 @@ function memoryRuns(seed: RecapRun[] = []) {
 			rows.set(week, { ...row, status: 'started', claimToken, leaseExpiresAt, sendAttemptAt: now, lastError: null });
 			return row.finalText;
 		},
-		recordAttemptText: async (week: number, finalText: string) => {
-			rows.set(week, { ...rows.get(week)!, finalText });
+		recordAttemptText: async (week: number, claimToken: string, finalText: string) => {
+			const row = rows.get(week);
+			if (!row || row.status !== 'started' || row.claimToken !== claimToken)
+				return false;
+			rows.set(week, { ...row, finalText });
+			return true;
 		},
-		markSent: async (week: number, handle: string) => {
-			rows.set(week, { ...rows.get(week)!, status: 'sent', messageHandle: handle, deliverySource: 'api', sentAt: new Date(NOW) });
+		markSent: async (week: number, claimToken: string, handle: string) => {
+			const row = rows.get(week);
+			if (!row || row.status !== 'started' || row.claimToken !== claimToken)
+				return false;
+			rows.set(week, { ...row, status: 'sent', messageHandle: handle, deliverySource: 'api', sentAt: new Date(NOW) });
+			return true;
 		},
-		markFailed: async (week: number, error: string) => {
-			rows.set(week, { ...rows.get(week)!, status: 'failed', lastError: error });
+		markFailed: async (week: number, claimToken: string, error: string) => {
+			const row = rows.get(week);
+			if (!row || row.status !== 'started' || row.claimToken !== claimToken)
+				return false;
+			rows.set(week, { ...row, status: 'failed', lastError: error });
+			return true;
 		},
-		markDeliveryUnknown: async (week: number, error: string) => {
-			rows.set(week, { ...rows.get(week)!, status: 'delivery_unknown', lastError: error });
+		markDeliveryUnknown: async (week: number, claimToken: string, error: string) => {
+			const row = rows.get(week);
+			if (row?.status === 'started' && row.claimToken === claimToken)
+				rows.set(week, { ...row, status: 'delivery_unknown', lastError: error });
 		},
 		confirmSentByOperator: async (week: number) => {
 			const row = rows.get(week);
@@ -318,6 +332,48 @@ describe('runWeeklyRecap delivery state machine', () => {
 		const result = await runWeeklyRecap({ config, week: 2, facts: factsStub(), managers, model: 'm1', generate }, deps);
 		expect(result.outcome).toBe('blocked-active-claim');
 		expect(sends).toEqual([]);
+	});
+
+	it('does not send after losing its claim during generation', async () => {
+		const runs = memoryRuns();
+		const { sends, client } = sendClient([], []);
+		const { deps } = depsFor({ runs, send: client });
+		const result = await runWeeklyRecap({
+			config,
+			week: 2,
+			facts: factsStub(),
+			managers,
+			model: 'm1',
+			generate: async () => {
+				const row = runs.rows.get(2)!;
+				runs.rows.set(2, { ...row, claimToken: 'replacement' });
+				return shaping;
+			},
+		}, deps);
+		expect(result.outcome).toBe('blocked-active-claim');
+		expect(sends).toEqual([]);
+	});
+
+	it('does not overwrite newer state after losing its claim during delivery', async () => {
+		const runs = memoryRuns();
+		const sends: string[] = [];
+		const { deps } = depsFor({
+			runs,
+			send: {
+				sendToGroup: async (_groupId, text) => {
+					sends.push(text);
+					const row = runs.rows.get(2)!;
+					runs.rows.set(2, { ...row, claimToken: 'replacement' });
+					return { kind: 'sent', handle: 'stale-handle' };
+				},
+				directMessage: async () => {},
+			},
+		});
+		const result = await runWeeklyRecap({ config, week: 2, facts: factsStub(), managers, model: 'm1', generate }, deps);
+		expect(result.outcome).toBe('delivery_unknown');
+		expect(runs.rows.get(2)!.claimToken).toBe('replacement');
+		expect(runs.rows.get(2)!.messageHandle).toBeNull();
+		expect(sends).toHaveLength(1);
 	});
 
 	it('alerts once per unmapped sender, never twice', async () => {
