@@ -212,6 +212,25 @@ describe('runWeeklyRecap delivery state machine', () => {
 		expect(dms).toEqual([]);
 	});
 
+	it('does not retry a provider-accepted recap when recording sent fails', async () => {
+		const runs = memoryRuns();
+		runs.markSent = async () => {
+			throw new Error('database unavailable');
+		};
+		const dms: string[] = [];
+		const { sends, client } = sendClient([{ kind: 'sent', handle: 'sb_accepted' }], dms);
+		const { deps } = depsFor({ runs, send: client });
+
+		const first = await runWeeklyRecap({ config, week: 2, facts: factsStub(), managers, model: 'm1', generate }, deps);
+		expect(first.outcome).toBe('delivery_unknown');
+		expect(runs.rows.get(2)!.status).toBe('delivery_unknown');
+
+		const second = await runWeeklyRecap({ config, week: 2, facts: factsStub(), managers, model: 'm1', generate }, deps);
+		expect(second.outcome).toBe('blocked-delivery-unknown');
+		expect(sends).toHaveLength(1);
+		expect(dms.some(message => message.includes('delivery result could not be recorded'))).toBe(true);
+	});
+
 	it('is a no-op once sent, never sending twice', async () => {
 		const runs = memoryRuns([blankRun(2, { status: 'sent', finalText: 'recap v2', sentAt: new Date(NOW) })]);
 		const { sends, client } = sendClient([], []);

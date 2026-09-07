@@ -83,6 +83,15 @@ async function generateWithRepair(
 	}
 }
 
+async function preserveUnknownDelivery(week: number, error: string, deps: CoordinatorDeps): Promise<CoordinatorResult> {
+	try {
+		await deps.runs.markDeliveryUnknown(week, error);
+	}
+	catch { /* the started lease will expire to delivery_unknown */ }
+	await tryDm(deps.send, `[fantasy-recap] week ${week} recap delivery is unknown (${error}). Check the group, then run confirm-sent --week ${week} if it landed, or retry --week ${week} --operator-verified-absent if not.`);
+	return { outcome: 'delivery_unknown', week, error };
+}
+
 /** Sends `text` for the claimed week and records the outcome per ADR 0018. Text is persisted first. */
 async function deliverStoredText(
 	week: number,
@@ -105,7 +114,12 @@ async function deliverStoredText(
 
 	const outcome = await send.sendToGroup(deps.groupId, text);
 	if (outcome.kind === 'sent') {
-		await runs.markSent(week, outcome.handle);
+		try {
+			await runs.markSent(week, outcome.handle);
+		}
+		catch {
+			return preserveUnknownDelivery(week, 'delivery result could not be recorded', deps);
+		}
 		return { outcome: 'sent', week };
 	}
 	if (outcome.kind === 'failed') {
@@ -113,9 +127,7 @@ async function deliverStoredText(
 		await tryDm(send, `[fantasy-recap] week ${week} recap failed before Sendblue accepted it (${outcome.error}). The daily run retries automatically.`);
 		return { outcome: 'failed', week, error: outcome.error };
 	}
-	await runs.markDeliveryUnknown(week, outcome.error);
-	await tryDm(send, `[fantasy-recap] week ${week} recap delivery is unknown (${outcome.error}). Check the group, then run confirm-sent --week ${week} if it landed, or retry --week ${week} --operator-verified-absent if not.`);
-	return { outcome: 'delivery_unknown', week, error: outcome.error };
+	return preserveUnknownDelivery(week, outcome.error, deps);
 }
 
 export interface RunWeeklyArgs {
