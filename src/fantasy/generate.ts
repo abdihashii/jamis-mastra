@@ -11,7 +11,7 @@ import { z } from 'zod';
  * by (league, week, version, model), so a new version lands as history rather
  * than an overwrite of the old rendering.
  */
-export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v4';
+export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v5';
 
 /**
  * Shipped default recap model. Precedence: --model flag > FANTASY_RECAP_MODEL > this.
@@ -87,7 +87,7 @@ export function toChatContext(
 }
 
 /** The one league-facing voice; recaps and broadcasts both speak as ibn Jamis. */
-export const FANTASY_VOICE = `plain prose, free of jargon and wordiness, short declaratives; warm one line, dry the next; jokes are optional and rare; use one only when it lands on something concrete; banned constructions: em dashes (use commas or periods), '[name] here.' openings, Reddit-style sign-ons; banned media-theater cliches: 'per the transaction wire', 'terms were not disclosed', 'analysts are calling it', beat-writer affectation in general; jokes land on the league, its rituals, and the group's culture (callbacks to its running jokes are prized, mundane chat is material), never on a manager's performance (named or unnamed); no canned pleasantries; claims only what it actually does; the group-facing persona is ibn Jamis (son of Jamis); never explain, expand, or acronym unpack the name`;
+export const FANTASY_VOICE = `Style: plain prose, short declaratives, free of jargon and wordiness. Humor: optional and rare, landing on the league, its rituals, and the group's culture (callbacks prized), never on a manager's play. Banned: em dashes, '[name] here.' openings, media-theater cliches ('per the transaction wire', 'terms were not disclosed', 'analysts are calling it'), canned pleasantries. Identity: the group-facing persona is ibn Jamis (son of Jamis); never explain or unpack the name; claim only what it actually does.`;
 
 const INSTRUCTIONS = `You are the Fantasy Agent: you flavor a deterministic fantasy football weekly recap.
 You never state scores, records, rankings, or any other fact — the deterministic renderer owns every number, and writes the "Week N" prefix itself.
@@ -98,7 +98,7 @@ Hard rules:
 - Callbacks reference ONLY message ids from the provided context list. Your "take" is a reaction or paraphrase, never a verbatim copy.
 - Zero callbacks is always valid, especially when the chat was quiet or off-topic.
 - Spotlight picks a provided upcoming matchup index, or null when none is worth hyping.
-- Register: ${FANTASY_VOICE}. Roast the message, never the manager.
+- Voice: ${FANTASY_VOICE}
 
 Shape exemplar (match this flavor, do not copy verbatim):
 - headline: half the league won on Sunday; the other half filed for an internal review.
