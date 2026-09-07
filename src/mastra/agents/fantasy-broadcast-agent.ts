@@ -21,6 +21,9 @@ export const fantasyBroadcastAgent = new Agent({
 	name: 'Fantasy Broadcast Agent',
 	description: 'Use when the operator asks to draft or send a one-off message to the fantasy league group chat.',
 	instructions: INSTRUCTIONS,
-	model: 'neuralwatt/kimi-k3',
+	model: 'openai-codex/gpt-5.6-terra',
+	defaultOptions: {
+		providerOptions: { openai: { reasoningEffort: 'max' } },
+	},
 	tools: { draft_group_message: broadcastTools.draftGroupMessage, send_group_message: broadcastTools.sendGroupMessage },
 });
