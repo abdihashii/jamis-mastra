@@ -30,23 +30,19 @@ export function classifyError(error: unknown): SendOutcome {
 
 class SendblueSendClient implements SendClient {
 	async sendToGroup(groupId: string, text: string): Promise<SendOutcome> {
-		const threadId = sendblueAdapter.encodeThreadId({
-			fromNumber: process.env.SENDBLUE_FROM_NUMBER ?? '',
-			groupId,
-		});
-		let timer: ReturnType<typeof setTimeout> | undefined;
 		try {
-			const posted = await Promise.race([
-				sendblueAdapter.postMessage(threadId, text),
-				new Promise<never>((_, reject) => {
-					timer = setTimeout(() => reject(new Error(`send timed out after ${SEND_TIMEOUT_MS}ms`)), SEND_TIMEOUT_MS);
-				}),
-			]);
-			clearTimeout(timer);
-			return posted.id ? { kind: 'sent', handle: posted.id } : { kind: 'unknown', error: 'provider returned no message handle' };
+			// The adapter does not expose request options. Its SDK does, which lets this
+			// non-idempotent POST use one aborting timeout and zero implicit retries.
+			const posted = await sendblueAdapter.getSdk().groups.sendMessage({
+				from_number: process.env.SENDBLUE_FROM_NUMBER ?? '',
+				group_id: groupId,
+				content: text,
+			}, { timeout: SEND_TIMEOUT_MS, maxRetries: 0 });
+			return posted.message_handle
+				? { kind: 'sent', handle: posted.message_handle }
+				: { kind: 'unknown', error: 'provider returned no message handle' };
 		}
 		catch (error) {
-			clearTimeout(timer);
 			return classifyError(error);
 		}
 	}
