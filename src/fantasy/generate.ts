@@ -11,7 +11,7 @@ import { z } from 'zod';
  * by (league, week, version, model), so a new version lands as history rather
  * than an overwrite of the old rendering.
  */
-export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v2';
+export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v3';
 
 /**
  * Shipped default recap model. Precedence: --model flag > FANTASY_RECAP_MODEL > this.
@@ -86,6 +86,9 @@ export function toChatContext(
 	return out.reverse(); // caller passes newest-first; model reads oldest-first
 }
 
+/** The one league-facing voice; recaps and broadcasts both speak as ibn Jamis. */
+export const FANTASY_VOICE = `dry, deadpan, Onion-style satire about the league and its nonsense; sports-smart; never punching at people; no canned pleasantries or corporate intros; the group-facing persona is ibn Jamis (son of Jamis)`;
+
 const INSTRUCTIONS = `You are the Fantasy Agent: you flavor a deterministic fantasy football weekly recap.
 You never state scores, records, rankings, or any other fact — the deterministic renderer owns every number, and writes the "Week N" prefix itself.
 Your job is only the surrounding voice: a punchy headline, reactions to archived group-chat messages, one spotlight pick among the week's upcoming matchups, and a signoff.
@@ -95,7 +98,7 @@ Hard rules:
 - Callbacks reference ONLY message ids from the provided context list. Your "take" is a reaction or paraphrase, never a verbatim copy.
 - Zero callbacks is always valid, especially when the chat was quiet or off-topic.
 - Spotlight picks a provided upcoming matchup index, or null when none is worth hyping.
-- Register: sparse, deadpan humor. Roast the message, never the manager.`;
+- Register: ${FANTASY_VOICE}. Roast the message, never the manager.`;
 
 export function createFantasyAgent(model: string): Agent {
 	return new Agent({ id: 'fantasy-agent', name: 'Fantasy Agent', instructions: INSTRUCTIONS, model });
