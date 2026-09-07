@@ -1,4 +1,5 @@
 import process from 'node:process';
+import { toPlainText } from 'chat-adapter-sendblue';
 import { sendblueAdapter } from '../mastra/channels/sendblue';
 
 /** What one outbound attempt learned. `unknown` = the request's fate is unobservable to us. */
@@ -32,12 +33,16 @@ class SendblueSendClient implements SendClient {
 	async sendToGroup(groupId: string, text: string): Promise<SendOutcome> {
 		try {
 			// The adapter does not expose request options. Its SDK does, which lets this
-			// non-idempotent POST use one aborting timeout and zero implicit retries.
+			// non-idempotent POST disable retries and keep a deadline through body parsing.
 			const posted = await sendblueAdapter.getSdk().groups.sendMessage({
 				from_number: process.env.SENDBLUE_FROM_NUMBER ?? '',
 				group_id: groupId,
-				content: text,
-			}, { timeout: SEND_TIMEOUT_MS, maxRetries: 0 });
+				content: toPlainText(text),
+			}, {
+				maxRetries: 0,
+				signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+				timeout: SEND_TIMEOUT_MS,
+			});
 			return posted.message_handle
 				? { kind: 'sent', handle: posted.message_handle }
 				: { kind: 'unknown', error: 'provider returned no message handle' };

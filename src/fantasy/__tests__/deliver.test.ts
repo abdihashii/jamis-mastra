@@ -5,20 +5,24 @@ import { sendblueAdapter } from '../../mastra/channels/sendblue';
 import { classifyError, sendblueSendClient } from '../deliver';
 
 describe('sendblueSendClient', () => {
-	it('makes one group request with an aborting timeout and SDK retries disabled', async () => {
+	it('makes one plain-text group request with an aborting deadline and SDK retries disabled', async () => {
 		const previousFromNumber = process.env.SENDBLUE_FROM_NUMBER;
 		process.env.SENDBLUE_FROM_NUMBER = '+15550001111';
 		const sendMessage = spyOn(sendblueAdapter.getSdk().groups, 'sendMessage')
 			.mockResolvedValue({ message_handle: 'sb-1' } as never);
 
 		try {
-			expect(await sendblueSendClient.sendToGroup('group-1', 'recap')).toEqual({ kind: 'sent', handle: 'sb-1' });
+			expect(await sendblueSendClient.sendToGroup('group-1', '**recap**')).toEqual({ kind: 'sent', handle: 'sb-1' });
 			expect(sendMessage).toHaveBeenCalledTimes(1);
 			expect(sendMessage).toHaveBeenCalledWith({
 				from_number: '+15550001111',
 				group_id: 'group-1',
 				content: 'recap',
-			}, { timeout: 15_000, maxRetries: 0 });
+			}, {
+				maxRetries: 0,
+				signal: expect.any(AbortSignal),
+				timeout: 15_000,
+			});
 		}
 		finally {
 			sendMessage.mockRestore();
@@ -26,6 +30,26 @@ describe('sendblueSendClient', () => {
 				delete process.env.SENDBLUE_FROM_NUMBER;
 			else
 				process.env.SENDBLUE_FROM_NUMBER = previousFromNumber;
+		}
+	});
+
+	it('keeps the deadline active while the provider response is being parsed', async () => {
+		const controller = new AbortController();
+		const timeout = spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
+		const sendMessage = spyOn(sendblueAdapter.getSdk().groups, 'sendMessage')
+			.mockImplementation((_body, options) => new Promise((_, reject) => {
+				options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), { once: true });
+			}) as never);
+
+		try {
+			const pending = sendblueSendClient.sendToGroup('group-1', 'recap');
+			controller.abort(new Error('response body stalled'));
+			expect(await pending).toEqual({ kind: 'unknown', error: 'response body stalled' });
+			expect(timeout).toHaveBeenCalledWith(15_000);
+		}
+		finally {
+			sendMessage.mockRestore();
+			timeout.mockRestore();
 		}
 	});
 });
