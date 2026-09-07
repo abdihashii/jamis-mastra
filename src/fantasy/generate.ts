@@ -111,10 +111,8 @@ export function createFantasyAgent(model: string): Agent {
 		name: 'Fantasy Agent',
 		instructions: INSTRUCTIONS,
 		model,
-		// OpenAI-backed models benefit from explicit effort; others ignore nothing here because providers differ -- apply only for openai-codex.
-		defaultOptions: model.startsWith('openai-codex/')
-			? { providerOptions: { openai: { reasoningEffort: 'xhigh' } } }
-			: undefined,
+		// providerOptions are namespaced; models from other providers ignore the openai block.
+		defaultOptions: { providerOptions: { openai: { reasoningEffort: 'xhigh' } } },
 	});
 }
 
