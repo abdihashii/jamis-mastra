@@ -4,7 +4,6 @@ import type { SendOutcome } from './deliver';
 import type { SqlLike } from './recaps';
 
 import { randomBytes } from 'node:crypto';
-import process from 'node:process';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
@@ -44,50 +43,7 @@ const sendOutputSchema = z.object({
  * claimed atomically (one UPDATE ... WHERE status='draft' RETURNING): duplicate
  * operator confirmations and parallel callers cannot each reach the wire.
  */
-export const RECENT_CHAT_LIMIT = 20;
-
 export function createBroadcastTools(config: FantasyConfig | null, sql: SqlLike = getFantasySql()) {
-	// Read-only grounding for drafting: today's group chat so jokes hang on real content.
-	const recentGroupChat = createTool({
-		id: 'recent_group_chat',
-		description: 'Read the recent archived messages from the fantasy league group chat (newest ~20) to ground a draft in something real. Read-only.',
-		inputSchema: z.object({}),
-		outputSchema: z.object({
-			ok: z.boolean(),
-			messages: z.array(z.object({ sender: z.string(), text: z.string() })).optional(),
-			error: z.string().optional(),
-		}),
-		execute: async () => {
-			if (!config)
-				return { ok: true, messages: [] };
-			try {
-				const [{ PostgresStore }, { toChatContext }, { getManagers }] = await Promise.all([
-					import('@mastra/pg'),
-					import('./generate'),
-					import('./sleeper'),
-				]);
-				const url = process.env.DATABASE_URL;
-				if (!url)
-					return { ok: true, messages: [] };
-				const store = new PostgresStore({ url });
-				const memory = await store.getStore('memory');
-				if (!memory)
-					return { ok: true, messages: [] };
-				const managers = await getManagers(config.sleeperLeagueId);
-				const { messages } = await memory.listMessages({
-					threadId: `fantasy-group-${config.sendblueGroupId}`,
-					perPage: RECENT_CHAT_LIMIT,
-					orderBy: { field: 'createdAt', direction: 'DESC' },
-				});
-				const contexts = toChatContext(messages, config, managers);
-				return { ok: true, messages: contexts.map(c => ({ sender: c.sender, text: c.text })) };
-			}
-			catch {
-				return { ok: true, messages: [] };
-			}
-		},
-	});
-
 	const draftGroupMessage = createTool({
 		id: 'draft_group_message',
 		description: 'Draft a message to send to the fantasy league group chat. NEVER sends; returns a draft id and the exact text for operator review.',
@@ -161,7 +117,7 @@ export function createBroadcastTools(config: FantasyConfig | null, sql: SqlLike 
 		},
 	});
 
-	return { draftGroupMessage, sendGroupMessage, recentGroupChat };
+	return { draftGroupMessage, sendGroupMessage };
 }
 
 /** Production singleton used by the broadcast agent. */
