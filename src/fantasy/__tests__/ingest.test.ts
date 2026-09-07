@@ -4,8 +4,8 @@ import type { Message, Thread } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
 import type { FantasyConfig } from '../config';
 
-import { InMemoryStore } from '@mastra/core/storage';
 import { describe, expect, it, spyOn } from 'bun:test';
+import { InMemoryStore } from '@mastra/core/storage';
 
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
 import { createFantasyGroupHandler, persistFantasyGroupMessage } from '../ingest';
