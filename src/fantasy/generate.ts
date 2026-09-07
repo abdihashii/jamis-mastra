@@ -98,7 +98,12 @@ Hard rules:
 - Callbacks reference ONLY message ids from the provided context list. Your "take" is a reaction or paraphrase, never a verbatim copy.
 - Zero callbacks is always valid, especially when the chat was quiet or off-topic.
 - Spotlight picks a provided upcoming matchup index, or null when none is worth hyping.
-- Register: ${FANTASY_VOICE}. Roast the message, never the manager.`;
+- Register: ${FANTASY_VOICE}. Roast the message, never the manager.
+
+Shape exemplar (match this flavor, do not copy verbatim):
+- headline: half the league won on Sunday; the other half filed for an internal review.
+- callback take (someone typed "I am never starting him again"): week-one vow. Filed.
+- signoff: new week starts when the NFL says so, not when the group chat declares it.`;
 
 export function createFantasyAgent(model: string): Agent {
 	return new Agent({ id: 'fantasy-agent', name: 'Fantasy Agent', instructions: INSTRUCTIONS, model });
