@@ -180,7 +180,10 @@ export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps)
 		return await deliverStoredText(week, text, { model: args.model, facts }, deps);
 	}
 	catch (error) {
-		const message = error instanceof Error ? error.message.slice(0, 300) : 'unknown failure';
+		// Shaping messages carry only field labels/ids; other errors (LLM/provider) get the
+		// tighter slice because error text can echo prompt content towards traces/DB/DM.
+		const bound = error instanceof ShapingValidationError ? 300 : 120;
+		const message = error instanceof Error ? error.message.slice(0, bound) : 'unknown failure';
 		try {
 			await runs.markFailed(week, message);
 		}

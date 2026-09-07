@@ -10,10 +10,12 @@ import { Mastra } from '@mastra/core/mastra';
 import { PostgresStore } from '@mastra/pg';
 import { buildWeekFacts } from '../src/fantasy/analysis';
 import { parseFantasyConfig } from '../src/fantasy/config';
-import { confirmSent, retryWeek, runWeeklyRecap } from '../src/fantasy/coordinator';
+import { confirmSent, retryWeek } from '../src/fantasy/coordinator';
+import { runDailyRecap } from '../src/fantasy/daily';
 import {
 	buildRecapPrompt,
 	createFantasyAgent,
+	DEFAULT_RECAP_MODEL,
 	FANTASY_GENERATOR_VERSION,
 	recapShapingSchema,
 	ShapingValidationError,
@@ -32,7 +34,6 @@ import {
 	getScores,
 	getWinnersBracket,
 	isWeekComplete,
-	latestCompletedWeek,
 	SleeperDataError,
 	withBracketRounds,
 } from '../src/fantasy/sleeper';
@@ -48,8 +49,7 @@ const usage = [
 ].join('\n');
 
 // TODO(ponytail): --model and FANTASY_RECAP_MODEL exist for the A/B voice window.
-// Once a winner ships, hardcode the winner here and delete the override machinery.
-const DEFAULT_RECAP_MODEL = 'neuralwatt/kimi-k3';
+// Once a winner ships, drop the flag/env plumbing; DEFAULT_RECAP_MODEL lives in src/fantasy/generate.ts.
 
 async function main() {
 	const [command, ...flags] = process.argv.slice(2);
@@ -65,43 +65,15 @@ async function main() {
 	const allowIncomplete = flags.includes('--allow-incomplete');
 
 	if (command === 'run') {
-		let state: Awaited<ReturnType<typeof getNflState>>;
-		let rawLeague: Awaited<ReturnType<typeof getLeague>>;
-		let managers: SleeperManager[];
-		let bracket: Awaited<ReturnType<typeof getWinnersBracket>>;
-		let week: number | null = null;
-		let facts: WeekFacts | null = null;
-		try {
-			[state, rawLeague, managers, bracket] = await Promise.all([
-				getNflState(),
-				getLeague(config.sleeperLeagueId),
-				getManagers(config.sleeperLeagueId),
-				getWinnersBracket(config.sleeperLeagueId),
-			]);
-			const league = withBracketRounds(rawLeague, bracket);
-			week = latestCompletedWeek(state, league, bracket);
-			if (week != null)
-				facts = await factsFor(config, league, managers, bracket, week);
-		}
-		catch (error) {
-			// Missing Sleeper facts block posting and alert the operator (one DM per run trigger).
-			const message = error instanceof Error ? error.message.slice(0, 200) : 'unknown Sleeper failure';
-			try {
-				const deps = await coordinatorDeps(config);
-				await deps.send.directMessage(`[fantasy-recap] recap blocked: Sleeper facts unavailable (${message}).`);
-			}
-			catch {
-				// alerting must never mask the underlying failure
-			}
-			throw error;
-		}
-		const model = config.recapModel ?? DEFAULT_RECAP_MODEL;
-		const result = await runWeeklyRecap(
-			{ config, week, facts, managers, model, generate: shapingGenerator(model) },
-			await coordinatorDeps(config),
-		);
+		// Same flow the scheduled workflow runs; the local shim only adds gateways/storage.
+		const shim = new Mastra({
+			gateways: { 'openai-codex': openAICodexGateway },
+			agents: { fantasy: createFantasyAgent(config.recapModel ?? DEFAULT_RECAP_MODEL) },
+			storage: new PostgresStore({ url: process.env.DATABASE_URL! }),
+		});
+		const result = await runDailyRecap(config, shim);
 		console.log(`run: ${result.outcome}${result.week != null ? ` (week ${result.week})` : ''}`);
-		if (result.outcome === 'failed' || result.outcome === 'delivery_unknown')
+		if (result.outcome === 'failed' || result.outcome === 'delivery_unknown' || result.outcome === 'error')
 			process.exitCode = 1;
 		return;
 	}

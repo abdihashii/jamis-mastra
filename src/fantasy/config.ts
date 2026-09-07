@@ -10,7 +10,7 @@ export interface FantasyConfig {
 	recapTimezone: string;
 	/**
 	 * Recap generation model id override. Undefined falls back to
-	 * DEFAULT_RECAP_MODEL ('neuralwatt/kimi-k3') in scripts/fantasy-recap.ts.
+	 * DEFAULT_RECAP_MODEL ('neuralwatt/kimi-k3') in ./generate.ts.
 	 */
 	recapModel?: string;
 }

@@ -1,6 +1,6 @@
 # 013: Fantasy football group chat companion V1
 
-Status: **Planned.**
+Status: **Stages 1-4 shipped on the branch; stage 5 in progress. Each stage carries its commit below.**
 
 Linear: [JAM-54](https://linear.app/abdirahman-haji/issue/JAM-54/fantasy-football-group-chat-companion-passive-weekly-recap-v1).
 
@@ -33,8 +33,9 @@ Add these environment values to both templates:
 - `FANTASY_SLEEPER_LEAGUE_ID`
 - `FANTASY_MANAGER_MAP`, a JSON object from E.164 phone number to Sleeper user ID
 - `FANTASY_RECAP_TIMEZONE=America/Chicago`
+- `FANTASY_RECAP_MODEL` (optional; absent or empty falls back to the shipped default recap model)
 
-Use Bun's PostgreSQL client against the existing `DATABASE_URL`; add no database dependency or migration framework. Initialize `fantasy_recap_runs` idempotently at application boot. Its unique key is `(league_id, fantasy_week)`, and it stores status, generator version, final text, attempt ownership/expiry, send-attempt timestamp, provider message handle when available, delivery confirmation source, sent timestamp, sanitized error, notification state, and UTC audit timestamps.
+Use Bun's PostgreSQL client against the existing `DATABASE_URL`; add no database dependency or migration framework. Initialize idempotently at first use: `fantasy_recap_generations` (versioned generation history keyed on `(league_id, fantasy_week, generator_version, model)`, storing final text and the facts JSONB), `fantasy_recap_runs` (delivery state keyed on `(league_id, fantasy_week)`, storing status, final text, attempt ownership/expiry, send-attempt timestamp, provider message handle when available, delivery confirmation source, sent timestamp, sanitized error, and UTC audit timestamps), and `fantasy_unmapped_sender_alerts` (alert-once dedup per unmapped sender hash).
 
 The scheduled workflow uses Mastra's declarative schedule with cron `0 10 * * *` and the configured IANA timezone. Keep the default in-process scheduler in the current single long-lived application container. Do not add Redis, a second worker container, or an external cron service in V1.
 
@@ -57,6 +58,8 @@ Each stage is independently committable. For every stage: implement, run `bun te
 
 ### 1. Passive Fantasy group ingestion
 
+**Status:** done, commit `fa5d2d4`, IRL-verified end to end (persisted text/sender/timestamp, no group reply, operator DM intact, replayed webhook idempotent).
+
 **Goal:** Prove the highest-risk boundary before any recap logic exists: the configured group persists durably and never invokes an agent.
 
 **Critical files:** `.env.example`, `.env.prod.example`, `src/mastra/channels/sendblue.ts`, `src/mastra/agents/jamis.ts`, new focused Fantasy configuration and message-persistence modules, focused handler tests.
@@ -66,6 +69,8 @@ Each stage is independently committable. For every stage: implement, run `bun te
 **Proposed commit:** `feat: persist fantasy group messages without agent replies`
 
 ### 2. Sleeper normalization and deterministic analysis
+
+**Status:** done, commit `7e45762`; live-shape probes all clean and week-1 (unflagged) comparison queued for when Sleeper advances past it.
 
 **Goal:** Prove the fantasy source of truth independently of agents, schedules, and Sendblue delivery.
 
@@ -77,6 +82,8 @@ Each stage is independently committable. For every stage: implement, run `bun te
 
 ### 3. Versioned Fantasy recap generation
 
+**Status:** done, commit `0b42c37`; three-model taste test run against the live league with `@mastra/pg`-backed generation history live-verified (a model-shaping validator slip surfaced and informed the digit-free free-text rule).
+
 **Goal:** Produce reviewable final text without any outbound message.
 
 **Critical files:** new private Fantasy Agent, structured generation schema, generator, renderer, prompt fixtures, and focused validation tests.
@@ -86,6 +93,8 @@ Each stage is independently committable. For every stage: implement, run `bun te
 **Proposed commit:** `feat: generate versioned fantasy weekly recaps`
 
 ### 4. Durable delivery and operator recovery
+
+**Status:** done, commit `27fe00e`; born-complete DDL verified against real Postgres; accepted/failure/timeout/crash/stale fixtures covered, with atomic lease sweep and 4xx-vs-5xx outcome classes per review findings.
 
 **Goal:** Make one league/week send retryable without duplicating an accepted message.
 

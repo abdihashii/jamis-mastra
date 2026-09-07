@@ -10,13 +10,18 @@ import {
 } from '@mastra/observability';
 import { PostgresStore } from '@mastra/pg';
 
+import { getFantasyConfig } from '../fantasy/config';
+import { createFantasyAgent, DEFAULT_RECAP_MODEL } from '../fantasy/generate';
 import { jamis } from './agents/jamis';
 import { requireEnv } from './env';
 import { openAICodexGateway } from './gateways/openai-codex-gateway.js';
 import { redactChannelRenderContext } from './observability';
+import { fantasyWeeklyRecapWorkflow } from './workflows/fantasy-weekly-recap';
 
 export const mastra = new Mastra({
-	agents: { jamis },
+	// 'fantasy' has no channels wired; it exists only for the weekly recap workflow.
+	agents: { jamis, fantasy: createFantasyAgent(getFantasyConfig()?.recapModel ?? DEFAULT_RECAP_MODEL) },
+	workflows: { fantasyWeeklyRecap: fantasyWeeklyRecapWorkflow },
 	gateways: { 'openai-codex': openAICodexGateway },
 	server: {
 		// One token, one operator. SimpleAuth checks Authorization and

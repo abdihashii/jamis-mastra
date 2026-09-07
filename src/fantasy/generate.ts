@@ -13,6 +13,12 @@ import { z } from 'zod';
  */
 export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v2';
 
+/**
+ * Shipped default recap model. Precedence: --model flag > FANTASY_RECAP_MODEL > this.
+ * (The overrides exist only for the voice A/B window; see scripts/fantasy-recap.ts.)
+ */
+export const DEFAULT_RECAP_MODEL = 'neuralwatt/kimi-k3';
+
 /** One chat line the model may callback into. */
 export interface ChatContextMessage {
 	/** Sendblue message handle; the only id the model may reference. */
