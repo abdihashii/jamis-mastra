@@ -13,10 +13,7 @@ import { z } from 'zod';
  */
 export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v5';
 
-/**
- * Shipped default recap model. Precedence: --model flag > FANTASY_RECAP_MODEL > this.
- * (The overrides exist only for the voice A/B window; see scripts/fantasy-recap.ts.)
- */
+/** Shipped recap model. One constant; edit this line to swap generators. */
 export const DEFAULT_RECAP_MODEL = 'openai-codex/gpt-5.6-sol';
 
 /** One chat line the model may callback into. */

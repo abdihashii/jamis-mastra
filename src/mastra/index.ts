@@ -10,7 +10,6 @@ import {
 } from '@mastra/observability';
 import { PostgresStore } from '@mastra/pg';
 
-import { getFantasyConfig } from '../fantasy/config';
 import { createFantasyAgent, DEFAULT_RECAP_MODEL } from '../fantasy/generate';
 import { jamis } from './agents/jamis';
 import { requireEnv } from './env';
@@ -21,7 +20,7 @@ import { fantasyWeeklyRecapWorkflow } from './workflows/fantasy-weekly-recap';
 export const mastra = new Mastra({
 	// 'fantasy' has no channels wired; it exists only for the weekly recap workflow.
 	// Jamis keeps its own delegation agents (including fantasy-broadcast) on its agent config.
-	agents: { jamis, fantasy: createFantasyAgent(getFantasyConfig()?.recapModel ?? DEFAULT_RECAP_MODEL) },
+	agents: { jamis, fantasy: createFantasyAgent(DEFAULT_RECAP_MODEL) },
 	workflows: { fantasyWeeklyRecap: fantasyWeeklyRecapWorkflow },
 	gateways: { 'openai-codex': openAICodexGateway },
 	server: {

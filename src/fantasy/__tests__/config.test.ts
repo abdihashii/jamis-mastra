@@ -21,11 +21,6 @@ describe('parseFantasyConfig', () => {
 		expect(messages).toBeEmpty();
 	});
 
-	it('keeps the recap model empty by default and trims any override', () => {
-		expect(parseFantasyConfig(validEnv)?.recapModel).toBeUndefined();
-		expect(parseFantasyConfig({ ...validEnv, FANTASY_RECAP_MODEL: ' neuralwatt/kimi-k3 ' })?.recapModel).toBe('neuralwatt/kimi-k3');
-	});
-
 	it('parses a complete valid config', () => {
 		const { messages, warn } = spy();
 		const config = parseFantasyConfig(validEnv, warn);

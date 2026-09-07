@@ -42,14 +42,11 @@ import { openAICodexGateway } from '../src/mastra/gateways/openai-codex-gateway.
 const usage = [
 	'bun run fantasy:recap <command>',
 	'  inspect --week <number> [--allow-incomplete]   print deterministic facts only',
-	'  preview --week <number> [--model <id>] [--chat <file.json>] [--allow-incomplete]   generate, never send',
+	'  preview --week <number> [--chat <file.json>] [--allow-incomplete]   generate, never send',
 	'  run                                            normal daily job: newest completed week only',
 	'  retry --week <number> [--operator-verified-absent]',
 	'  confirm-sent --week <number>                   operator observed the message in the group',
 ].join('\n');
-
-// TODO(ponytail): --model and FANTASY_RECAP_MODEL exist for the A/B voice window.
-// Once a winner ships, drop the flag/env plumbing; DEFAULT_RECAP_MODEL lives in src/fantasy/generate.ts.
 
 async function main() {
 	const [command, ...flags] = process.argv.slice(2);
@@ -68,7 +65,7 @@ async function main() {
 		// Same flow the scheduled workflow runs; the local shim only adds gateways/storage.
 		const shim = new Mastra({
 			gateways: { 'openai-codex': openAICodexGateway },
-			agents: { fantasy: createFantasyAgent(config.recapModel ?? DEFAULT_RECAP_MODEL) },
+			agents: { fantasy: createFantasyAgent(DEFAULT_RECAP_MODEL) },
 			storage: new PostgresStore({ url: process.env.DATABASE_URL! }),
 		});
 		const result = await runDailyRecap(config, shim);
@@ -123,11 +120,7 @@ async function main() {
 		return;
 	}
 
-	const modelFlag = flags.indexOf('--model');
-	const modelFlagValue = flags[modelFlag + 1];
-	const model = (modelFlag >= 0 && modelFlagValue && !modelFlagValue.startsWith('--') ? modelFlagValue : undefined)
-		?? config.recapModel
-		?? DEFAULT_RECAP_MODEL;
+	const model = DEFAULT_RECAP_MODEL;
 
 	const chatFlag = flags.indexOf('--chat');
 	const chatPath = chatFlag >= 0 ? flags[chatFlag + 1] : undefined;

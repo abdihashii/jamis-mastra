@@ -89,7 +89,7 @@ export async function runDailyRecap(
 			}
 		}
 
-		const model = config.recapModel ?? DEFAULT_RECAP_MODEL;
+		const model = DEFAULT_RECAP_MODEL;
 		const agent = mastra.getAgent('fantasy');
 		const generate = async (factsNow: WeekFacts, context: ChatContextMessage[]): Promise<RecapShaping> => {
 			const result = await agent.generate(buildRecapPrompt(factsNow, context), {

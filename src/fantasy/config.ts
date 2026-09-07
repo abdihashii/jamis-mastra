@@ -8,11 +8,6 @@ export interface FantasyConfig {
 	/** E.164 sender number -> Sleeper user ID. Never log values. */
 	managerMap: Record<string, string>;
 	recapTimezone: string;
-	/**
-	 * Recap generation model id override. Undefined falls back to
-	 * DEFAULT_RECAP_MODEL ('neuralwatt/kimi-k3') in ./generate.ts.
-	 */
-	recapModel?: string;
 }
 
 const managerMapSchema = z.record(z.string().regex(/^\+[1-9]\d{1,14}$/), z.string().min(1));
@@ -68,7 +63,6 @@ export function parseFantasyConfig(
 		sleeperLeagueId,
 		managerMap,
 		recapTimezone,
-		recapModel: env.FANTASY_RECAP_MODEL?.trim() || undefined,
 	};
 }
 
