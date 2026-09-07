@@ -17,7 +17,7 @@ export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v5';
  * Shipped default recap model. Precedence: --model flag > FANTASY_RECAP_MODEL > this.
  * (The overrides exist only for the voice A/B window; see scripts/fantasy-recap.ts.)
  */
-export const DEFAULT_RECAP_MODEL = 'neuralwatt/kimi-k3';
+export const DEFAULT_RECAP_MODEL = 'openai-codex/gpt-5.6-sol';
 
 /** One chat line the model may callback into. */
 export interface ChatContextMessage {
@@ -106,7 +106,16 @@ Shape exemplar (match this flavor, do not copy verbatim):
 - signoff: new week starts when the NFL says so, not when the group chat declares it.`;
 
 export function createFantasyAgent(model: string): Agent {
-	return new Agent({ id: 'fantasy-agent', name: 'Fantasy Agent', instructions: INSTRUCTIONS, model });
+	return new Agent({
+		id: 'fantasy-agent',
+		name: 'Fantasy Agent',
+		instructions: INSTRUCTIONS,
+		model,
+		// OpenAI-backed models benefit from explicit effort; others ignore nothing here because providers differ -- apply only for openai-codex.
+		defaultOptions: model.startsWith('openai-codex/')
+			? { providerOptions: { openai: { reasoningEffort: 'xhigh' } } }
+			: undefined,
+	});
 }
 
 function factsSummary(facts: WeekFacts): string {
