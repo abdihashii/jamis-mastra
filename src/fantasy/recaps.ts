@@ -20,7 +20,7 @@ export interface SqlLike {
 
 let cachedSql: SQL | null = null;
 
-function getSql(): SQL {
+export function getFantasySql(): SQL {
 	cachedSql ??= new SQL(process.env.DATABASE_URL ?? 'postgres://localhost:5432/mastra');
 	return cachedSql;
 }
@@ -31,7 +31,7 @@ function getSql(): SQL {
  * so regenerating after a prompt change appends instead of overwriting. Send
  * lifecycle lands as its own table in stage 4.
  */
-export async function ensureFantasyRecapsTable(sql: SqlLike = getSql()): Promise<void> {
+export async function ensureFantasyRecapsTable(sql: SqlLike = getFantasySql()): Promise<void> {
 	await sql`
 		CREATE TABLE IF NOT EXISTS fantasy_recap_generations (
 			league_id TEXT NOT NULL,
@@ -48,7 +48,7 @@ export async function ensureFantasyRecapsTable(sql: SqlLike = getSql()): Promise
 }
 
 /** Upserts the generation; reruns with the same version+model replace, a new version records history. */
-export async function recordGeneration(record: RecapGenerationRecord, sql: SqlLike = getSql()): Promise<void> {
+export async function recordGeneration(record: RecapGenerationRecord, sql: SqlLike = getFantasySql()): Promise<void> {
 	await sql`
 		INSERT INTO fantasy_recap_generations (league_id, fantasy_week, generator_version, model, final_text, facts)
 		VALUES (${record.leagueId}, ${record.fantasyWeek}, ${record.generatorVersion}, ${record.model}, ${record.finalText}, ${record.facts})
@@ -68,7 +68,7 @@ export interface RecapGenerationRow {
 export async function listGenerations(
 	leagueId: string,
 	fantasyWeek: number,
-	sql: SqlLike = getSql(),
+	sql: SqlLike = getFantasySql(),
 ): Promise<RecapGenerationRow[]> {
 	return await sql`
 		SELECT generator_version, model, final_text, created_at, updated_at

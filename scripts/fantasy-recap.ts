@@ -1,12 +1,16 @@
 import type { MatchupResult, WeekFacts } from '../src/fantasy/analysis';
-import type { SleeperManager } from '../src/fantasy/sleeper';
+import type { FantasyConfig } from '../src/fantasy/config';
+import type { RecapShaping } from '../src/fantasy/generate';
+import type { RecapGenerationRecord } from '../src/fantasy/recaps';
 
+import type { SleeperManager } from '../src/fantasy/sleeper';
 import { readFile } from 'node:fs/promises';
 import process from 'node:process';
 import { Mastra } from '@mastra/core/mastra';
 import { PostgresStore } from '@mastra/pg';
 import { buildWeekFacts } from '../src/fantasy/analysis';
 import { parseFantasyConfig } from '../src/fantasy/config';
+import { confirmSent, retryWeek, runWeeklyRecap } from '../src/fantasy/coordinator';
 import {
 	buildRecapPrompt,
 	createFantasyAgent,
@@ -16,8 +20,10 @@ import {
 	toChatContext,
 	validateShaping,
 } from '../src/fantasy/generate';
-import { ensureFantasyRecapsTable, recordGeneration } from '../src/fantasy/recaps';
+
+import { ensureFantasyRecapsTable, getFantasySql, recordGeneration } from '../src/fantasy/recaps';
 import { RECAP_MAX_LENGTH, renderWeekRecap } from '../src/fantasy/render';
+import { createRunsStore } from '../src/fantasy/runs';
 import {
 	championshipWeek,
 	getLeague,
@@ -26,12 +32,20 @@ import {
 	getScores,
 	getWinnersBracket,
 	isWeekComplete,
+	latestCompletedWeek,
 	SleeperDataError,
 	withBracketRounds,
 } from '../src/fantasy/sleeper';
 import { openAICodexGateway } from '../src/mastra/gateways/openai-codex-gateway.js';
 
-const usage = 'bun run fantasy:recap <inspect|preview> --week <number> [--allow-incomplete] [--model <id>] [--chat <file.json>]';
+const usage = [
+	'bun run fantasy:recap <command>',
+	'  inspect --week <number> [--allow-incomplete]   print deterministic facts only',
+	'  preview --week <number> [--model <id>] [--chat <file.json>] [--allow-incomplete]   generate, never send',
+	'  run                                            normal daily job: newest completed week only',
+	'  retry --week <number> [--operator-verified-absent]',
+	'  confirm-sent --week <number>                   operator observed the message in the group',
+].join('\n');
 
 // TODO(ponytail): --model and FANTASY_RECAP_MODEL exist for the A/B voice window.
 // Once a winner ships, hardcode the winner here and delete the override machinery.
@@ -39,20 +53,81 @@ const DEFAULT_RECAP_MODEL = 'neuralwatt/kimi-k3';
 
 async function main() {
 	const [command, ...flags] = process.argv.slice(2);
-	if (command !== 'inspect' && command !== 'preview')
+	if (!command || !['inspect', 'preview', 'run', 'retry', 'confirm-sent'].includes(command))
 		fail(usage, 1);
+
+	const config = parseFantasyConfig();
+	if (!config)
+		fail('Fantasy configuration is missing or incomplete; fix the FANTASY_* env vars first.', 1);
+
+	// TODO: remove --allow-incomplete once the bot is live in the actual group chat.
+	// Debug flag: bypasses the completed-week gate to preview mid-week facts.
+	const allowIncomplete = flags.includes('--allow-incomplete');
+
+	if (command === 'run') {
+		let state: Awaited<ReturnType<typeof getNflState>>;
+		let rawLeague: Awaited<ReturnType<typeof getLeague>>;
+		let managers: SleeperManager[];
+		let bracket: Awaited<ReturnType<typeof getWinnersBracket>>;
+		let week: number | null = null;
+		let facts: WeekFacts | null = null;
+		try {
+			[state, rawLeague, managers, bracket] = await Promise.all([
+				getNflState(),
+				getLeague(config.sleeperLeagueId),
+				getManagers(config.sleeperLeagueId),
+				getWinnersBracket(config.sleeperLeagueId),
+			]);
+			const league = withBracketRounds(rawLeague, bracket);
+			week = latestCompletedWeek(state, league, bracket);
+			if (week != null)
+				facts = await factsFor(config, league, managers, bracket, week);
+		}
+		catch (error) {
+			// Missing Sleeper facts block posting and alert the operator (one DM per run trigger).
+			const message = error instanceof Error ? error.message.slice(0, 200) : 'unknown Sleeper failure';
+			try {
+				const deps = await coordinatorDeps(config);
+				await deps.send.directMessage(`[fantasy-recap] recap blocked: Sleeper facts unavailable (${message}).`);
+			}
+			catch {
+				// alerting must never mask the underlying failure
+			}
+			throw error;
+		}
+		const model = config.recapModel ?? DEFAULT_RECAP_MODEL;
+		const result = await runWeeklyRecap(
+			{ config, week, facts, managers, model, generate: shapingGenerator(model) },
+			await coordinatorDeps(config),
+		);
+		console.log(`run: ${result.outcome}${result.week != null ? ` (week ${result.week})` : ''}`);
+		if (result.outcome === 'failed' || result.outcome === 'delivery_unknown')
+			process.exitCode = 1;
+		return;
+	}
 
 	const weekFlag = flags.indexOf('--week');
 	const week = Number(flags[weekFlag + 1]);
 	if (weekFlag === -1 || !Number.isInteger(week))
 		fail(usage, 1);
-	// TODO: remove --allow-incomplete once the bot is live in the actual group chat.
-	// Debug flag: bypasses the completed-week gate to preview mid-week facts.
-	const allowIncomplete = flags.includes('--allow-incomplete');
 
-	const config = parseFantasyConfig();
-	if (!config)
-		fail('Fantasy configuration is missing or incomplete; fix the FANTASY_* env vars first.', 1);
+	if (command === 'retry' || command === 'confirm-sent') {
+		const deps = await coordinatorDeps(config);
+		if (command === 'retry') {
+			const result = await retryWeek(week, flags.includes('--operator-verified-absent'), deps);
+			if (!result.ok)
+				fail(`not retried: ${result.reason}`, 1);
+			console.log(`week ${result.week}: resend outcome ${result.outcome}`);
+			if (result.outcome === 'failed' || result.outcome === 'delivery_unknown')
+				process.exitCode = 1;
+			return;
+		}
+		const confirmed = await confirmSent(week, deps);
+		if (!confirmed)
+			fail(`week ${week} is not delivery_unknown; nothing to confirm`, 1);
+		console.log(`week ${week}: recorded sent (source: operator, effective time: original send attempt)`);
+		return;
+	}
 
 	const [state, rawLeague, managers, bracket] = await Promise.all([
 		getNflState(),
@@ -70,16 +145,7 @@ async function main() {
 		);
 	}
 
-	const scoresByWeek = new Map<number, Awaited<ReturnType<typeof getScores>>>();
-	for (let w = 1; w <= week; w += 1) {
-		scoresByWeek.set(w, await getScores(config.sleeperLeagueId, w));
-	}
-	// Upcoming regular-season pairings come from the next week's matchup rows;
-	// playoff pairings come from the resolved winners bracket instead.
-	const needsNextMatchups = week + 1 < league.playoffWeekStart;
-	const nextWeekScores = needsNextMatchups ? await getScores(config.sleeperLeagueId, week + 1) : undefined;
-
-	const facts = buildWeekFacts({ league, week, managers, bracket, scoresByWeek, nextWeekScores });
+	const facts = await factsFor(config, league, managers, bracket, week);
 	if (command === 'inspect') {
 		print(facts, !completed);
 		return;
@@ -99,17 +165,7 @@ async function main() {
 		? await loadChatFixture(chatPath, managers)
 		: toChatContext(await readThreadMessages(config.sendblueGroupId), config, managers);
 
-	// A bare Mastra instance only so custom gateways (openai-codex/*) resolve.
-	const mastra = new Mastra({
-		gateways: { 'openai-codex': openAICodexGateway },
-		agents: { fantasy: createFantasyAgent(model) },
-	});
-	const result = await mastra.getAgent('fantasy').generate(buildRecapPrompt(facts, context), {
-		structuredOutput: { schema: recapShapingSchema },
-	});
-	if (!result.object)
-		fail('The model returned no structured recap output.', 1);
-	const shaping = validateShaping(result.object, context, facts);
+	const shaping = await shapingGenerator(model)(facts, context);
 	const text = renderWeekRecap(facts, shaping, context);
 
 	console.log(text);
@@ -164,14 +220,15 @@ async function loadChatFixture(path: string, managers: SleeperManager[]) {
 }
 
 /** Reads the archived fantasy thread newest-first; anything odd reads as an empty week. */
-async function readThreadMessages(groupId: string) {
+async function readThreadMessages(groupId: string, since?: Date) {
 	try {
 		const store = await new PostgresStore({ url: process.env.DATABASE_URL! }).getStore('memory');
 		if (!store)
 			throw new Error('no memory store');
 		const { messages } = await store.listMessages({
 			threadId: `fantasy-group-${groupId}`,
-			perPage: 40,
+			perPage: 200,
+			filter: since ? { dateRange: { start: since, startExclusive: true } } : undefined,
 			orderBy: { field: 'createdAt', direction: 'DESC' },
 		});
 		return messages;
@@ -180,6 +237,56 @@ async function readThreadMessages(groupId: string) {
 		console.error('[fantasy-recap] could not read chat context; proceeding with none:', error);
 		return [];
 	}
+}
+
+/** All week-N matchup rows + (regular season) week N+1 for the upcoming slate. */
+async function factsFor(
+	config: FantasyConfig,
+	league: ReturnType<typeof withBracketRounds>,
+	managers: SleeperManager[],
+	bracket: Awaited<ReturnType<typeof getWinnersBracket>>,
+	week: number,
+): Promise<WeekFacts> {
+	const scoresByWeek = new Map<number, Awaited<ReturnType<typeof getScores>>>();
+	for (let w = 1; w <= week; w += 1) {
+		scoresByWeek.set(w, await getScores(config.sleeperLeagueId, w));
+	}
+	// Upcoming regular-season pairings come from the next week's matchup rows;
+	// playoff pairings come from the resolved winners bracket instead.
+	const nextWeekScores = week + 1 < league.playoffWeekStart ? await getScores(config.sleeperLeagueId, week + 1) : undefined;
+	return buildWeekFacts({ league, week, managers, bracket, scoresByWeek, nextWeekScores });
+}
+
+/** Structured-output generation for one model id; the one call shape both run and preview share. */
+function shapingGenerator(model: string) {
+	// A bare Mastra instance only so custom gateways (openai-codex/*) resolve.
+	const mastra = new Mastra({
+		gateways: { 'openai-codex': openAICodexGateway },
+		agents: { fantasy: createFantasyAgent(model) },
+	});
+	return async (facts: WeekFacts, context: ReturnType<typeof toChatContext>): Promise<RecapShaping> => {
+		const result = await mastra.getAgent('fantasy').generate(buildRecapPrompt(facts, context), {
+			structuredOutput: { schema: recapShapingSchema },
+		});
+		if (!result.object)
+			throw new ShapingValidationError('the model returned no structured recap output');
+		return validateShaping(result.object, context, facts);
+	};
+}
+
+async function coordinatorDeps(config: FantasyConfig) {
+	// Dynamic import: inspect/preview must never require Sendblue env vars.
+	const { sendblueSendClient } = await import('../src/fantasy/deliver');
+	const sql = getFantasySql();
+	return {
+		runs: createRunsStore(config.sleeperLeagueId, sql),
+		recaps: { ensureSchema: () => ensureFantasyRecapsTable(sql), record: (record: RecapGenerationRecord) => recordGeneration(record, sql) },
+		groupId: config.sendblueGroupId,
+		leagueId: config.sleeperLeagueId,
+		readThreadMessages: (since?: Date) => readThreadMessages(config.sendblueGroupId, since),
+		send: sendblueSendClient,
+		now: () => new Date(),
+	};
 }
 
 function print(facts: WeekFacts, provisional: boolean) {

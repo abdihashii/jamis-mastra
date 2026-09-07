@@ -1,0 +1,265 @@
+import type { SqlLike } from './recaps';
+
+export type RunStatus = 'started' | 'failed' | 'delivery_unknown' | 'sent';
+
+export interface RecapRun {
+	leagueId: string;
+	fantasyWeek: number;
+	status: RunStatus;
+	finalText: string | null;
+	claimToken: string | null;
+	leaseExpiresAt: Date | null;
+	sendAttemptAt: Date | null;
+	messageHandle: string | null;
+	deliverySource: 'api' | 'operator' | null;
+	sentAt: Date | null;
+	lastError: string | null;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+/**
+ * Delivery-state authority for one league/week (ADR 0018). Born complete:
+ * stage 5 scheduling adds zero columns. The optimistic claim UPDATE is the
+ * single-writer lock — two concurrent coordinators race it and exactly one
+ * gets a row back.
+ */
+export async function ensureFantasyRunsTable(sql: SqlLike): Promise<void> {
+	await sql`
+		CREATE TABLE IF NOT EXISTS fantasy_recap_runs (
+			league_id TEXT NOT NULL,
+			fantasy_week INTEGER NOT NULL,
+			status TEXT NOT NULL DEFAULT 'started',
+			final_text TEXT,
+			claim_token TEXT,
+			lease_expires_at TIMESTAMPTZ,
+			send_attempt_at TIMESTAMPTZ,
+			message_handle TEXT,
+			delivery_source TEXT,
+			sent_at TIMESTAMPTZ,
+			last_error TEXT,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			PRIMARY KEY (league_id, fantasy_week)
+		)
+	`;
+	// One operator alert per unmapped sender, forever (alert-once dedup).
+	await sql`
+		CREATE TABLE IF NOT EXISTS fantasy_unmapped_sender_alerts (
+			sender_hash TEXT PRIMARY KEY,
+			alerted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`;
+}
+
+interface RunRow {
+	league_id: string;
+	fantasy_week: number;
+	status: RunStatus;
+	final_text: string | null;
+	claim_token: string | null;
+	lease_expires_at: Date | null;
+	send_attempt_at: Date | null;
+	message_handle: string | null;
+	delivery_source: 'api' | 'operator' | null;
+	sent_at: Date | null;
+	last_error: string | null;
+	created_at: Date;
+	updated_at: Date;
+}
+
+function toRun(row: RunRow): RecapRun {
+	return {
+		leagueId: row.league_id,
+		fantasyWeek: row.fantasy_week,
+		status: row.status,
+		finalText: row.final_text,
+		claimToken: row.claim_token,
+		leaseExpiresAt: row.lease_expires_at,
+		sendAttemptAt: row.send_attempt_at,
+		messageHandle: row.message_handle,
+		deliverySource: row.delivery_source,
+		sentAt: row.sent_at,
+		lastError: row.last_error,
+		createdAt: row.created_at,
+		updatedAt: row.updated_at,
+	};
+}
+
+export async function getRun(leagueId: string, week: number, sql: SqlLike): Promise<RecapRun | null> {
+	const rows = (await sql`
+		SELECT * FROM fantasy_recap_runs WHERE league_id = ${leagueId} AND fantasy_week = ${week}
+	`) as RunRow[];
+	return rows[0] ? toRun(rows[0]) : null;
+}
+
+export interface ClaimResult {
+	claimed: boolean;
+	run: RecapRun | null;
+}
+
+/**
+ * Claims week for a send attempt. Claimable states: no row yet (fresh week) or
+ * `failed` (definite pre-send failure retries automatically). Everything else
+ * refuses: `sent` is a no-op, `delivery_unknown` needs the operator, an
+ * in-flight `started` lease belongs to another runner (a dead one is swept
+ * into delivery_unknown first by sweepExpiredLeases).
+ */
+export async function claimRun(
+	leagueId: string,
+	week: number,
+	claimToken: string,
+	leaseExpiresAt: Date,
+	now: Date,
+	sql: SqlLike,
+): Promise<ClaimResult> {
+	await sql`
+		INSERT INTO fantasy_recap_runs (league_id, fantasy_week, status, claim_token, lease_expires_at, send_attempt_at)
+		VALUES (${leagueId}, ${week}, 'started', ${claimToken}, ${leaseExpiresAt.toISOString()}, ${now.toISOString()})
+		ON CONFLICT (league_id, fantasy_week) DO NOTHING
+	`;
+	const rows = (await sql`
+		UPDATE fantasy_recap_runs
+		SET claim_token = ${claimToken}, lease_expires_at = ${leaseExpiresAt.toISOString()},
+			send_attempt_at = ${now.toISOString()}, status = 'started', last_error = NULL, updated_at = now()
+		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
+			AND (status = 'failed' OR (status = 'started' AND claim_token = ${claimToken}))
+		RETURNING *
+	`) as RunRow[];
+	if (rows[0])
+		return { claimed: true, run: toRun(rows[0]) };
+	const existing = await getRun(leagueId, week, sql);
+	return { claimed: false, run: existing };
+}
+
+/** Stamps the exact text before the outbound request ever fires (ADR 0018). */
+export async function recordAttemptText(leagueId: string, week: number, finalText: string, sql: SqlLike): Promise<void> {
+	await sql`
+		UPDATE fantasy_recap_runs SET final_text = ${finalText}, updated_at = now()
+		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
+	`;
+}
+
+export async function markSent(leagueId: string, week: number, handle: string, sql: SqlLike): Promise<void> {
+	await sql`
+		UPDATE fantasy_recap_runs
+		SET status = 'sent', message_handle = ${handle}, delivery_source = 'api', sent_at = now(), updated_at = now()
+		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
+	`;
+}
+
+export async function markFailed(leagueId: string, week: number, error: string, sql: SqlLike): Promise<void> {
+	await sql`
+		UPDATE fantasy_recap_runs SET status = 'failed', last_error = ${error}, updated_at = now()
+		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
+	`;
+}
+
+export async function markDeliveryUnknown(leagueId: string, week: number, error: string, sql: SqlLike): Promise<void> {
+	await sql`
+		UPDATE fantasy_recap_runs SET status = 'delivery_unknown', last_error = ${error}, updated_at = now()
+		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
+	`;
+}
+
+/**
+ * Operator observed the message in the group. Effective delivery time stays
+ * the original attempt (the message arrived then, we just learned later).
+ */
+export async function confirmSentByOperator(leagueId: string, week: number, sql: SqlLike): Promise<boolean> {
+	const rows = (await sql`
+		UPDATE fantasy_recap_runs
+		SET status = 'sent', delivery_source = 'operator', sent_at = COALESCE(send_attempt_at, now()), updated_at = now()
+		WHERE league_id = ${leagueId} AND fantasy_week = ${week} AND status = 'delivery_unknown'
+		RETURNING *
+	`) as RunRow[];
+	return rows.length === 1;
+}
+
+/**
+ * Crash recovery as one guarded statement: started rows past their lease become
+ * delivery_unknown atomically, so a concurrent live claim simply makes no row match.
+ * Returns the rows actually transitioned (each needs an operator DM).
+ */
+export async function expireStaleLeases(leagueId: string, now: Date, reason: string, sql: SqlLike): Promise<RecapRun[]> {
+	const rows = (await sql`
+		UPDATE fantasy_recap_runs
+		SET status = 'delivery_unknown', last_error = ${reason}, updated_at = now()
+		WHERE league_id = ${leagueId} AND status = 'started' AND lease_expires_at < ${now.toISOString()}
+		RETURNING *
+	`) as RunRow[];
+	return rows.map(toRun);
+}
+
+/** Retry guard: nothing newer may be claimed/sent while an older week retries. */
+export async function hasNewerActiveRun(leagueId: string, week: number, sql: SqlLike): Promise<boolean> {
+	const rows = (await sql`
+		SELECT 1 FROM fantasy_recap_runs
+		WHERE league_id = ${leagueId} AND fantasy_week > ${week} AND status != 'failed'
+		LIMIT 1
+	`) as unknown[];
+	return rows.length > 0;
+}
+
+/** Chat-context window anchor: the most recent sent run before this week. */
+export async function latestSentRunBefore(leagueId: string, week: number, sql: SqlLike): Promise<RecapRun | null> {
+	const rows = (await sql`
+		SELECT * FROM fantasy_recap_runs
+		WHERE league_id = ${leagueId} AND fantasy_week < ${week} AND status = 'sent'
+		ORDER BY fantasy_week DESC LIMIT 1
+	`) as RunRow[];
+	return rows[0] ? toRun(rows[0]) : null;
+}
+
+/** The store port the coordinator orchestrates against (PG impl below, in-memory in tests). */
+export interface RunsStore {
+	ensureSchema: () => Promise<void>;
+	getRun: (week: number) => Promise<RecapRun | null>;
+	claimRun: (week: number, claimToken: string, leaseExpiresAt: Date, now: Date) => Promise<ClaimResult>;
+	/** Returns the claimed row's stored final_text (the exact text to resend), or null when unclaimable. */
+	claimForRetry: (week: number, claimToken: string, leaseExpiresAt: Date, now: Date) => Promise<string | null>;
+	recordAttemptText: (week: number, finalText: string) => Promise<void>;
+	markSent: (week: number, handle: string) => Promise<void>;
+	markFailed: (week: number, error: string) => Promise<void>;
+	markDeliveryUnknown: (week: number, error: string) => Promise<void>;
+	confirmSentByOperator: (week: number) => Promise<boolean>;
+	/** Atomic expired-lease sweep; transitioned rows (each needs an operator DM). */
+	expireStaleLeases: (now: Date, reason: string) => Promise<RecapRun[]>;
+	hasNewerActiveRun: (week: number) => Promise<boolean>;
+	latestSentRunBefore: (week: number) => Promise<RecapRun | null>;
+	/** Returns true exactly once per sender, across runs (alert-once dedup). */
+	alertUnmappedSenderOnce: (senderHash: string) => Promise<boolean>;
+}
+
+export function createRunsStore(leagueId: string, sql: SqlLike): RunsStore {
+	return {
+		ensureSchema: () => ensureFantasyRunsTable(sql),
+		getRun: week => getRun(leagueId, week, sql),
+		claimRun: (week, claimToken, leaseExpiresAt, now) => claimRun(leagueId, week, claimToken, leaseExpiresAt, now, sql),
+		claimForRetry: async (week, claimToken, leaseExpiresAt, now) => {
+			const rows = (await sql`
+				UPDATE fantasy_recap_runs
+				SET claim_token = ${claimToken}, lease_expires_at = ${leaseExpiresAt.toISOString()},
+					send_attempt_at = ${now.toISOString()}, status = 'started', last_error = NULL, updated_at = now()
+				WHERE league_id = ${leagueId} AND fantasy_week = ${week} AND status IN ('failed', 'delivery_unknown')
+				RETURNING final_text
+			`) as { final_text: string }[];
+			return rows.length === 1 ? rows[0]!.final_text : null;
+		},
+		recordAttemptText: (week, finalText) => recordAttemptText(leagueId, week, finalText, sql),
+		markSent: (week, handle) => markSent(leagueId, week, handle, sql),
+		markFailed: (week, error) => markFailed(leagueId, week, error, sql),
+		markDeliveryUnknown: (week, error) => markDeliveryUnknown(leagueId, week, error, sql),
+		confirmSentByOperator: week => confirmSentByOperator(leagueId, week, sql),
+		expireStaleLeases: (now, reason) => expireStaleLeases(leagueId, now, reason, sql),
+		hasNewerActiveRun: week => hasNewerActiveRun(leagueId, week, sql),
+		latestSentRunBefore: week => latestSentRunBefore(leagueId, week, sql),
+		alertUnmappedSenderOnce: async (senderHash) => {
+			const rows = (await sql`
+				INSERT INTO fantasy_unmapped_sender_alerts (sender_hash) VALUES (${senderHash})
+				ON CONFLICT (sender_hash) DO NOTHING RETURNING sender_hash
+			`) as unknown[];
+			return rows.length === 1;
+		},
+	};
+}

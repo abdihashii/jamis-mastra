@@ -11,7 +11,7 @@ import { z } from 'zod';
  * by (league, week, version, model), so a new version lands as history rather
  * than an overwrite of the old rendering.
  */
-export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v1';
+export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v2';
 
 /** One chat line the model may callback into. */
 export interface ChatContextMessage {
@@ -45,7 +45,8 @@ export type RecapShaping = z.infer<typeof recapShapingSchema>;
 
 export class ShapingValidationError extends Error {}
 
-const CHAT_CONTEXT_LIMIT = 40;
+const CHAT_CONTEXT_MAX_MESSAGES = 200;
+const CHAT_CONTEXT_MAX_CHARS = 20_000;
 
 /**
  * Maps archived thread messages into callback-eligible context. Manager lookup
@@ -58,6 +59,7 @@ export function toChatContext(
 ): ChatContextMessage[] {
 	const displayNameByUserId = new Map(managers.map(m => [m.userId, m.displayName]));
 	const out: ChatContextMessage[] = [];
+	let chars = 0;
 	for (const message of messages) {
 		const metadata = (message.content.metadata ?? {}) as Record<string, unknown>;
 		const senderNumber = typeof metadata.senderNumber === 'string' ? metadata.senderNumber : null;
@@ -69,10 +71,11 @@ export function toChatContext(
 			.trim();
 		if (!senderNumber || !text)
 			continue;
+		if (out.length >= CHAT_CONTEXT_MAX_MESSAGES || chars + text.length > CHAT_CONTEXT_MAX_CHARS)
+			break;
+		chars += text.length;
 		const userId = config.managerMap[senderNumber];
 		out.push({ id: message.id, sender: (userId && displayNameByUserId.get(userId)) || 'unknown sender', text });
-		if (out.length >= CHAT_CONTEXT_LIMIT)
-			break;
 	}
 	return out.reverse(); // caller passes newest-first; model reads oldest-first
 }
@@ -86,7 +89,7 @@ Hard rules:
 - Callbacks reference ONLY message ids from the provided context list. Your "take" is a reaction or paraphrase, never a verbatim copy.
 - Zero callbacks is always valid, especially when the chat was quiet or off-topic.
 - Spotlight picks a provided upcoming matchup index, or null when none is worth hyping.
-- Register: dry group-chat banter, no slurs, no dunking on anyone who was family-polite in chat.`;
+- Register: sparse, deadpan humor. Roast the message, never the manager.`;
 
 export function createFantasyAgent(model: string): Agent {
 	return new Agent({ id: 'fantasy-agent', name: 'Fantasy Agent', instructions: INSTRUCTIONS, model });

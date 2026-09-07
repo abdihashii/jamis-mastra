@@ -99,11 +99,23 @@ describe('toChatContext', () => {
 		expect(JSON.stringify(entry)).not.toContain('19999999999');
 	});
 
-	it('skips empty texts and caps the pool', () => {
+	it('skips empty texts and bounds the pool at 200 messages', () => {
 		const messages = [dbMessage('m0', '+15550001111', '')];
 		expect(toChatContext(messages, config, managers)).toEqual([]);
-		const many = Array.from({ length: 60 }, (_, i) => dbMessage(`m${i}`, '+15550001111', `msg ${i}`));
-		expect(toChatContext(many, config, managers)).toHaveLength(40);
+		const many = Array.from({ length: 250 }, (_, i) => dbMessage(`m${i}`, '+15550001111', `msg ${i}`));
+		expect(toChatContext(many, config, managers)).toHaveLength(200);
+	});
+
+	it('stops adding context once 20k characters are banked', () => {
+		const big = 'y'.repeat(9_000);
+		const messages = [
+			dbMessage('m3', '+15550001111', big),
+			dbMessage('m2', '+15550001111', big),
+			dbMessage('m1', '+15550001111', big), // excluded: 9k+9k+9k would exceed the 20k char budget
+		];
+		const out = toChatContext(messages, config, managers);
+		expect(out.map(m => m.id)).toEqual(['m2', 'm3']);
+		expect(out.reduce((sum, m) => sum + m.text.length, 0)).toBeLessThanOrEqual(20_000);
 	});
 });
 
