@@ -7,7 +7,7 @@ import type { SleeperManager } from '../sleeper';
 import { describe, expect, it } from 'bun:test';
 import { parseFantasyConfig } from '../config';
 import { FANTASY_GENERATOR_VERSION, toChatContext, validateShaping } from '../generate';
-import { listGenerations, recordGeneration } from '../recaps';
+import { listGenerations, recordClaimedGeneration, recordGeneration } from '../recaps';
 import { RECAP_MAX_LENGTH, RecapRenderError, renderWeekRecap } from '../render';
 
 const config = parseFantasyConfig({
@@ -276,6 +276,22 @@ describe('generation records', () => {
 		expect(v1Args[2]).toBe(FANTASY_GENERATOR_VERSION);
 		expect(v2Args[2]).toBe(`${FANTASY_GENERATOR_VERSION}+prompt2`);
 		expect(v1Args[0]).toBe(v2Args[0]); // same league/week — history, not replacement
+	});
+
+	it('records live generation only while its delivery claim is active', async () => {
+		const { calls, sql } = sqlShim([{}]);
+		const record: RecapGenerationRecord = {
+			leagueId: '111',
+			fantasyWeek: 2,
+			generatorVersion: FANTASY_GENERATOR_VERSION,
+			model: 'test-model',
+			finalText: 'text v1',
+			facts: factsStub(),
+		};
+
+		expect(await recordClaimedGeneration(record, 'claim-1', sql)).toBe(true);
+		expect(calls[0].strings.join('')).toContain('status = \'started\' AND claim_token =');
+		expect(calls[0].strings.join('')).toContain('FROM claimed');
 	});
 
 	it('creates the table with the version-history primary key', async () => {

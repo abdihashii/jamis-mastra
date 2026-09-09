@@ -32,7 +32,7 @@ export interface CoordinatorResult {
 
 export interface RecapsStore {
 	ensureSchema: () => Promise<void>;
-	record: (record: RecapGenerationRecord) => Promise<void>;
+	record: (record: RecapGenerationRecord, claimToken: string) => Promise<boolean>;
 }
 
 export interface CoordinatorDeps {
@@ -102,14 +102,16 @@ async function deliverStoredText(
 ): Promise<CoordinatorResult> {
 	const { runs, send } = deps;
 	if (generation) {
-		await deps.recaps.record({
+		const recorded = await deps.recaps.record({
 			leagueId: deps.leagueId,
 			fantasyWeek: week,
 			generatorVersion: FANTASY_GENERATOR_VERSION,
 			model: generation.model,
 			finalText: text,
 			facts: generation.facts,
-		});
+		}, claimToken);
+		if (!recorded)
+			return { outcome: 'blocked-active-claim', week };
 	}
 	if (!await runs.recordAttemptText(week, claimToken, text))
 		return { outcome: 'blocked-active-claim', week };
@@ -151,7 +153,8 @@ export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps)
 	// Crash recovery first: started rows past their lease never learned their fate.
 	// One atomic sweep; a live concurrent claim simply loses no row to it.
 	for (const stuck of await runs.expireStaleLeases(deps.now(), 'send attempt interrupted; delivery unobservable')) {
-		await tryDm(send, `[fantasy-recap] week ${stuck.fantasyWeek} send was interrupted (crash or restart). Check the group, then confirm-sent or retry --operator-verified-absent.`);
+		if (stuck.status === 'delivery_unknown')
+			await tryDm(send, `[fantasy-recap] week ${stuck.fantasyWeek} send was interrupted (crash or restart). Check the group, then confirm-sent or retry --operator-verified-absent.`);
 	}
 
 	const week = args.week;
@@ -165,7 +168,7 @@ export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps)
 		return { outcome: 'blocked-delivery-unknown', week };
 
 	const claimToken = randomUUID();
-	const claim = await runs.claimRun(week, claimToken, new Date(deps.now().getTime() + LEASE_MS), deps.now());
+	const claim = await runs.claimRun(week, claimToken, new Date(deps.now().getTime() + LEASE_MS));
 	if (!claim.claimed)
 		return { outcome: claim.run?.status === 'delivery_unknown' ? 'blocked-delivery-unknown' : 'blocked-active-claim', week };
 
@@ -234,7 +237,7 @@ export async function retryWeek(week: number, operatorVerifiedAbsent: boolean, d
 		return { ok: false, reason: `a newer week already has an active recap; week ${week} is stale and cannot retry` };
 
 	const claimToken = randomUUID();
-	const storedText = await runs.claimForRetry(week, claimToken, new Date(deps.now().getTime() + LEASE_MS), deps.now());
+	const storedText = await runs.claimForRetry(week, claimToken, new Date(deps.now().getTime() + LEASE_MS));
 	if (storedText == null)
 		return { ok: false, reason: `week ${week} was claimed concurrently; try again` };
 

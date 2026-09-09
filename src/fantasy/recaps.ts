@@ -47,7 +47,7 @@ export async function ensureFantasyRecapsTable(sql: SqlLike = getFantasySql()): 
 	`;
 }
 
-/** Upserts the generation; reruns with the same version+model replace, a new version records history. */
+/** Upserts preview history without participating in the delivery state machine. */
 export async function recordGeneration(record: RecapGenerationRecord, sql: SqlLike = getFantasySql()): Promise<void> {
 	await sql`
 		INSERT INTO fantasy_recap_generations (league_id, fantasy_week, generator_version, model, final_text, facts)
@@ -55,6 +55,26 @@ export async function recordGeneration(record: RecapGenerationRecord, sql: SqlLi
 		ON CONFLICT (league_id, fantasy_week, generator_version, model)
 		DO UPDATE SET final_text = EXCLUDED.final_text, facts = EXCLUDED.facts, updated_at = now()
 	`;
+}
+
+/** Stores claimed text and generation history atomically; stale runners write neither. */
+export async function recordClaimedGeneration(record: RecapGenerationRecord, claimToken: string, sql: SqlLike = getFantasySql()): Promise<boolean> {
+	const rows = await sql`
+		WITH claimed AS (
+			UPDATE fantasy_recap_runs
+			SET final_text = ${record.finalText}, updated_at = now()
+			WHERE league_id = ${record.leagueId} AND fantasy_week = ${record.fantasyWeek}
+				AND status = 'started' AND claim_token = ${claimToken}
+			RETURNING 1
+		)
+		INSERT INTO fantasy_recap_generations (league_id, fantasy_week, generator_version, model, final_text, facts)
+		SELECT ${record.leagueId}, ${record.fantasyWeek}, ${record.generatorVersion}, ${record.model}, ${record.finalText}, ${record.facts}
+		FROM claimed
+		ON CONFLICT (league_id, fantasy_week, generator_version, model)
+		DO UPDATE SET final_text = EXCLUDED.final_text, facts = EXCLUDED.facts, updated_at = now()
+		RETURNING 1
+	`;
+	return rows.length === 1;
 }
 
 export interface RecapGenerationRow {

@@ -99,7 +99,7 @@ export interface ClaimResult {
 }
 
 /**
- * Claims week for a send attempt. Claimable states: no row yet (fresh week) or
+ * Claims week for recap processing. Claimable states: no row yet (fresh week) or
  * `failed` (definite pre-send failure retries automatically). Everything else
  * refuses: `sent` is a no-op, `delivery_unknown` needs the operator, an
  * in-flight `started` lease belongs to another runner (a dead one is swept
@@ -110,18 +110,17 @@ export async function claimRun(
 	week: number,
 	claimToken: string,
 	leaseExpiresAt: Date,
-	now: Date,
 	sql: SqlLike,
 ): Promise<ClaimResult> {
 	await sql`
-		INSERT INTO fantasy_recap_runs (league_id, fantasy_week, status, claim_token, lease_expires_at, send_attempt_at)
-		VALUES (${leagueId}, ${week}, 'started', ${claimToken}, ${leaseExpiresAt.toISOString()}, ${now.toISOString()})
+		INSERT INTO fantasy_recap_runs (league_id, fantasy_week, status, claim_token, lease_expires_at)
+		VALUES (${leagueId}, ${week}, 'started', ${claimToken}, ${leaseExpiresAt.toISOString()})
 		ON CONFLICT (league_id, fantasy_week) DO NOTHING
 	`;
 	const rows = (await sql`
 		UPDATE fantasy_recap_runs
 		SET claim_token = ${claimToken}, lease_expires_at = ${leaseExpiresAt.toISOString()},
-			send_attempt_at = ${now.toISOString()}, status = 'started', last_error = NULL, updated_at = now()
+			send_attempt_at = NULL, status = 'started', last_error = NULL, updated_at = now()
 		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
 			AND (status = 'failed' OR (status = 'started' AND claim_token = ${claimToken}))
 		RETURNING *
@@ -132,10 +131,10 @@ export async function claimRun(
 	return { claimed: false, run: existing };
 }
 
-/** Stamps the exact text before the outbound request ever fires (ADR 0018). */
+/** Stamps the exact text and attempt time immediately before the outbound request fires (ADR 0018). */
 export async function recordAttemptText(leagueId: string, week: number, claimToken: string, finalText: string, sql: SqlLike): Promise<boolean> {
 	const rows = (await sql`
-		UPDATE fantasy_recap_runs SET final_text = ${finalText}, updated_at = now()
+		UPDATE fantasy_recap_runs SET final_text = ${finalText}, send_attempt_at = now(), updated_at = now()
 		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
 			AND status = 'started' AND claim_token = ${claimToken}
 		RETURNING 1
@@ -187,14 +186,16 @@ export async function confirmSentByOperator(leagueId: string, week: number, sql:
 }
 
 /**
- * Crash recovery as one guarded statement: started rows past their lease become
- * delivery_unknown atomically, so a concurrent live claim simply makes no row match.
- * Returns the rows actually transitioned (each needs an operator DM).
+ * Crash recovery as one guarded statement. Work interrupted before a recorded
+ * send attempt is retryable; work interrupted after one remains delivery_unknown.
+ * Legacy rows stamped attempts at claim time, so no final text also proves no send.
  */
 export async function expireStaleLeases(leagueId: string, now: Date, reason: string, sql: SqlLike): Promise<RecapRun[]> {
 	const rows = (await sql`
 		UPDATE fantasy_recap_runs
-		SET status = 'delivery_unknown', last_error = ${reason}, updated_at = now()
+		SET status = CASE WHEN send_attempt_at IS NULL OR final_text IS NULL THEN 'failed' ELSE 'delivery_unknown' END,
+			last_error = CASE WHEN send_attempt_at IS NULL OR final_text IS NULL THEN 'recap processing interrupted before send' ELSE ${reason} END,
+			updated_at = now()
 		WHERE league_id = ${leagueId} AND status = 'started' AND lease_expires_at < ${now.toISOString()}
 		RETURNING *
 	`) as RunRow[];
@@ -225,9 +226,9 @@ export async function latestSentRunBefore(leagueId: string, week: number, sql: S
 export interface RunsStore {
 	ensureSchema: () => Promise<void>;
 	getRun: (week: number) => Promise<RecapRun | null>;
-	claimRun: (week: number, claimToken: string, leaseExpiresAt: Date, now: Date) => Promise<ClaimResult>;
+	claimRun: (week: number, claimToken: string, leaseExpiresAt: Date) => Promise<ClaimResult>;
 	/** Returns the claimed row's stored final_text (the exact text to resend), or null when unclaimable. */
-	claimForRetry: (week: number, claimToken: string, leaseExpiresAt: Date, now: Date) => Promise<string | null>;
+	claimForRetry: (week: number, claimToken: string, leaseExpiresAt: Date) => Promise<string | null>;
 	recordAttemptText: (week: number, claimToken: string, finalText: string) => Promise<boolean>;
 	markSent: (week: number, claimToken: string, handle: string) => Promise<boolean>;
 	markFailed: (week: number, claimToken: string, error: string) => Promise<boolean>;
@@ -245,12 +246,12 @@ export function createRunsStore(leagueId: string, sql: SqlLike): RunsStore {
 	return {
 		ensureSchema: () => ensureFantasyRunsTable(sql),
 		getRun: week => getRun(leagueId, week, sql),
-		claimRun: (week, claimToken, leaseExpiresAt, now) => claimRun(leagueId, week, claimToken, leaseExpiresAt, now, sql),
-		claimForRetry: async (week, claimToken, leaseExpiresAt, now) => {
+		claimRun: (week, claimToken, leaseExpiresAt) => claimRun(leagueId, week, claimToken, leaseExpiresAt, sql),
+		claimForRetry: async (week, claimToken, leaseExpiresAt) => {
 			const rows = (await sql`
 				UPDATE fantasy_recap_runs
 				SET claim_token = ${claimToken}, lease_expires_at = ${leaseExpiresAt.toISOString()},
-					send_attempt_at = ${now.toISOString()}, status = 'started', last_error = NULL, updated_at = now()
+					send_attempt_at = NULL, status = 'started', last_error = NULL, updated_at = now()
 				WHERE league_id = ${leagueId} AND fantasy_week = ${week} AND status IN ('failed', 'delivery_unknown')
 				RETURNING final_text
 			`) as { final_text: string }[];

@@ -59,30 +59,30 @@ function memoryRuns(seed: RecapRun[] = []) {
 		rows,
 		ensureSchema: async () => {},
 		getRun: async (week: number) => rows.get(week) ?? null,
-		claimRun: async (week: number, claimToken: string, leaseExpiresAt: Date, now: Date) => {
+		claimRun: async (week: number, claimToken: string, leaseExpiresAt: Date) => {
 			const row = rows.get(week);
 			if (!row) {
-				rows.set(week, blankRun(week, { status: 'started', claimToken, leaseExpiresAt, sendAttemptAt: now }));
+				rows.set(week, blankRun(week, { status: 'started', claimToken, leaseExpiresAt }));
 				return { claimed: true, run: rows.get(week)! };
 			}
 			if (row.status === 'failed') {
-				rows.set(week, { ...row, status: 'started', claimToken, leaseExpiresAt, sendAttemptAt: now, lastError: null });
+				rows.set(week, { ...row, status: 'started', claimToken, leaseExpiresAt, sendAttemptAt: null, lastError: null });
 				return { claimed: true, run: rows.get(week)! };
 			}
 			return { claimed: false, run: row };
 		},
-		claimForRetry: async (week: number, claimToken: string, leaseExpiresAt: Date, now: Date) => {
+		claimForRetry: async (week: number, claimToken: string, leaseExpiresAt: Date) => {
 			const row = rows.get(week);
 			if (!row || (row.status !== 'failed' && row.status !== 'delivery_unknown'))
 				return null;
-			rows.set(week, { ...row, status: 'started', claimToken, leaseExpiresAt, sendAttemptAt: now, lastError: null });
+			rows.set(week, { ...row, status: 'started', claimToken, leaseExpiresAt, sendAttemptAt: null, lastError: null });
 			return row.finalText;
 		},
 		recordAttemptText: async (week: number, claimToken: string, finalText: string) => {
 			const row = rows.get(week);
 			if (!row || row.status !== 'started' || row.claimToken !== claimToken)
 				return false;
-			rows.set(week, { ...row, finalText });
+			rows.set(week, { ...row, finalText, sendAttemptAt: new Date(NOW) });
 			return true;
 		},
 		markSent: async (week: number, claimToken: string, handle: string) => {
@@ -113,9 +113,15 @@ function memoryRuns(seed: RecapRun[] = []) {
 		},
 		expireStaleLeases: async (now: Date, reason: string) => {
 			const stale = [...rows.values()].filter(r => r.status === 'started' && r.leaseExpiresAt != null && r.leaseExpiresAt < now);
-			for (const row of stale)
-				rows.set(row.fantasyWeek, { ...row, status: 'delivery_unknown', lastError: reason });
-			return stale;
+			return stale.map((row) => {
+				const updated = {
+					...row,
+					status: row.sendAttemptAt && row.finalText ? 'delivery_unknown' as const : 'failed' as const,
+					lastError: row.sendAttemptAt && row.finalText ? reason : 'recap processing interrupted before send',
+				};
+				rows.set(row.fantasyWeek, updated);
+				return updated;
+			});
 		},
 		hasNewerActiveRun: async (week: number) =>
 			[...rows.values()].some(r => r.fantasyWeek > week && r.status !== 'failed'),
@@ -177,8 +183,13 @@ function depsFor(args: {
 		runs: args.runs,
 		recaps: {
 			ensureSchema: async () => {},
-			record: async (record) => {
+			record: async (record, claimToken) => {
+				const run = args.runs.rows.get(record.fantasyWeek);
+				if (!run || run.status !== 'started' || run.claimToken !== claimToken)
+					return false;
+				args.runs.rows.set(record.fantasyWeek, { ...run, finalText: record.finalText });
 				recorded.push(record);
+				return true;
 			},
 		},
 		groupId: 'g1',
@@ -323,6 +334,42 @@ describe('runWeeklyRecap delivery state machine', () => {
 		expect(result.outcome).toBe('blocked-delivery-unknown');
 	});
 
+	it('retries work interrupted before any send attempt without operator recovery', async () => {
+		const runs = memoryRuns([
+			blankRun(2, { status: 'started', claimToken: 'dead', leaseExpiresAt: new Date('2026-09-10T15:00:00Z') }),
+		]);
+		const dms: string[] = [];
+		const { sends, client } = sendClient([], dms);
+		const { deps } = depsFor({ runs, send: client });
+
+		const result = await runWeeklyRecap({ config, week: 2, facts: factsStub(), managers, model: 'm1', generate }, deps);
+
+		expect(result.outcome).toBe('sent');
+		expect(sends).toHaveLength(1);
+		expect(runs.rows.get(2)!.sendAttemptAt).toEqual(new Date(NOW));
+		expect(dms).toEqual([]);
+	});
+
+	it('retries legacy pre-send work that stamped an attempt at claim time', async () => {
+		const runs = memoryRuns([
+			blankRun(2, {
+				status: 'started',
+				claimToken: 'dead',
+				leaseExpiresAt: new Date('2026-09-10T15:00:00Z'),
+				sendAttemptAt: new Date('2026-09-10T14:59:00Z'),
+			}),
+		]);
+		const dms: string[] = [];
+		const { sends, client } = sendClient([], dms);
+		const { deps } = depsFor({ runs, send: client });
+
+		const result = await runWeeklyRecap({ config, week: 2, facts: factsStub(), managers, model: 'm1', generate }, deps);
+
+		expect(result.outcome).toBe('sent');
+		expect(sends).toHaveLength(1);
+		expect(dms).toEqual([]);
+	});
+
 	it('refuses a second concurrent claim; one outbound call total', async () => {
 		const runs = memoryRuns([
 			blankRun(2, { status: 'started', claimToken: 'runner-a', leaseExpiresAt: new Date('2026-09-10T16:30:00Z') }),
@@ -334,10 +381,10 @@ describe('runWeeklyRecap delivery state machine', () => {
 		expect(sends).toEqual([]);
 	});
 
-	it('does not send after losing its claim during generation', async () => {
+	it('does not record or send after losing its claim during generation', async () => {
 		const runs = memoryRuns();
 		const { sends, client } = sendClient([], []);
-		const { deps } = depsFor({ runs, send: client });
+		const { deps, recorded } = depsFor({ runs, send: client });
 		const result = await runWeeklyRecap({
 			config,
 			week: 2,
@@ -351,6 +398,7 @@ describe('runWeeklyRecap delivery state machine', () => {
 			},
 		}, deps);
 		expect(result.outcome).toBe('blocked-active-claim');
+		expect(recorded).toEqual([]);
 		expect(sends).toEqual([]);
 	});
 

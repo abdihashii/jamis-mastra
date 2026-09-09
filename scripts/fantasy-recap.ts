@@ -23,7 +23,7 @@ import {
 	validateShaping,
 } from '../src/fantasy/generate';
 
-import { ensureFantasyRecapsTable, getFantasySql, recordGeneration } from '../src/fantasy/recaps';
+import { ensureFantasyRecapsTable, getFantasySql, recordClaimedGeneration, recordGeneration } from '../src/fantasy/recaps';
 import { RECAP_MAX_LENGTH, renderWeekRecap } from '../src/fantasy/render';
 import { createRunsStore } from '../src/fantasy/runs';
 import {
@@ -245,7 +245,7 @@ async function coordinatorDeps(config: FantasyConfig) {
 	const sql = getFantasySql();
 	return {
 		runs: createRunsStore(config.sleeperLeagueId, sql),
-		recaps: { ensureSchema: () => ensureFantasyRecapsTable(sql), record: (record: RecapGenerationRecord) => recordGeneration(record, sql) },
+		recaps: { ensureSchema: () => ensureFantasyRecapsTable(sql), record: (record: RecapGenerationRecord, claimToken: string) => recordClaimedGeneration(record, claimToken, sql) },
 		groupId: config.sendblueGroupId,
 		leagueId: config.sleeperLeagueId,
 		readThreadMessages: (since?: Date) => readThreadMessages(config.sendblueGroupId, since),

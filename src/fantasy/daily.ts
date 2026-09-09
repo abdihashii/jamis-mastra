@@ -11,7 +11,7 @@ import type { SleeperManager } from './sleeper';
 import { buildWeekFacts } from './analysis';
 import { runWeeklyRecap } from './coordinator';
 import { buildRecapPrompt, DEFAULT_RECAP_MODEL, recapShapingSchema, ShapingValidationError, validateShaping } from './generate';
-import { ensureFantasyRecapsTable, getFantasySql, recordGeneration } from './recaps';
+import { ensureFantasyRecapsTable, getFantasySql, recordClaimedGeneration } from './recaps';
 import { createRunsStore } from './runs';
 import { getLeague, getManagers, getNflState, getScores, getWinnersBracket, latestCompletedWeek, withBracketRounds } from './sleeper';
 
@@ -48,7 +48,7 @@ export async function runDailyRecap(
 
 		const deps = {
 			runs,
-			recaps: { ensureSchema: () => ensureFantasyRecapsTable(sql), record: (record: Parameters<typeof recordGeneration>[0]) => recordGeneration(record, sql) },
+			recaps: { ensureSchema: () => ensureFantasyRecapsTable(sql), record: (record: Parameters<typeof recordClaimedGeneration>[0], claimToken: string) => recordClaimedGeneration(record, claimToken, sql) },
 			groupId: config.sendblueGroupId,
 			leagueId: config.sleeperLeagueId,
 			readThreadMessages: async (since?: Date): Promise<MastraDBMessage[]> => {
