@@ -1,5 +1,7 @@
 # Weather location and timing resolve through checks, never stored state
 
+> Superseded in part by [ADR 0019](0019-operator-time-zone.md): unqualified relative dates now resolve in the operator time zone, not the weather destination's zone. The rule against inferring or storing the operator's physical location remains.
+
 The operator's location is not modeled by the system in any form: no env var, no memory writes, no inference from the channel. A weather request with no usable place gets a plain-text check ([ADR 0012](0012-jamis-hitl-as-text-checks.md)) owned by the weather agent — not jamis — before any tool call. Relative date words (`tomorrow`, `next Saturday`) resolve in code inside `forecastTool`, against the destination's local zone, so the model never does timezone arithmetic it cannot reliably do. The model is only told today's UTC date; anything it cannot resolve unambiguously is checked with the operator rather than guessed.
 
 ## Context
