@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { defaultCredentialPath, MODEL_AUTH_FAILURE, refreshCredential } from '../openai-codex-auth.js';
+import { defaultCredentialPath, MODEL_AUTH_FAILURE, refreshCredential, runDeviceLogin } from '../openai-codex-auth.js';
 import { codexFetch, forcingStoreFalse, openAICodexGateway } from '../openai-codex-gateway.js';
 
 /** The credential path is cwd-relative, so each test runs in a temp dir. */
@@ -14,6 +14,7 @@ let tempDir: string;
 let originalCwd: string;
 let originalFetch: typeof globalThis.fetch;
 let originalDateNow: typeof Date.now;
+let originalSetTimeout: typeof globalThis.setTimeout;
 interface FetchCall { url: string; init: RequestInit | undefined }
 const fetchCalls: FetchCall[] = [];
 
@@ -40,10 +41,16 @@ async function readCredential(): Promise<CodexCredential> {
 function mockFetch(handlers?: {
 	tokenEndpoint?: (call: FetchCall) => Response | Promise<Response>;
 	generation?: (call: FetchCall) => Response | Promise<Response>;
+	deviceStart?: (call: FetchCall) => Response | Promise<Response>;
+	devicePoll?: (call: FetchCall) => Response | Promise<Response>;
 }) {
 	fetchCalls.length = 0;
 	const impl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 		fetchCalls.push({ url: String(input), init: init as RequestInit | undefined });
+		if (handlers?.deviceStart && String(input).includes('/deviceauth/usercode'))
+			return handlers.deviceStart(fetchCalls.at(-1)!);
+		if (handlers?.devicePoll && String(input).includes('/deviceauth/token'))
+			return handlers.devicePoll(fetchCalls.at(-1)!);
 		if (handlers?.tokenEndpoint && String(input).includes('/oauth/token')) {
 			return handlers.tokenEndpoint(fetchCalls.at(-1)!);
 		}
@@ -105,12 +112,14 @@ beforeEach(async () => {
 	process.chdir(tempDir);
 	originalFetch = globalThis.fetch;
 	originalDateNow = Date.now;
+	originalSetTimeout = globalThis.setTimeout;
 	mockFetch();
 });
 
 afterEach(async () => {
 	globalThis.fetch = originalFetch;
 	Date.now = originalDateNow;
+	globalThis.setTimeout = originalSetTimeout;
 	process.chdir(originalCwd);
 	await rm(tempDir, { recursive: true, force: true });
 });
@@ -307,6 +316,15 @@ describe('credential path resolution', () => {
 	test('falls back to cwd-relative when no ancestor has a credential', () => {
 		expect(defaultCredentialPath()).toBe(join(process.cwd(), 'data', 'openai-codex-auth.json'));
 	});
+
+	test('uses the project root on first login from the nested Mastra dev cwd', async () => {
+		await writeFile(join(tempDir, 'package.json'), '{}');
+		const nested = join(tempDir, 'src', 'mastra', 'public');
+		await mkdir(nested, { recursive: true });
+		process.chdir(nested);
+
+		expect(defaultCredentialPath()).toBe(join(realpathSync(tempDir), 'data', 'openai-codex-auth.json'));
+	});
 });
 
 describe('codexFetch response translation (SDK non-streaming calls)', () => {
@@ -407,7 +425,7 @@ describe('refresh rotation through resolveAuth', () => {
 	test('refuses to refresh before the server-declared window', async () => {
 		const cred = makeCredential({
 			expiresAt: Date.now() - 1,
-			earliestRefreshAt: Date.now() - 59_999,
+			earliestRefreshAt: Date.now() + 60_000,
 		});
 		await writeCredential(cred);
 		const errors: string[] = [];
@@ -456,6 +474,67 @@ describe('refresh rotation through resolveAuth', () => {
 		finally {
 			console.error = originalError;
 		}
+	});
+});
+
+describe('credential mutation serialization', () => {
+	test('a refresh cannot overwrite a newer device-login credential', async () => {
+		const old = makeCredential({
+			access: 'old-access',
+			refresh: 'old-refresh',
+			earliestRefreshAt: Date.now() - 60_001,
+		});
+		await writeCredential(old);
+		globalThis.setTimeout = ((callback: (...args: unknown[]) => void, _ms?: number, ...args: unknown[]) => {
+			queueMicrotask(() => callback(...args));
+			return 0 as unknown as ReturnType<typeof setTimeout>;
+		}) as typeof globalThis.setTimeout;
+
+		let refreshStarted!: () => void;
+		let releaseRefresh!: () => void;
+		const started = new Promise<void>(resolve => (refreshStarted = resolve));
+		const released = new Promise<void>(resolve => (releaseRefresh = resolve));
+		const idToken = `x.${btoa(JSON.stringify({ chatgpt_account_id: 'login-account' }))}.x`;
+		mockFetch({
+			deviceStart: (call) => {
+				expect(call.init?.signal).toBeInstanceOf(AbortSignal);
+				return Response.json({ device_auth_id: 'device-auth', user_code: 'ABCD-EFGH', interval: 1 });
+			},
+			devicePoll: (call) => {
+				expect(call.init?.signal).toBeInstanceOf(AbortSignal);
+				return Response.json({ authorization_code: 'authorization-code', code_verifier: 'code-verifier' });
+			},
+			tokenEndpoint: async (call) => {
+				const grant = new URLSearchParams(call.init?.body as string).get('grant_type');
+				if (grant === 'refresh_token') {
+					expect(call.init?.signal).toBeInstanceOf(AbortSignal);
+					refreshStarted();
+					await released;
+					return refreshedTokenResponse();
+				}
+				expect(call.init?.signal).toBeInstanceOf(AbortSignal);
+				return Response.json({
+					access_token: 'login-access',
+					refresh_token: 'login-refresh',
+					expires_in: 3600,
+					id_token: idToken,
+				});
+			},
+		});
+
+		const refresh = refreshCredential(old);
+		await started;
+		const login = runDeviceLogin(async () => {});
+		await Promise.resolve();
+		expect(fetchCalls.some(call => call.url.includes('/deviceauth/usercode'))).toBe(false);
+
+		releaseRefresh();
+		await Promise.all([refresh, login]);
+		expect(await readCredential()).toMatchObject({
+			access: 'login-access',
+			refresh: 'login-refresh',
+			accountId: 'login-account',
+		});
 	});
 });
 

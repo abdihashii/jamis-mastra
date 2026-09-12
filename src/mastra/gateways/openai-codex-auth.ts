@@ -29,6 +29,7 @@ const DEVICE_TOKEN_URL = `${ISSUER}/api/accounts/deviceauth/token`;
 const TOKEN_URL = `${ISSUER}/oauth/token`;
 const DEVICE_REDIRECT_URI = `${ISSUER}/deviceauth/callback`;
 const DEVICE_TIMEOUT_MS = 15 * 60 * 1000;
+export const DEVICE_LOGIN_TIMEOUT_ERROR = 'device authorization timed out after 15 minutes';
 const DEFAULT_EXPIRES_IN_SECONDS = 3600;
 /** Treat the credential as expiring this long before the real expiry so clock skew cannot ship a dead token. */
 const CLOCK_SKEW_MS = 60_000;
@@ -55,10 +56,10 @@ export function defaultCredentialPath(): string {
 	if (existsSync(candidate(cwd)))
 		return candidate(cwd);
 	// `mastra dev` serves API requests from the bundler output with cwd inside
-	// the repo (src/mastra/public), so the walk-up finds the repo-root data dir.
-	// ponytail: bounded ancestor walk (6 levels), no .git/package.json anchors —
-	// add an env override only if some deployment needs it.
+	// the repo (src/mastra/public), so the walk-up finds the repo root even on
+	// first login, before the credential file exists.
 	let dir = cwd;
+	let projectRoot = existsSync(join(cwd, 'package.json')) ? cwd : undefined;
 	for (let i = 0; i < 6; i++) {
 		const parent = dirname(dir);
 		if (parent === dir)
@@ -66,8 +67,10 @@ export function defaultCredentialPath(): string {
 		dir = parent;
 		if (existsSync(candidate(dir)))
 			return candidate(dir);
+		if (!projectRoot && existsSync(join(dir, 'package.json')))
+			projectRoot = dir;
 	}
-	return candidate(cwd);
+	return candidate(projectRoot ?? cwd);
 }
 
 export async function loadCredential(path: string = defaultCredentialPath()): Promise<CodexCredential | null> {
@@ -159,11 +162,12 @@ function parseEarliestRefreshAt(value: number | string | undefined): number | un
 	return Number.isFinite(asIso) ? asIso : undefined;
 }
 
-async function postTokenUrl(params: Record<string, string>): Promise<TokenResult> {
+async function postTokenUrl(params: Record<string, string>, signal?: AbortSignal): Promise<TokenResult> {
 	const response = await fetch(TOKEN_URL, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 		body: new URLSearchParams(params),
+		signal,
 	});
 	if (!response.ok) {
 		const text = await response.text().catch(() => '');
@@ -212,8 +216,24 @@ export function isExpiring(cred: CodexCredential): boolean {
 	return Date.now() >= refreshAt;
 }
 
-/** ponytail: one in-process refresh lock; only one agent process runs at a time. */
+/** ponytail: process-local auth locks; use shared locks only if JAMIS scales past one process. */
 let refreshInFlight: Promise<CodexCredential> | null = null;
+let credentialMutationQueue: Promise<void> = Promise.resolve();
+
+async function serializeCredentialMutation<T>(mutation: () => Promise<T>): Promise<T> {
+	const previous = credentialMutationQueue;
+	let release!: () => void;
+	credentialMutationQueue = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await previous;
+	try {
+		return await mutation();
+	}
+	finally {
+		release();
+	}
+}
 
 /**
  * Refresh the credential and persist the rotated pair BEFORE the new access
@@ -227,28 +247,25 @@ export async function refreshCredential(
 	if (refreshInFlight)
 		return refreshInFlight;
 
-	// A caller may hold the old pair after another request completed rotation.
-	// Reload before starting a new refresh so a rotated token is never reused.
-	const current = await loadCredential(path);
-	if (current && (current.access !== cred.access || current.refresh !== cred.refresh))
-		return current;
-	if (refreshInFlight)
-		return refreshInFlight;
+	refreshInFlight = serializeCredentialMutation(async () => {
+		// A queued caller may hold the old pair after another mutation completed.
+		const current = await loadCredential(path);
+		if (current && (current.access !== cred.access || current.refresh !== cred.refresh))
+			return current;
+		const refreshable = current ?? cred;
+		if (!isExpiring(refreshable)) {
+			console.error('[openai-codex] Credential refresh status=unavailable detail=before_safe_window.');
+			throw new Error(MODEL_AUTH_FAILURE);
+		}
 
-	const refreshable = current ?? cred;
-	if (!isExpiring(refreshable)) {
-		console.error('[openai-codex] Credential refresh status=unavailable detail=before_safe_window.');
-		throw new Error(MODEL_AUTH_FAILURE);
-	}
-
-	refreshInFlight = (async () => {
 		let result: TokenResult;
 		try {
+			const signal = AbortSignal.timeout(DEVICE_TIMEOUT_MS);
 			result = await postTokenUrl({
 				grant_type: 'refresh_token',
 				refresh_token: refreshable.refresh,
 				client_id: CLIENT_ID,
-			});
+			}, signal);
 		}
 		catch {
 			console.error('[openai-codex] Credential refresh status=failed detail=token_request_failed. Re-login required.');
@@ -274,7 +291,7 @@ export async function refreshCredential(
 			throw new Error(MODEL_AUTH_FAILURE);
 		}
 		return next;
-	})().finally(() => {
+	}).finally(() => {
 		refreshInFlight = null;
 	});
 	return refreshInFlight;
@@ -302,11 +319,12 @@ export interface DeviceLoginPending {
 	deadlineAt: number;
 }
 
-export async function startDeviceLogin(): Promise<DeviceLoginPending> {
+export async function startDeviceLogin(signal?: AbortSignal): Promise<DeviceLoginPending> {
 	const response = await fetch(DEVICE_USER_CODE_URL, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', 'User-Agent': 'jamis' },
 		body: JSON.stringify({ client_id: CLIENT_ID, originator: 'jamis' }),
+		signal,
 	});
 	if (!response.ok) {
 		throw new Error(`device authorization start failed: ${response.status}`);
@@ -337,14 +355,15 @@ export type DeviceLoginResult
 		| { status: 'failed'; error: string };
 
 /** One poll. 403/404 means still pending (not an RFC 8628 error-JSON endpoint). */
-export async function pollDeviceLogin(pending: DeviceLoginPending): Promise<DeviceLoginResult> {
+export async function pollDeviceLogin(pending: DeviceLoginPending, signal?: AbortSignal): Promise<DeviceLoginResult> {
 	if (Date.now() >= pending.deadlineAt) {
-		return { status: 'failed', error: 'device authorization timed out after 15 minutes' };
+		return { status: 'failed', error: DEVICE_LOGIN_TIMEOUT_ERROR };
 	}
 	const response = await fetch(DEVICE_TOKEN_URL, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', 'User-Agent': 'jamis' },
 		body: JSON.stringify({ device_auth_id: pending.deviceAuthId, user_code: pending.userCode }),
+		signal,
 	});
 	if (response.status === 403 || response.status === 404) {
 		return { status: 'pending' };
@@ -363,7 +382,7 @@ export async function pollDeviceLogin(pending: DeviceLoginPending): Promise<Devi
 		code: data.authorization_code,
 		code_verifier: data.code_verifier,
 		redirect_uri: DEVICE_REDIRECT_URI,
-	});
+	}, signal);
 	if (!tokens.ok) {
 		return { status: 'failed', error: `token exchange failed: status=${tokens.status} detail=${tokens.detail}` };
 	}
@@ -385,24 +404,37 @@ export async function pollDeviceLogin(pending: DeviceLoginPending): Promise<Devi
 
 /** Runs the device-flow loop and saves the credential. `onAuth` receives the verification URL and user code only. */
 export async function runDeviceLogin(
-	onAuth: (info: { url: string; userCode: string }) => void,
+	onAuth: (info: { url: string; userCode: string }) => void | Promise<void>,
 	path: string = defaultCredentialPath(),
 ): Promise<CodexCredential> {
-	const pending = await startDeviceLogin();
-	onAuth({ url: CODEX_DEVICE_URL, userCode: pending.userCode });
-	const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
-	await sleep(pending.intervalMs);
-	for (;;) {
-		const result = await pollDeviceLogin(pending);
-		if (result.status === 'complete') {
-			await saveCredential(result.creds, path);
-			return result.creds;
+	const deadlineAt = Date.now() + DEVICE_TIMEOUT_MS;
+	const signal = AbortSignal.timeout(DEVICE_TIMEOUT_MS);
+	return serializeCredentialMutation(async () => {
+		try {
+			const pending = await startDeviceLogin(signal);
+			pending.deadlineAt = deadlineAt;
+			await onAuth({ url: CODEX_DEVICE_URL, userCode: pending.userCode });
+			const sleep = () => new Promise<void>(resolve =>
+				setTimeout(resolve, Math.min(pending.intervalMs, Math.max(pending.deadlineAt - Date.now(), 0))),
+			);
+			await sleep();
+			for (;;) {
+				const result = await pollDeviceLogin(pending, signal);
+				if (result.status === 'complete') {
+					await saveCredential(result.creds, path);
+					return result.creds;
+				}
+				if (result.status === 'failed')
+					throw new Error(result.error);
+				await sleep();
+			}
 		}
-		if (result.status === 'failed') {
-			throw new Error(result.error);
+		catch (error) {
+			if (signal.aborted)
+				throw new Error(DEVICE_LOGIN_TIMEOUT_ERROR);
+			throw error;
 		}
-		await sleep(pending.intervalMs);
-	}
+	});
 }
 
 export function buildCodexHeaders(cred: CodexCredential): Record<string, string> {
