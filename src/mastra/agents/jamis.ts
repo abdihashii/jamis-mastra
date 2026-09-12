@@ -1,7 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
 
-import { isOperator, sendblueAdapter } from '../channels/sendblue';
+import { formatSendblueError, isOperator, sendblueAdapter } from '../channels/sendblue';
 import { personalAccountsAgent } from './personal-accounts-agent';
 import { researchAgent } from './research-agent';
 import { weatherAgent } from './weather-agent';
@@ -54,6 +54,7 @@ export const jamis = new Agent({
 		adapters: {
 			sendblue: {
 				adapter: sendblueAdapter,
+				formatError: formatSendblueError,
 				toolDisplay: 'hidden',
 				gateway: false,
 			},

@@ -143,7 +143,7 @@ type TokenResult
 		earliestRefreshAt?: number;
 		idToken?: string;
 	}
-	| { ok: false; error: string };
+	| { ok: false; status: number; detail: string };
 
 /** `earliest_refresh_at` arrives as epoch seconds, epoch ms, or an ISO string. */
 function parseEarliestRefreshAt(value: number | string | undefined): number | undefined {
@@ -167,7 +167,19 @@ async function postTokenUrl(params: Record<string, string>): Promise<TokenResult
 	});
 	if (!response.ok) {
 		const text = await response.text().catch(() => '');
-		return { ok: false, error: `token endpoint ${response.status}${text ? ` ${text.slice(0, 200)}` : ''}` };
+		let detail = 'request_failed';
+		try {
+			const parsed = JSON.parse(text) as { error?: string | { code?: string; type?: string } };
+			const candidate = typeof parsed.error === 'string'
+				? parsed.error
+				: parsed.error?.code ?? parsed.error?.type;
+			if (candidate && /^[\w.-]{1,80}$/.test(candidate))
+				detail = candidate;
+		}
+		catch {
+			// Provider text is intentionally not logged or returned.
+		}
+		return { ok: false, status: response.status, detail };
 	}
 	const json = (await response.json()) as {
 		access_token?: string;
@@ -177,7 +189,7 @@ async function postTokenUrl(params: Record<string, string>): Promise<TokenResult
 		earliest_refresh_at?: number | string;
 	};
 	if (!json.access_token || !json.refresh_token) {
-		return { ok: false, error: 'token endpoint response missing required fields' };
+		return { ok: false, status: response.status, detail: 'response_missing_fields' };
 	}
 	// Field names and schedule hints only; never log token values.
 	console.error(
@@ -194,7 +206,10 @@ async function postTokenUrl(params: Record<string, string>): Promise<TokenResult
 }
 
 export function isExpiring(cred: CodexCredential): boolean {
-	return Date.now() >= cred.expiresAt - CLOCK_SKEW_MS;
+	const refreshAt = cred.earliestRefreshAt === undefined
+		? cred.expiresAt - CLOCK_SKEW_MS
+		: cred.earliestRefreshAt + CLOCK_SKEW_MS;
+	return Date.now() >= refreshAt;
 }
 
 /** ponytail: one in-process refresh lock; only one agent process runs at a time. */
@@ -209,37 +224,59 @@ export async function refreshCredential(
 	cred: CodexCredential,
 	path: string = defaultCredentialPath(),
 ): Promise<CodexCredential> {
-	// Refreshing before the server-declared window invalidates the refresh token — refuse instead.
-	if (cred.earliestRefreshAt && Date.now() < cred.earliestRefreshAt - CLOCK_SKEW_MS) {
-		/* Thrown errors reach the operator's phone; keep specifics in logs. */
-		console.error(`[openai-codex] Credential refresh is server-gated until ${new Date(cred.earliestRefreshAt).toISOString()}; the access token is valid until ${new Date(cred.expiresAt).toISOString()}.`);
+	if (refreshInFlight)
+		return refreshInFlight;
+
+	// A caller may hold the old pair after another request completed rotation.
+	// Reload before starting a new refresh so a rotated token is never reused.
+	const current = await loadCredential(path);
+	if (current && (current.access !== cred.access || current.refresh !== cred.refresh))
+		return current;
+	if (refreshInFlight)
+		return refreshInFlight;
+
+	const refreshable = current ?? cred;
+	if (!isExpiring(refreshable)) {
+		console.error('[openai-codex] Credential refresh status=unavailable detail=before_safe_window.');
 		throw new Error(MODEL_AUTH_FAILURE);
 	}
-	if (!refreshInFlight) {
-		refreshInFlight = (async () => {
-			const result = await postTokenUrl({
+
+	refreshInFlight = (async () => {
+		let result: TokenResult;
+		try {
+			result = await postTokenUrl({
 				grant_type: 'refresh_token',
-				refresh_token: cred.refresh,
+				refresh_token: refreshable.refresh,
 				client_id: CLIENT_ID,
 			});
-			if (!result.ok) {
-				console.error(`[openai-codex] Credential refresh failed: ${result.error}. Re-login required.`);
-				throw new Error(MODEL_AUTH_FAILURE);
-			}
-			const accountId = extractAccountId(result.idToken, result.access) ?? cred.accountId;
-			const next: CodexCredential = {
-				access: result.access,
-				refresh: result.refresh,
-				expiresAt: result.expiresAt,
-				earliestRefreshAt: result.earliestRefreshAt,
-				accountId,
-			};
+		}
+		catch {
+			console.error('[openai-codex] Credential refresh status=failed detail=token_request_failed. Re-login required.');
+			throw new Error(MODEL_AUTH_FAILURE);
+		}
+		if (!result.ok) {
+			console.error(`[openai-codex] Credential refresh status=${result.status} detail=${result.detail}. Re-login required.`);
+			throw new Error(MODEL_AUTH_FAILURE);
+		}
+		const accountId = extractAccountId(result.idToken, result.access) ?? refreshable.accountId;
+		const next: CodexCredential = {
+			access: result.access,
+			refresh: result.refresh,
+			expiresAt: result.expiresAt,
+			earliestRefreshAt: result.earliestRefreshAt,
+			accountId,
+		};
+		try {
 			await saveCredential(next, path);
-			return next;
-		})().finally(() => {
-			refreshInFlight = null;
-		});
-	}
+		}
+		catch {
+			console.error('[openai-codex] Credential refresh status=failed detail=credential_write_failed. Re-login required.');
+			throw new Error(MODEL_AUTH_FAILURE);
+		}
+		return next;
+	})().finally(() => {
+		refreshInFlight = null;
+	});
 	return refreshInFlight;
 }
 
@@ -328,7 +365,7 @@ export async function pollDeviceLogin(pending: DeviceLoginPending): Promise<Devi
 		redirect_uri: DEVICE_REDIRECT_URI,
 	});
 	if (!tokens.ok) {
-		return { status: 'failed', error: `token exchange failed: ${tokens.error}` };
+		return { status: 'failed', error: `token exchange failed: status=${tokens.status} detail=${tokens.detail}` };
 	}
 	const accountId = extractAccountId(tokens.idToken, tokens.access);
 	if (!accountId) {

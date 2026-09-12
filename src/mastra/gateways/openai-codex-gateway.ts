@@ -32,6 +32,7 @@ import {
 	applyCodexBodyRules,
 	buildCodexHeaders,
 	CODEX_API_ENDPOINT,
+	defaultCredentialPath,
 	getUsableCredential,
 	isExpiring,
 	loadCredential,
@@ -115,15 +116,9 @@ function debugFingerprint(url: string, response: Response): void {
  * `createOpenAI` as a plain function.
  */
 export async function codexFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-	const cred = await getUsableCredential();
+	const credentialPath = defaultCredentialPath();
+	const cred = await getUsableCredential(credentialPath);
 	const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-	const headers = new Headers(init?.headers);
-	headers.delete('authorization');
-	headers.delete('api-key');
-	headers.delete('x-api-key');
-	for (const [key, value] of Object.entries(buildCodexHeaders(cred))) {
-		headers.set(key, value);
-	}
 	let body = init?.body;
 	let wasStreaming = true;
 	if (typeof body === 'string') {
@@ -137,8 +132,37 @@ export async function codexFetch(input: RequestInfo | URL, init?: RequestInit): 
 			// Not JSON: pass through; the backend rejects it, loudly.
 		}
 	}
-	const response = await globalThis.fetch(url as RequestInfo | URL, { ...init, headers, body });
+	const send = (credential: typeof cred): Promise<Response> => {
+		const headers = new Headers(init?.headers);
+		headers.delete('authorization');
+		headers.delete('api-key');
+		headers.delete('x-api-key');
+		for (const [key, value] of Object.entries(buildCodexHeaders(credential))) {
+			headers.set(key, value);
+		}
+		return globalThis.fetch(url as RequestInfo | URL, { ...init, headers, body });
+	};
+
+	let response = await send(cred);
 	debugFingerprint(url, response);
+	if (response.status === 401) {
+		await response.body?.cancel().catch(() => undefined);
+		const current = await loadCredential(credentialPath);
+		if (!current) {
+			console.error('[openai-codex] Generation status=401 detail=credential_missing. Re-login required.');
+			throw new Error(MODEL_AUTH_FAILURE);
+		}
+		const retryCredential = current.access !== cred.access || current.refresh !== cred.refresh
+			? current
+			: await refreshCredential(cred, credentialPath);
+		response = await send(retryCredential);
+		debugFingerprint(url, response);
+		if (response.status === 401) {
+			await response.body?.cancel().catch(() => undefined);
+			console.error('[openai-codex] Generation status=401 detail=unauthorized_after_retry. Re-login required.');
+			throw new Error(MODEL_AUTH_FAILURE);
+		}
+	}
 	// The SDK's non-streaming call still gets an SSE stream; translate it.
 	if (!wasStreaming && response.ok && response.body) {
 		return sseResponseAsJson(response);
