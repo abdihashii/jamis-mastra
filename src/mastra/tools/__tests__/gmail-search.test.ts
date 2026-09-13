@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { GoogleCredential } from '../../../lib/google-oauth.js';
+import type { SqlLike } from '../../../lib/operator-time-zone';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { Buffer } from 'node:buffer';
 import { realpathSync } from 'node:fs';
@@ -18,6 +19,7 @@ import {
 // them before importing it (module-load parity with the boot-time check).
 process.env.GOOGLE_CLIENT_ID = 'test-client-id';
 process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
+process.env.OPERATOR_TIMEZONE = 'America/Chicago';
 
 const { gmailSearchTool, searchGmail } = await import('../gmail-search.js');
 
@@ -107,6 +109,12 @@ function mockFetch(options: {
 
 function json(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+function operatorSql(override: string): SqlLike {
+	return async strings => strings.join('?').includes('SELECT override_time_zone')
+		? [{ override_time_zone: override }]
+		: [];
 }
 
 async function captureError(action: () => Promise<unknown>): Promise<Error> {
@@ -209,6 +217,40 @@ describe('searchGmail', () => {
 		expect(fetchCalls).toHaveLength(1);
 	});
 
+	test('relativeDay filters numeric internalDate against the effective operator day', async () => {
+		const start = Date.parse('2026-09-04T15:00:00.000Z');
+		const end = Date.parse('2026-09-05T15:00:00.000Z');
+		mockFetch({
+			lists: [
+				() => json({ messages: ['before', 'end'].map(id => ({ id, threadId: `thread-${id}` })), resultSizeEstimate: 4, nextPageToken: 'page-2' }),
+				() => json({ messages: ['start', 'inside'].map(id => ({ id, threadId: `thread-${id}` })), resultSizeEstimate: 4 }),
+			],
+			get: id => json(makeGet(id, {
+				dateMs: {
+					before: start - 1,
+					start,
+					inside: end - 1,
+					end,
+				}[id],
+			})),
+		});
+
+		const result = await searchGmail(
+			{ query: 'in:anywhere', relativeDay: 'today', nowMs: Date.parse('2026-09-05T02:00:00.000Z') },
+			undefined,
+			operatorSql('Asia/Tokyo'),
+		);
+
+		expect(result.messages.map(message => message.date)).toEqual([
+			new Date(start).toISOString(),
+			new Date(end - 1).toISOString(),
+		]);
+		const listUrls = fetchCalls.filter(call => call.url.includes('/messages?')).map(call => new URL(call.url));
+		expect(listUrls).toHaveLength(2);
+		expect(listUrls[0]!.searchParams.get('q')).toBe('in:anywhere after:2026/09/02 before:2026/09/07');
+		expect(listUrls[1]!.searchParams.get('pageToken')).toBe('page-2');
+	});
+
 	test('a rejected query surfaces static text; Gmail\'s detail stays in server logs', async () => {
 		mockFetch({ list: () => json({ error: { message: 'Invalid search criterion -: foo' } }, 400) });
 		const error = await captureError(() => searchGmail({ query: '-: foo' }));
@@ -299,5 +341,6 @@ describe('tool wiring', () => {
 		const result = await execute({ query: 'is:unread' });
 		expect(result.messages).toHaveLength(1);
 		expect((gmailSearchTool.inputSchema as z.ZodTypeAny).safeParse({ query: '' }).success).toBe(false);
+		expect((gmailSearchTool.inputSchema as z.ZodTypeAny).safeParse({ query: 'x', relativeDay: 'yesterday' }).success).toBe(true);
 	});
 });

@@ -1,5 +1,5 @@
-import { TZDate } from '@date-fns/tz';
-import { addDays, format, startOfDay } from 'date-fns';
+import { tz, TZDate } from '@date-fns/tz';
+import { addDays, format, parseISO, startOfDay } from 'date-fns';
 
 /**
  * @param offsetSec - OpenWeather `timezone` (seconds from UTC)
@@ -17,16 +17,16 @@ const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 
 
 /**
  * @param day - Lowercase day name, e.g. `"saturday"`
- * @param offsetSec - Seconds from UTC, e.g. OpenWeather's `timezone` field
- * @param nowSec - Unix time in seconds; injectable for tests
- * @returns Date of the nearest upcoming `day` in that offset, inclusive of today, e.g. `"2025-01-04"`
+ * @param timeZone - IANA zone name
+ * @param nowMs - Epoch ms; injectable for tests
+ * @returns Date of the nearest upcoming `day` in that zone, inclusive of today, e.g. `"2025-01-04"`
  */
-export function nextDayDate(day: string, offsetSec: number, nowSec = Math.floor(Date.now() / 1000)): string {
+export function nextDayDate(day: string, timeZone: string, nowMs = Date.now()): string {
 	const target = DAYS.indexOf(day);
 	if (target < 0) {
 		throw new Error(`Unknown day "${day}". Use one of: ${DAYS.join(', ')}.`);
 	}
-	const now = new TZDate(nowSec * 1000, offsetString(offsetSec));
+	const now = new TZDate(nowMs, timeZone);
 	const delta = (target - now.getDay() + 7) % 7;
 	return format(addDays(now, delta), 'yyyy-MM-dd');
 }
@@ -34,10 +34,10 @@ export function nextDayDate(day: string, offsetSec: number, nowSec = Math.floor(
 /**
  * @param unixSec - Unix time in seconds
  * @param offsetSec - Seconds from UTC, e.g. OpenWeather's `timezone` field
- * @returns Local wall-clock time, e.g. `"7:42 PM"`
+ * @returns Local wall-clock time with offset, e.g. `"7:42 PM +02:00"`
  */
 export function localTime(unixSec: number, offsetSec: number): string {
-	return format(new TZDate(unixSec * 1000, offsetString(offsetSec)), 'h:mm a');
+	return format(new TZDate(unixSec * 1000, offsetString(offsetSec)), 'h:mm a xxx');
 }
 
 /**
@@ -53,11 +53,23 @@ export function localDate(unixSec: number, offsetSec: number): string {
  * @param timeZone - IANA zone name, e.g. `"America/Chicago"`
  * @param daysAhead - Window size in whole days
  * @param nowMs - Epoch ms; injectable for tests
- * @returns [start of today, start of today + daysAhead] in that zone, RFC3339 with zone offset
+ * @param startOffsetDays - Civil-day offset from today, e.g. -1 for yesterday
+ * @returns [start, start + daysAhead] in that zone, RFC3339 with zone offset
  */
-export function zonedDayWindow(timeZone: string, daysAhead: number, nowMs = Date.now()): [string, string] {
-	const start = startOfDay(new TZDate(nowMs, timeZone));
+export function zonedDayWindow(timeZone: string, daysAhead: number, nowMs = Date.now(), startOffsetDays = 0): [string, string] {
+	const start = addDays(startOfDay(new TZDate(nowMs, timeZone)), startOffsetDays);
 	return [format(start, 'yyyy-MM-dd\'T\'HH:mm:ssxxx'), format(addDays(start, daysAhead), 'yyyy-MM-dd\'T\'HH:mm:ssxxx')];
+}
+
+export function zonedDate(timeZone: string, dayOffset: number, nowMs = Date.now()): string {
+	return format(addDays(new TZDate(nowMs, timeZone), dayOffset), 'yyyy-MM-dd');
+}
+
+export function dateTimeInstant(dateTime: string, timeZone?: string): number {
+	const hasOffset = /(?:Z|[+-]\d{2}:\d{2})$/i.test(dateTime);
+	if (!hasOffset && !timeZone)
+		return Number.NaN;
+	return hasOffset ? Date.parse(dateTime) : parseISO(dateTime, { in: tz(timeZone!) }).getTime();
 }
 
 export function isIanaTimeZone(value: string): boolean {

@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import type { SqlLike } from '../../../lib/operator-time-zone';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -23,8 +24,8 @@ const POOL = [
 
 interface EventFixture {
 	summary?: string;
-	start?: { dateTime?: string; date?: string };
-	end?: { dateTime?: string; date?: string };
+	start?: { dateTime?: string; date?: string; timeZone?: string };
+	end?: { dateTime?: string; date?: string; timeZone?: string };
 	location?: string;
 	description?: string;
 	status?: string;
@@ -95,7 +96,21 @@ async function writeCredential(overrides: Record<string, unknown> = {}) {
 
 process.env.GOOGLE_CLIENT_ID ??= 'test-client-id';
 process.env.GOOGLE_CLIENT_SECRET ??= 'test-client-secret';
-const { listCalendarEvents, calendarEventsTool } = await import('../calendar-events.js');
+process.env.OPERATOR_TIMEZONE = 'America/Chicago';
+const { listCalendarEvents: listCalendarEventsWithZone, calendarEventsTool } = await import('../calendar-events.js');
+
+function operatorSql(override?: string): SqlLike {
+	return async strings => strings.join('?').includes('SELECT override_time_zone') && override
+		? [{ override_time_zone: override }]
+		: [];
+}
+
+function listCalendarEvents(
+	input: Parameters<typeof listCalendarEventsWithZone>[0],
+	sql: SqlLike = operatorSql(),
+) {
+	return listCalendarEventsWithZone(input, undefined, sql);
+}
 
 beforeEach(async () => {
 	tempDir = realpathSync(await mkdtemp(join(tmpdir(), 'jam52-calendar-')));
@@ -143,34 +158,34 @@ describe('listCalendarEvents window + query', () => {
 		expect(new URL(fetchCalls.at(-1)!.url).searchParams.get('q')).toBeNull();
 	});
 
-	test('when the flagged primary is not pool[0], its zone wins', async () => {
+	test('the operator zone wins over the primary calendar zone', async () => {
 		await writeCredential({
 			calendars: [
 				{ id: 'first@example.com', summary: 'First only', timeZone: 'Europe/London' },
-				{ id: 'primary@example.com', summary: 'Primary', timeZone: 'America/Chicago', primary: true },
+				{ id: 'primary@example.com', summary: 'Primary', timeZone: 'Asia/Tokyo', primary: true },
 			],
 		});
 		await listCalendarEvents({});
 		expect(new URL(fetchCalls.at(-1)!.url).searchParams.get('timeMin')).toMatch(/-0[56]:00$/);
 	});
 
-	test('no primary mark falls back to pool[0]', async () => {
+	test('a persisted operator override wins over the deployment default and pool zones', async () => {
 		await writeCredential({
 			calendars: [
 				{ id: 'first@example.com', summary: 'London', timeZone: 'Europe/London' },
 				{ id: 'other@example.com', summary: 'Other', timeZone: 'America/Chicago' },
 			],
 		});
-		await listCalendarEvents({});
-		expect(new URL(fetchCalls.at(-1)!.url).searchParams.get('timeMin')).toMatch(/(\+00:00|\+01:00)$/);
+		await listCalendarEvents({ nowMs: Date.parse('2026-09-05T02:00:00.000Z') }, operatorSql('Asia/Tokyo'));
+		expect(new URL(fetchCalls.at(-1)!.url).searchParams.get('timeMin')).toBe('2026-09-05T00:00:00+09:00');
 	});
 
-	test('an unparsable zone surfaces as the generic auth failure (re-login rebuilds the pool)', async () => {
+	test('a bad calendar zone cannot change the operator window', async () => {
 		await writeCredential({
 			calendars: [{ id: 'z@example.com', summary: 'Bad zone', timeZone: 'not-a-zone', primary: true }],
 		});
-		const error = await captureError(() => listCalendarEvents({}));
-		expect(error.message).toBe(GOOGLE_AUTH_FAILURE);
+		await listCalendarEvents({ nowMs: Date.parse('2026-09-05T12:00:00.000Z') });
+		expect(new URL(fetchCalls.at(-1)!.url).searchParams.get('timeMin')).toBe('2026-09-05T00:00:00-05:00');
 	});
 });
 
@@ -195,7 +210,7 @@ describe('listCalendarEvents merge semantics', () => {
 		expect(fetchCalls).toHaveLength(2);
 	});
 
-	test('mixed-offset zone labels sort by instant, not lexicographically', async () => {
+	test('timed events sort by instant and expose UTC plus operator-local values', async () => {
 		mockFetch({
 			events: (calId) => {
 				if (calId === 'primary@example.com') {
@@ -204,12 +219,18 @@ describe('listCalendarEvents merge semantics', () => {
 					]);
 				}
 				return eventsJson([
-					{ summary: 'Earlier-east', start: { dateTime: '2026-09-05T08:00:00-03:00' }, end: { dateTime: '2026-09-05T09:00:00-03:00' } }, // 11:00Z
+					{ summary: 'Earlier-east', start: { dateTime: '2026-09-05T20:00:00', timeZone: 'Asia/Tokyo' }, end: { dateTime: '2026-09-05T21:00:00', timeZone: 'Asia/Tokyo' } }, // 11:00Z
 				]);
 			},
 		});
 		const out = await listCalendarEvents({});
 		expect(out.events.map(e => e.title)).toEqual(['Earlier-east', 'Early-west']);
+		expect(out.events[0]).toMatchObject({
+			start: '2026-09-05T11:00:00.000Z',
+			end: '2026-09-05T12:00:00.000Z',
+			operatorLocalStart: '2026-09-05T06:00:00-05:00',
+			operatorLocalEnd: '2026-09-05T07:00:00-05:00',
+		});
 	});
 });
 
@@ -248,6 +269,8 @@ describe('listCalendarEvents per-event shaping', () => {
 		const out = await listCalendarEvents({});
 		expect(out.events[0].start).toBe('2026-09-07');
 		expect(out.events[0].end).toBe('2026-09-08');
+		expect(out.events[0].operatorLocalStart).toBeUndefined();
+		expect(out.events[0].operatorLocalEnd).toBeUndefined();
 	});
 
 	test('descriptions are capped at 1000 chars', async () => {
