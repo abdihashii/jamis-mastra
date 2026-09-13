@@ -1,4 +1,6 @@
+import type { ChannelHandlerContext } from '@mastra/core/channels';
 import type { Message, Thread } from 'chat';
+import type { SqlLike } from '../../lib/operator-time-zone';
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { Buffer } from 'node:buffer';
@@ -6,6 +8,7 @@ import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { RequestContext } from '@mastra/core/request-context';
 import { MODEL_AUTH_FAILURE } from '../gateways/openai-codex-auth.js';
 
 process.env.JAMIS_ALLOWED_NUMBER = '+15555550101';
@@ -13,6 +16,7 @@ process.env.SENDBLUE_API_KEY = 'test-api-key';
 process.env.SENDBLUE_API_SECRET = 'test-api-secret';
 process.env.SENDBLUE_FROM_NUMBER = '+15555550100';
 process.env.SENDBLUE_WEBHOOK_SECRET = 'test-webhook-secret';
+process.env.OPERATOR_TIMEZONE = 'America/Chicago';
 
 const {
 	CODEX_AUTH_CHANNEL_ERROR,
@@ -20,26 +24,183 @@ const {
 	GENERIC_CHANNEL_ERROR,
 	handleSendblueDirectMessage,
 	isOpenAILoginCommand,
+	operatorTimeZoneChangeTool,
 	OPENAI_LOGIN_FAILURE,
 	OPENAI_LOGIN_IN_PROGRESS,
 	OPENAI_LOGIN_SUCCESS,
 	OPENAI_LOGIN_TIMEOUT,
+	proposeOperatorTimeZoneChange,
 } = await import('./sendblue.js');
+
+const { consumePendingOperatorTimeZoneChange } = await import('../../lib/operator-time-zone.js');
 
 const operatorNumber = process.env.JAMIS_ALLOWED_NUMBER!;
 
-function makeMessage(text: string, userId: string = operatorNumber): Message {
-	return { text, author: { userId } } as Message;
+const directThreadId = 'sendblue:test-line:test-operator';
+let messageSequence = 0;
+const messageHistory = new Map<string, Message[]>();
+
+beforeEach(() => {
+	messageHistory.clear();
+	messageSequence = 0;
+});
+
+function makeMessage(
+	text: string,
+	userId: string = operatorNumber,
+	id = 'message-1',
+	threadId = directThreadId,
+	dateSent = new Date(Date.UTC(2030, 0, 1) + messageSequence++ * 1000),
+): Message {
+	const message = { id, threadId, text, author: { userId }, metadata: { dateSent } } as Message;
+	messageHistory.set(threadId, [...(messageHistory.get(threadId) ?? []), message]);
+	return message;
 }
 
-function makeThread(messages: string[], onPost?: (message: string) => Promise<void>): Thread {
+function makeThread(
+	messages: string[],
+	onPost?: (message: string) => Promise<void>,
+	options: { adapterName?: string; id?: string; isDM?: boolean } = {},
+): Thread {
 	return {
+		id: options.id ?? directThreadId,
+		isDM: options.isDM ?? true,
+		adapter: {
+			name: options.adapterName ?? 'sendblue',
+			fetchMessages: async (threadId: string) => ({ messages: messageHistory.get(threadId) ?? [] }),
+		},
 		post: async (message: string) => {
 			messages.push(message);
 			await onPost?.(message);
 			return {};
 		},
 	} as unknown as Thread;
+}
+
+function makeHandlerContext(): ChannelHandlerContext {
+	return { requestContext: new RequestContext(), signalMetadata: {} };
+}
+
+function memorySql(initialOverride?: string | null) {
+	let override = initialOverride;
+	let proposal: { messageAt: Date; messageId: string; threadId: string; timeZone: string | null } | undefined;
+	let lastMessage: { messageAt: Date; messageId: string; threadId: string } | undefined;
+	let notification: { messageId: string; overrideTimeZone: string | null; threadId: string } | undefined;
+	let applied = 0;
+	const sql = (async (strings, ...values) => {
+		const query = strings.join('?');
+		if (query.includes('SET proposal_time_zone =') && query.includes('AND last_message_id =')) {
+			const [timeZone, threadId, messageId, messageAt] = values as [string | null, string, string, Date];
+			if (notification
+				|| !lastMessage
+				|| lastMessage.threadId !== threadId
+				|| lastMessage.messageId !== messageId
+				|| lastMessage.messageAt.getTime() !== messageAt.getTime()) {
+				return [];
+			}
+			proposal = { messageAt, timeZone, threadId, messageId };
+			return [{ proposal_time_zone: timeZone }];
+		}
+		if (query.includes('WITH previous AS')) {
+			const messageAt = values[0] as Date;
+			const confirm = values[1] as boolean;
+			const threadId = values[2] as string;
+			const messageId = values[4] as string;
+			if (notification || (lastMessage && messageAt.getTime() <= lastMessage.messageAt.getTime()))
+				return [];
+			const current = proposal;
+			proposal = undefined;
+			lastMessage = { messageAt, messageId, threadId };
+			const didApply = !!current && confirm && current.threadId === threadId;
+			if (didApply) {
+				override = current.timeZone;
+				notification = { messageId, overrideTimeZone: current.timeZone, threadId };
+				applied++;
+			}
+			return [{
+				applied: didApply,
+				consumed_proposal: !!current,
+				proposal_time_zone: current?.timeZone ?? null,
+			}];
+		}
+		if (query.includes('SELECT proposal_thread_id, proposal_message_id')) {
+			return proposal
+				? [{ proposal_message_id: proposal.messageId, proposal_thread_id: proposal.threadId }]
+				: [];
+		}
+		if (query.includes('SELECT notification_thread_id, notification_message_id')) {
+			return notification
+				? [{
+						notification_message_id: notification.messageId,
+						notification_override_time_zone: notification.overrideTimeZone,
+						notification_thread_id: notification.threadId,
+					}]
+				: [];
+		}
+		if (query.includes('SET notification_thread_id = NULL')) {
+			const [threadId, messageId] = values as [string, string];
+			if (notification?.threadId === threadId && notification.messageId === messageId)
+				notification = undefined;
+			return [];
+		}
+		if (query.includes('SELECT override_time_zone'))
+			return [{ override_time_zone: override ?? null }];
+		if (query.includes('INSERT INTO operator_time_zone')) {
+			if (values.length)
+				override = values[0] as string | null;
+			return [];
+		}
+		return [];
+	}) as SqlLike;
+	sql.begin = async (operation) => {
+		const snapshot = {
+			applied,
+			lastMessage: lastMessage && { ...lastMessage },
+			notification: notification && { ...notification },
+			override,
+			proposal: proposal && { ...proposal },
+		};
+		try {
+			return await operation(sql);
+		}
+		catch (error) {
+			applied = snapshot.applied;
+			lastMessage = snapshot.lastMessage;
+			notification = snapshot.notification;
+			override = snapshot.override;
+			proposal = snapshot.proposal;
+			throw error;
+		}
+	};
+	return {
+		applied: () => applied,
+		notification: () => notification && { ...notification },
+		override: () => override,
+		proposal: () => proposal && {
+			messageId: proposal.messageId,
+			threadId: proposal.threadId,
+			timeZone: proposal.timeZone,
+		},
+		sql,
+	};
+}
+
+async function seedProposal(
+	fixture: ReturnType<typeof memorySql>,
+	timeZone: string,
+	messageId: string,
+	dateSent?: Date,
+): Promise<Message> {
+	const context = makeHandlerContext();
+	const message = makeMessage(`Use ${timeZone}`, operatorNumber, messageId, directThreadId, dateSent);
+	await handleSendblueDirectMessage(
+		makeThread([]),
+		message,
+		async () => { await proposeOperatorTimeZoneChange(timeZone, context.requestContext, fixture.sql); },
+		context,
+		fixture.sql,
+	);
+	return message;
 }
 
 describe('Sendblue error formatting', () => {
@@ -87,6 +248,458 @@ describe('OpenAI login command routing', () => {
 
 		expect(messages).toEqual([]);
 		expect(defaultCalls).toBe(1);
+	});
+});
+
+describe('operator time zone change routing', () => {
+	test('binds a validated proposal to the authenticated operator DM and source message', async () => {
+		const fixture = memorySql();
+		const context = makeHandlerContext();
+		const messages: string[] = [];
+		let result: unknown;
+
+		await handleSendblueDirectMessage(
+			makeThread(messages),
+			makeMessage('I\'m in Denver', operatorNumber, 'proposal-1'),
+			async () => {
+				result = await proposeOperatorTimeZoneChange('America/Denver', context.requestContext, fixture.sql);
+			},
+			context,
+			fixture.sql,
+		);
+
+		expect(result).toEqual({ status: 'proposed' });
+		expect(messages).toEqual([
+			'Proposed operator time zone: America/Denver. Reply yes to confirm; any other reply cancels.',
+		]);
+		expect(fixture.proposal()).toEqual({
+			messageId: 'proposal-1',
+			threadId: directThreadId,
+			timeZone: 'America/Denver',
+		});
+		expect(fixture.override()).toBeUndefined();
+	});
+
+	test('rejects invalid proposals before writing', async () => {
+		const fixture = memorySql();
+		const context = makeHandlerContext();
+		const messages: string[] = [];
+		let result: unknown;
+
+		await handleSendblueDirectMessage(
+			makeThread(messages),
+			makeMessage('Use Mars time', operatorNumber, 'proposal-invalid'),
+			async () => {
+				result = await proposeOperatorTimeZoneChange('Mars/Olympus_Mons', context.requestContext, fixture.sql);
+			},
+			context,
+			fixture.sql,
+		);
+
+		expect(result).toEqual({ status: 'rejected' });
+		expect(messages).toEqual(['Invalid operator time zone: "Mars/Olympus_Mons". Nothing was proposed.']);
+		expect(fixture.proposal()).toBeUndefined();
+	});
+
+	test('denies non-Sendblue, group, nonoperator, missing-context, forged, and direct tool calls', async () => {
+		const fixture = memorySql();
+		let defaultCalls = 0;
+		for (const thread of [
+			makeThread([], undefined, { adapterName: 'slack' }),
+			makeThread([], undefined, { isDM: false }),
+		]) {
+			await handleSendblueDirectMessage(
+				thread,
+				makeMessage('Use America/Denver'),
+				async () => { defaultCalls++; },
+				makeHandlerContext(),
+				fixture.sql,
+			);
+		}
+		await handleSendblueDirectMessage(
+			makeThread([]),
+			makeMessage('Use America/Denver', '+15555550999'),
+			async () => { defaultCalls++; },
+			makeHandlerContext(),
+			fixture.sql,
+		);
+
+		const missing = await proposeOperatorTimeZoneChange('America/Denver', new RequestContext(), fixture.sql);
+		const forgedContext = new RequestContext();
+		forgedContext.setRaw('__jamis_operator_time_zone_channel', {
+			messageId: 'forged',
+			threadId: directThreadId,
+		});
+		const forged = await proposeOperatorTimeZoneChange('America/Denver', forgedContext, fixture.sql);
+		const direct = await operatorTimeZoneChangeTool.execute!(
+			{ timeZone: 'America/Denver' },
+			{ requestContext: new RequestContext() } as never,
+		);
+		const subagentContext = makeHandlerContext();
+		let subagent: unknown;
+		await handleSendblueDirectMessage(
+			makeThread([]),
+			makeMessage('Use America/Denver', operatorNumber, 'subagent-proposal'),
+			async () => {
+				subagent = await operatorTimeZoneChangeTool.execute!(
+					{ timeZone: 'America/Denver' },
+					{ agent: { agentId: 'weather-agent' }, requestContext: subagentContext.requestContext } as never,
+				);
+			},
+			subagentContext,
+			fixture.sql,
+		);
+
+		expect(defaultCalls).toBe(0);
+		expect(missing).toEqual({ status: 'denied' });
+		expect(forged).toEqual({ status: 'denied' });
+		expect(direct).toEqual({ status: 'denied' });
+		expect(subagent).toEqual({ status: 'denied' });
+		expect(fixture.proposal()).toBeUndefined();
+	});
+
+	test('does not confirm without Mastra channel context', async () => {
+		const fixture = memorySql();
+		await seedProposal(fixture, 'America/Denver', 'proposal-missing-context');
+
+		let defaultCalls = 0;
+		await handleSendblueDirectMessage(
+			makeThread([]),
+			makeMessage('yes', operatorNumber, 'confirm-missing-context'),
+			async () => { defaultCalls++; },
+			undefined,
+			fixture.sql,
+		);
+
+		expect(defaultCalls).toBe(1);
+		expect(fixture.applied()).toBe(0);
+		expect(fixture.proposal()?.messageId).toBe('proposal-missing-context');
+	});
+
+	test('rolls back a proposal when the channel post fails', async () => {
+		const fixture = memorySql();
+		const context = makeHandlerContext();
+		await expect(handleSendblueDirectMessage(
+			makeThread([], async () => { throw new Error('post failed'); }),
+			makeMessage('Use America/Denver', operatorNumber, 'proposal-post-failed'),
+			async () => { await proposeOperatorTimeZoneChange('America/Denver', context.requestContext, fixture.sql); },
+			context,
+			fixture.sql,
+		)).rejects.toThrow('post failed');
+
+		let defaultCalls = 0;
+		await handleSendblueDirectMessage(
+			makeThread([]),
+			makeMessage('yes', operatorNumber, 'confirm-post-failed'),
+			async () => { defaultCalls++; },
+			makeHandlerContext(),
+			fixture.sql,
+		);
+
+		expect(fixture.proposal()).toBeUndefined();
+		expect(fixture.applied()).toBe(0);
+		expect(defaultCalls).toBe(1);
+	});
+
+	test('declines and clears the pending proposal', async () => {
+		const fixture = memorySql();
+		await seedProposal(fixture, 'America/Denver', 'proposal-2');
+
+		const messages: string[] = [];
+		let defaultCalls = 0;
+		await handleSendblueDirectMessage(
+			makeThread(messages),
+			makeMessage('no', operatorNumber, 'decline-1'),
+			async () => { defaultCalls++; },
+			makeHandlerContext(),
+			fixture.sql,
+		);
+
+		expect(messages).toEqual(['Operator time zone change declined.']);
+		expect(defaultCalls).toBe(0);
+		expect(fixture.proposal()).toBeUndefined();
+		expect(fixture.override()).toBeUndefined();
+	});
+
+	test('an unrelated next message clears the proposal and a later yes cannot revive it', async () => {
+		const fixture = memorySql();
+		await seedProposal(fixture, 'America/Denver', 'proposal-3');
+
+		let defaultCalls = 0;
+		for (const [text, id] of [['what time is it?', 'unrelated-1'], ['yes', 'late-yes']] as const) {
+			await handleSendblueDirectMessage(
+				makeThread([]),
+				makeMessage(text, operatorNumber, id),
+				async () => { defaultCalls++; },
+				makeHandlerContext(),
+				fixture.sql,
+			);
+		}
+
+		expect(defaultCalls).toBe(2);
+		expect(fixture.proposal()).toBeUndefined();
+		expect(fixture.override()).toBeUndefined();
+	});
+
+	test('an unrelated change request cancels and replaces the pending proposal', async () => {
+		const fixture = memorySql();
+		await seedProposal(fixture, 'America/Denver', 'proposal-replaced');
+		await seedProposal(fixture, 'Asia/Tokyo', 'proposal-replacement');
+
+		expect(fixture.proposal()?.timeZone).toBe('Asia/Tokyo');
+	});
+
+	test('an older or replayed yes cannot confirm a later proposal', async () => {
+		const fixture = memorySql();
+		const oldYes = makeMessage('yes', operatorNumber, 'old-yes', directThreadId, new Date('2030-01-01T00:00:00.000Z'));
+		let defaultCalls = 0;
+		await handleSendblueDirectMessage(
+			makeThread([]),
+			oldYes,
+			async () => { defaultCalls++; },
+			makeHandlerContext(),
+			fixture.sql,
+		);
+
+		await seedProposal(fixture, 'America/Denver', 'proposal-after-old-yes', new Date('2030-01-01T00:01:00.000Z'));
+		await handleSendblueDirectMessage(
+			makeThread([]),
+			oldYes,
+			async () => { defaultCalls++; },
+			makeHandlerContext(),
+			fixture.sql,
+		);
+
+		const delayedYes = makeMessage('yes', operatorNumber, 'delayed-old-yes', directThreadId, new Date('2030-01-01T00:00:30.000Z'));
+		await handleSendblueDirectMessage(
+			makeThread([]),
+			delayedYes,
+			async () => { defaultCalls++; },
+			makeHandlerContext(),
+			fixture.sql,
+		);
+
+		expect(defaultCalls).toBe(1);
+		expect(fixture.applied()).toBe(0);
+		expect(fixture.proposal()?.timeZone).toBe('America/Denver');
+	});
+
+	test('provider history rejects a reordered yes with an intervening operator message', async () => {
+		const fixture = memorySql();
+		await seedProposal(fixture, 'America/Denver', 'proposal-before-gap', new Date('2030-01-01T00:00:00.000Z'));
+		makeMessage('what time is it?', operatorNumber, 'intervening-gap', directThreadId, new Date('2030-01-01T00:01:00.000Z'));
+		const yes = makeMessage('yes', operatorNumber, 'confirm-after-gap', directThreadId, new Date('2030-01-01T00:02:00.000Z'));
+		const messages: string[] = [];
+
+		await handleSendblueDirectMessage(makeThread(messages), yes, async () => {}, makeHandlerContext(), fixture.sql);
+
+		expect(messages).toEqual(['Operator time zone change canceled.']);
+		expect(fixture.override()).toBeUndefined();
+		expect(fixture.proposal()).toBeUndefined();
+	});
+
+	test('does not create a proposal after a newer message was already processed', async () => {
+		const fixture = memorySql();
+		const proposal = makeMessage('Use America/Denver', operatorNumber, 'proposal-delayed', directThreadId, new Date('2030-01-01T00:00:00.000Z'));
+		const yes = makeMessage('yes', operatorNumber, 'yes-before-proposal-handler', directThreadId, new Date('2030-01-01T00:01:00.000Z'));
+		await handleSendblueDirectMessage(makeThread([]), yes, async () => {}, makeHandlerContext(), fixture.sql);
+
+		const context = makeHandlerContext();
+		let result: unknown;
+		await handleSendblueDirectMessage(
+			makeThread([]),
+			proposal,
+			async () => { result = await proposeOperatorTimeZoneChange('America/Denver', context.requestContext, fixture.sql); },
+			context,
+			fixture.sql,
+		);
+
+		expect(result).toBeUndefined();
+		expect(fixture.proposal()).toBeUndefined();
+	});
+
+	test('confirms a change only in its source thread and reports the durable override', async () => {
+		const fixture = memorySql();
+		await seedProposal(fixture, 'America/Denver', 'proposal-4');
+
+		const wrongThreadMessages: string[] = [];
+		await handleSendblueDirectMessage(
+			makeThread(wrongThreadMessages, undefined, { id: 'sendblue:test-line:other-thread' }),
+			makeMessage('yes', operatorNumber, 'wrong-thread-confirm', 'sendblue:test-line:other-thread'),
+			async () => {},
+			makeHandlerContext(),
+			fixture.sql,
+		);
+		expect(fixture.override()).toBeUndefined();
+		expect(fixture.proposal()).toBeUndefined();
+	});
+
+	test('confirms a change once and suppresses its replay', async () => {
+		const fixture = memorySql();
+		await seedProposal(fixture, 'America/Denver', 'proposal-5');
+
+		const messages: string[] = [];
+		let replayDefaultCalls = 0;
+		const confirmation = makeMessage('yes', operatorNumber, 'confirm-1');
+		await handleSendblueDirectMessage(makeThread(messages), confirmation, async () => {}, makeHandlerContext(), fixture.sql);
+		await handleSendblueDirectMessage(
+			makeThread(messages),
+			confirmation,
+			async () => { replayDefaultCalls++; },
+			makeHandlerContext(),
+			fixture.sql,
+		);
+
+		expect(messages).toEqual([
+			'Operator time zone changed to America/Denver (override).',
+		]);
+		expect(replayDefaultCalls).toBe(0);
+		expect(fixture.override()).toBe('America/Denver');
+		expect(fixture.applied()).toBe(1);
+	});
+
+	test('retries a persisted confirmation notification after post failure', async () => {
+		const fixture = memorySql();
+		await seedProposal(fixture, 'America/Denver', 'proposal-notification-retry');
+		const confirmation = makeMessage('yes', operatorNumber, 'confirm-notification-retry');
+
+		await expect(handleSendblueDirectMessage(
+			makeThread([], async () => { throw new Error('post failed'); }),
+			confirmation,
+			async () => {},
+			makeHandlerContext(),
+			fixture.sql,
+		)).rejects.toThrow('post failed');
+		expect(fixture.override()).toBe('America/Denver');
+		expect(fixture.notification()?.messageId).toBe('confirm-notification-retry');
+
+		const messages: string[] = [];
+		let defaultCalls = 0;
+		await handleSendblueDirectMessage(
+			makeThread(messages),
+			confirmation,
+			async () => { defaultCalls++; },
+			makeHandlerContext(),
+			fixture.sql,
+		);
+
+		expect(messages).toEqual(['Operator time zone changed to America/Denver (override).']);
+		expect(defaultCalls).toBe(0);
+		expect(fixture.notification()).toBeUndefined();
+	});
+
+	test('replayed proposal and confirmation IDs cannot revive or clear later state', async () => {
+		const fixture = memorySql();
+		const firstProposal = await seedProposal(fixture, 'America/Denver', 'proposal-replay');
+		const firstConfirmation = makeMessage('yes', operatorNumber, 'confirm-replay');
+		await handleSendblueDirectMessage(
+			makeThread([]),
+			firstConfirmation,
+			async () => {},
+			makeHandlerContext(),
+			fixture.sql,
+		);
+
+		const replayContext = makeHandlerContext();
+		let replayResult: unknown;
+		await handleSendblueDirectMessage(
+			makeThread([]),
+			firstProposal,
+			async () => { replayResult = await proposeOperatorTimeZoneChange('America/Denver', replayContext.requestContext, fixture.sql); },
+			replayContext,
+			fixture.sql,
+		);
+		expect(replayResult).toBeUndefined();
+		expect(fixture.proposal()).toBeUndefined();
+
+		await seedProposal(fixture, 'Asia/Tokyo', 'proposal-after-replay');
+		await handleSendblueDirectMessage(
+			makeThread([]),
+			firstConfirmation,
+			async () => {},
+			makeHandlerContext(),
+			fixture.sql,
+		);
+		expect(fixture.proposal()?.timeZone).toBe('Asia/Tokyo');
+		expect(fixture.override()).toBe('America/Denver');
+	});
+
+	test('confirms reset and reveals the deployment default', async () => {
+		const fixture = memorySql('Asia/Tokyo');
+		const context = makeHandlerContext();
+		let proposal: unknown;
+		await handleSendblueDirectMessage(
+			makeThread([]),
+			makeMessage('Reset my operator time zone', operatorNumber, 'proposal-reset'),
+			async () => { proposal = await proposeOperatorTimeZoneChange(null, context.requestContext, fixture.sql); },
+			context,
+			fixture.sql,
+		);
+
+		const messages: string[] = [];
+		await handleSendblueDirectMessage(
+			makeThread(messages),
+			makeMessage('confirm', operatorNumber, 'confirm-reset'),
+			async () => {},
+			makeHandlerContext(),
+			fixture.sql,
+		);
+
+		expect(proposal).toEqual({ status: 'proposed' });
+		expect(messages).toEqual(['Operator time zone reset to America/Chicago (default).']);
+		expect(fixture.override()).toBeNull();
+	});
+
+	test('atomically consumes concurrent confirmations once', async () => {
+		const fixture = memorySql();
+		await seedProposal(fixture, 'America/Denver', 'proposal-6');
+
+		const results = await Promise.all([
+			consumePendingOperatorTimeZoneChange(directThreadId, 'confirm-a', new Date('2040-01-01T00:00:00.000Z'), true, fixture.sql),
+			consumePendingOperatorTimeZoneChange(directThreadId, 'confirm-b', new Date('2040-01-01T00:00:01.000Z'), true, fixture.sql),
+		]);
+
+		expect(results.filter(result => result?.applied)).toHaveLength(1);
+		expect(fixture.applied()).toBe(1);
+	});
+
+	test('serializes a following confirmation behind proposal completion', async () => {
+		const fixture = memorySql();
+		const proposalContext = makeHandlerContext();
+		let releaseProposal!: () => void;
+		const proposalReleased = new Promise<void>(resolve => (releaseProposal = resolve));
+		let proposalStarted!: () => void;
+		const started = new Promise<void>(resolve => (proposalStarted = resolve));
+
+		const proposal = handleSendblueDirectMessage(
+			makeThread([]),
+			makeMessage('Use America/Denver', operatorNumber, 'proposal-queued'),
+			async () => {
+				proposalStarted();
+				await proposalReleased;
+				await proposeOperatorTimeZoneChange('America/Denver', proposalContext.requestContext, fixture.sql);
+			},
+			proposalContext,
+			fixture.sql,
+		);
+		await started;
+
+		const messages: string[] = [];
+		const confirmation = handleSendblueDirectMessage(
+			makeThread(messages),
+			makeMessage('yes', operatorNumber, 'confirm-queued'),
+			async () => { throw new Error('confirmation reached the model'); },
+			makeHandlerContext(),
+			fixture.sql,
+		);
+		await Promise.resolve();
+		expect(fixture.applied()).toBe(0);
+
+		releaseProposal();
+		await Promise.all([proposal, confirmation]);
+
+		expect(fixture.applied()).toBe(1);
+		expect(messages).toEqual(['Operator time zone changed to America/Denver (override).']);
 	});
 });
 

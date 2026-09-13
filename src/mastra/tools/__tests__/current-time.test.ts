@@ -69,7 +69,7 @@ describe('operator time zone', () => {
 
 		await expect(ensureOperatorTimeZoneTable(sql)).rejects.toThrow('database unavailable');
 		await Promise.all([ensureOperatorTimeZoneTable(sql), ensureOperatorTimeZoneTable(sql)]);
-		expect(calls).toBe(2);
+		expect(calls).toBe(4);
 	});
 
 	it('represents one UTC instant in the effective operator zone', async () => {
