@@ -13,7 +13,8 @@
 		"typecheck": "bun run --bun tsc --noEmit",
 		"lint": "bun run --bun eslint",
 		"lint:fix": "bun run --bun eslint --fix",
-		"login:google": "bun --bun scripts/google-login.ts"
+		"login:google": "bun --bun scripts/google-login.ts",
+		"fantasy:recap": "bun --bun scripts/fantasy-recap.ts"
 	},
 	"dependencies": {
 		"@ai-sdk/openai": "3.0.88",

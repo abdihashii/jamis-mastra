@@ -1,5 +1,6 @@
 import type { Message, Thread } from 'chat';
 
+import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
 
 import { requireEnv } from '../env';
@@ -80,4 +81,11 @@ export async function handleSendblueDirectMessage(
 		acknowledge();
 	});
 	await acknowledged;
+}
+
+// The Sendblue adapter attaches the raw platform payload; group_id is the
+// group's stable Sendblue ID and is empty for direct messages.
+export function isGroupMessage(message: Message, groupId: string): boolean {
+	const raw = message.raw as Partial<SendblueMessagePayload> | undefined;
+	return !!groupId && !!raw?.group_id && raw.group_id === groupId;
 }

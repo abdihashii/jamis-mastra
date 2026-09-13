@@ -22,7 +22,7 @@ The internal subagent that owns tool integrations with the operator's personal a
 _Avoid_: email agent, gmail subagent, google agent
 
 **Google credential**:
-The operator's Google OAuth desktop-app credential (access and refresh tokens, expiry) stored in a 0600 gitignored JSON file in `data/`. Captured headless by a `login:google` script over SSH using a loopback redirect reached through `ssh -L`; a missing or dead credential is a hard failure until re-login, with no fallback. Gmail-scoped refresh tokens die if the operator changes their Google account password. See [ADR 0015](docs/adrs/0015-personal-accounts-agent.md).
+The operator's Google OAuth desktop-app credential (access and refresh tokens, expiry) stored in a 0600 gitignored JSON file in `data/`. Captured headless by a `login:google` script over SSH using a loopback redirect reached through `ssh -L`; a missing or dead credential is a hard failure until re-login, with no fallback. Gmail-scoped refresh tokens die if the operator changes their Google account password. See [ADR 0015](adrs/0015-personal-accounts-agent.md).
 _Avoid_: Google API key, Gmail login
 
 **Verification-required claim**:
@@ -50,11 +50,11 @@ A messaging platform the operator reaches an agent through, instead of Studio. i
 _Avoid_: integration, connector, bridge
 
 **Codex credential**:
-The operator's ChatGPT/Codex subscription OAuth credential (access and refresh tokens, expiry, account id) stored in a 0600 JSON file and used by the `openai-codex` gateway. A missing credential is a hard failure until re-login; there is no API-key fallback. See [ADR 0014](docs/adrs/0014-openai-codex-model-auth.md).
+The operator's ChatGPT/Codex subscription OAuth credential (access and refresh tokens, expiry, account id) stored in a 0600 JSON file and used by the `openai-codex` gateway. A missing credential is a hard failure until re-login; there is no API-key fallback. See [ADR 0014](adrs/0014-openai-codex-model-auth.md).
 _Avoid_: API key, ChatGPT login
 
 **Trace export boundary**:
-Channel render context and adapter configuration are runtime-only and must never be exported in traces. Channel credentials must never enter exported records. See [ADR 0013](docs/adrs/0013-channel-render-context-trace-boundary.md).
+Channel render context and adapter configuration are runtime-only and must never be exported in traces. Channel credentials must never enter exported records. See [ADR 0013](adrs/0013-channel-render-context-trace-boundary.md).
 _Avoid_: trace context (ambiguous)
 
 **Sendblue line**:
@@ -62,7 +62,7 @@ The phone number Sendblue assigns to the account, which an agent receives on and
 _Avoid_: the number, the bot number
 
 **Operator number**:
-The operator's own handset. The only number allowed to reach an agent over a channel; anything else is dropped without a reply.
+The operator's own handset. The only number whose channel messages may invoke an agent.
 _Avoid_: the number, my phone, the whitelist number
 
 **Public ingress**:

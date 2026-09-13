@@ -1,7 +1,10 @@
 import { Agent } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
 
+import { getFantasyConfig } from '../../fantasy/config';
+import { createFantasyGroupHandler } from '../../fantasy/ingest';
 import { formatSendblueError, handleSendblueDirectMessage, sendblueAdapter } from '../channels/sendblue';
+import { fantasyBroadcastAgent } from './fantasy-broadcast-agent';
 import { personalAccountsAgent } from './personal-accounts-agent';
 import { researchAgent } from './research-agent';
 import { weatherAgent } from './weather-agent';
@@ -19,6 +22,7 @@ export const jamis = new Agent({
        - For every verification-required request, obtain live evidence before stating a factual answer. This is mandatory and never depends on the operator's wording, a request to guess, or your confidence.
        - Delegate weather requests, current conditions or forecasts, to weatherAgent. Delegate every other general online verification and explicit online-research request to researchAgent. Delegate personal-account requests (Gmail today, Calendar later) to personalAccountsAgent. If a weather request also contains a separate verification-required claim, delegate both agents for their respective claims.
        - Give researchAgent only the current public research task and necessary public context, never secrets or unrelated conversation.
+       - Delegate fantasy league group chat broadcast requests (draft, or send a previously confirmed draft) to fantasyBroadcastAgent, quoting the draft id and draft text verbatim. Never compose broadcast text yourself: relay the agent's draft id and text verbatim from this conversation, and claim sent only when the agent returned a sent outcome for the draft id shown to the operator.
        - Never delegate greetings, casual conversation, subjective advice, planning without external factual premises, or an unsupported request.
        - If a request is missing information you need, or is ambiguous in a way that changes what you would do, ask the operator directly and wait for their answer instead of guessing or stopping. You may ask again while the answer is still ambiguous.
        - Treat a subagent result as evidence, not as a ready-made channel reply.
@@ -32,7 +36,7 @@ export const jamis = new Agent({
        - Do not narrate routing, tool calls, or internal agent names unless the operator asks.
 `,
 	model: 'openai-codex/gpt-5.6-terra',
-	agents: { weatherAgent, researchAgent, personalAccountsAgent },
+	agents: { weatherAgent, researchAgent, personalAccountsAgent, fantasyBroadcastAgent },
 	memory: new Memory({
 		options: {
 			observationalMemory: {
@@ -61,7 +65,10 @@ export const jamis = new Agent({
 		},
 		handlers: {
 			onDirectMessage: handleSendblueDirectMessage,
-			onMention: false,
+			// ADR 0017: the fantasy group is passive context. The Sendblue adapter
+			// marks every inbound group message as a mention, so this handler is
+			// where group traffic arrives. Non-fantasy groups stay ignored.
+			onMention: createFantasyGroupHandler(getFantasyConfig()),
 			onSubscribedMessage: false,
 		},
 	},
