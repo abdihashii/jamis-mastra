@@ -12,10 +12,12 @@ import { PostgresStore } from '@mastra/pg';
 
 import { createFantasyAgent, DEFAULT_RECAP_MODEL } from '../fantasy/generate';
 import { jamis } from './agents/jamis';
-import { requireEnv } from './env';
+import { requireEnv, requireOperatorTimeZone } from './env';
 import { openAICodexGateway } from './gateways/openai-codex-gateway.js';
 import { redactChannelRenderContext } from './observability';
 import { fantasyWeeklyRecapWorkflow } from './workflows/fantasy-weekly-recap';
+
+requireOperatorTimeZone();
 
 export const mastra = new Mastra({
 	// 'fantasy' has no channels wired; it exists only for the weekly recap workflow.

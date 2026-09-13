@@ -59,3 +59,20 @@ export function zonedDayWindow(timeZone: string, daysAhead: number, nowMs = Date
 	const start = startOfDay(new TZDate(nowMs, timeZone));
 	return [format(start, 'yyyy-MM-dd\'T\'HH:mm:ssxxx'), format(addDays(start, daysAhead), 'yyyy-MM-dd\'T\'HH:mm:ssxxx')];
 }
+
+export function isIanaTimeZone(value: string): boolean {
+	if (/^[+-]/.test(value))
+		return false;
+
+	try {
+		new Intl.DateTimeFormat('en-US', { timeZone: value }).resolvedOptions();
+		return true;
+	}
+	catch {
+		return false;
+	}
+}
+
+export function zonedDateTime(timeZone: string, nowMs = Date.now()): string {
+	return format(new TZDate(nowMs, timeZone), 'yyyy-MM-dd\'T\'HH:mm:ssxxx');
+}

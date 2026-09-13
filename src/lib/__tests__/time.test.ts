@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { localDate, localTime, nextDayDate, zonedDayWindow } from '../time';
+import { isIanaTimeZone, localDate, localTime, nextDayDate, zonedDateTime, zonedDayWindow } from '../time';
 
 test('localTime formats midnight and noon as 12-hour', () => {
 	expect(localTime(0, 0)).toBe('12:00 AM');
@@ -53,4 +53,23 @@ test('nextDayDate uses the offset zone, not the UTC calendar date', () => {
 
 test('nextDayDate rejects unknown day names', () => {
 	expect(() => nextDayDate('sat', 0, 0)).toThrow('Unknown day');
+});
+
+test('IANA time zone validation uses the platform database', () => {
+	expect(isIanaTimeZone('America/Chicago')).toBe(true);
+	expect(isIanaTimeZone('Asia/Kolkata')).toBe(true);
+	expect(isIanaTimeZone('Etc/UTC')).toBe(true);
+	expect(isIanaTimeZone('US/Central')).toBe(true);
+	expect(isIanaTimeZone('UTC')).toBe(true);
+	expect(isIanaTimeZone('+05:30')).toBe(false);
+	expect(isIanaTimeZone('Mars/Olympus_Mons')).toBe(false);
+});
+
+test('zonedDateTime includes the DST-sensitive operator offset', () => {
+	expect(zonedDateTime('America/Chicago', Date.parse('2026-03-08T07:30:00.000Z'))).toBe('2026-03-08T01:30:00-06:00');
+	expect(zonedDateTime('America/Chicago', Date.parse('2026-03-08T08:30:00.000Z'))).toBe('2026-03-08T03:30:00-05:00');
+});
+
+test('zonedDateTime preserves the operator date across a UTC rollover', () => {
+	expect(zonedDateTime('America/Chicago', Date.parse('2026-09-05T02:00:00.000Z'))).toBe('2026-09-04T21:00:00-05:00');
 });

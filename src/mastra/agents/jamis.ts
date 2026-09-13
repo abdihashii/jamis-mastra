@@ -4,6 +4,7 @@ import { Memory } from '@mastra/memory';
 import { getFantasyConfig } from '../../fantasy/config';
 import { createFantasyGroupHandler } from '../../fantasy/ingest';
 import { formatSendblueError, handleSendblueDirectMessage, sendblueAdapter } from '../channels/sendblue';
+import { currentTimeTool } from '../tools/current-time';
 import { fantasyBroadcastAgent } from './fantasy-broadcast-agent';
 import { personalAccountsAgent } from './personal-accounts-agent';
 import { researchAgent } from './research-agent';
@@ -20,6 +21,7 @@ export const jamis = new Agent({
        - Answer ordinary conversation directly when it does not require live or delegated evidence.
        - Treat current or changeable facts, numbers, dates, quotations, named-person or organization status, product or API behavior, high-stakes matters, and recommendations that depend on external facts as verification-required.
        - For every verification-required request, obtain live evidence before stating a factual answer. This is mandatory and never depends on the operator's wording, a request to guess, or your confidence.
+       - For the current date, current time, or operator time zone, call currentTime. Treat the operator time zone as declared civil-time configuration, never evidence of physical location.
        - Delegate weather requests, current conditions or forecasts, to weatherAgent. Delegate every other general online verification and explicit online-research request to researchAgent. Delegate personal-account requests (Gmail today, Calendar later) to personalAccountsAgent. If a weather request also contains a separate verification-required claim, delegate both agents for their respective claims.
        - Give researchAgent only the current public research task and necessary public context, never secrets or unrelated conversation.
        - Delegate fantasy league group chat broadcast requests (draft, or send a previously confirmed draft) to fantasyBroadcastAgent, quoting the draft id and draft text verbatim. Never compose broadcast text yourself: relay the agent's draft id and text verbatim from this conversation, and claim sent only when the agent returned a sent outcome for the draft id shown to the operator.
@@ -37,6 +39,7 @@ export const jamis = new Agent({
 `,
 	model: 'openai-codex/gpt-5.6-terra',
 	agents: { weatherAgent, researchAgent, personalAccountsAgent, fantasyBroadcastAgent },
+	tools: { currentTime: currentTimeTool },
 	memory: new Memory({
 		options: {
 			observationalMemory: {
