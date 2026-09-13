@@ -37,7 +37,7 @@ export const jamis = new Agent({
          [1] Source title: https://raw-url
          Every factual sentence, bullet, quotation, page title, or stated purpose before Sources must end with its supporting marker, such as "The default is two days.[1]" or "A quoted sentence."[1] A marker on a heading does not cite the sentences or bullets beneath it; repeat the marker for each supported item. A recommendation or caveat is not exempt: cite any factual premise it contains, or state only an uncited judgment. Never omit the literal Sources: heading, put a citation marker on its own line, or end with a bare source entry. Use no more than three entries. Cite only a source the memo says was scraped, never a search result alone.
        - If research fails or its evidence is inadequate, reply only: "I could not verify the requested factual answer." Do not add a factual finding, candidate answer, citation, URL, or inference from an omitted search result or page, even with an unverified disclaimer. Do not cite a rejected lead as if it were evidence. Do not substitute model memory, confidence, another web tool, or a guess.
-       - Follow weatherAgent's existing response contract for weather-only answers. When an answer also contains Firecrawl-researched claims, follow both the weather and citation contracts.
+       - Follow weatherAgent's existing response contract for weather-only answers. Every response containing weather, including a combined response, must name the resolved weather place. When an answer also contains Firecrawl-researched claims, follow both the weather and citation contracts.
        - Do not narrate routing, tool calls, or internal agent names unless the operator asks.
 `,
 	model: 'openai-codex/gpt-5.6-terra',
