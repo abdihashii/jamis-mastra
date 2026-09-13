@@ -6,14 +6,17 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { defaultCredentialPath, MODEL_AUTH_FAILURE } from '../openai-codex-auth.js';
+import { defaultCredentialPath, MODEL_AUTH_FAILURE, refreshCredential, runDeviceLogin } from '../openai-codex-auth.js';
 import { codexFetch, forcingStoreFalse, openAICodexGateway } from '../openai-codex-gateway.js';
 
 /** The credential path is cwd-relative, so each test runs in a temp dir. */
 let tempDir: string;
 let originalCwd: string;
 let originalFetch: typeof globalThis.fetch;
-const fetchCalls: Array<{ url: string; init: RequestInit | undefined }> = [];
+let originalDateNow: typeof Date.now;
+let originalSetTimeout: typeof globalThis.setTimeout;
+interface FetchCall { url: string; init: RequestInit | undefined }
+const fetchCalls: FetchCall[] = [];
 
 function makeCredential(overrides: Partial<CodexCredential> = {}): CodexCredential {
 	return {
@@ -36,21 +39,39 @@ async function readCredential(): Promise<CodexCredential> {
 
 /** Mock globalThis.fetch, recording calls; optional overrides for endpoint responses. */
 function mockFetch(handlers?: {
-	tokenEndpoint?: () => Response;
-	generation?: () => Response;
+	tokenEndpoint?: (call: FetchCall) => Response | Promise<Response>;
+	generation?: (call: FetchCall) => Response | Promise<Response>;
+	deviceStart?: (call: FetchCall) => Response | Promise<Response>;
+	devicePoll?: (call: FetchCall) => Response | Promise<Response>;
 }) {
 	fetchCalls.length = 0;
 	const impl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 		fetchCalls.push({ url: String(input), init: init as RequestInit | undefined });
+		if (handlers?.deviceStart && String(input).includes('/deviceauth/usercode'))
+			return handlers.deviceStart(fetchCalls.at(-1)!);
+		if (handlers?.devicePoll && String(input).includes('/deviceauth/token'))
+			return handlers.devicePoll(fetchCalls.at(-1)!);
 		if (handlers?.tokenEndpoint && String(input).includes('/oauth/token')) {
-			return handlers.tokenEndpoint();
+			return handlers.tokenEndpoint(fetchCalls.at(-1)!);
 		}
 		if (handlers?.generation) {
-			return handlers.generation();
+			return handlers.generation(fetchCalls.at(-1)!);
 		}
 		return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
 	};
 	globalThis.fetch = impl as unknown as typeof globalThis.fetch;
+}
+
+function refreshedTokenResponse(): Response {
+	return new Response(
+		JSON.stringify({
+			access_token: 'new-access',
+			refresh_token: 'new-refresh',
+			expires_in: 864000,
+			earliest_refresh_at: '2030-01-01T00:00:00Z',
+		}),
+		{ status: 200, headers: { 'Content-Type': 'application/json' } },
+	);
 }
 
 async function sentHeaders(): Promise<Headers> {
@@ -90,11 +111,15 @@ beforeEach(async () => {
 	originalCwd = process.cwd();
 	process.chdir(tempDir);
 	originalFetch = globalThis.fetch;
+	originalDateNow = Date.now;
+	originalSetTimeout = globalThis.setTimeout;
 	mockFetch();
 });
 
 afterEach(async () => {
 	globalThis.fetch = originalFetch;
+	Date.now = originalDateNow;
+	globalThis.setTimeout = originalSetTimeout;
 	process.chdir(originalCwd);
 	await rm(tempDir, { recursive: true, force: true });
 });
@@ -291,6 +316,15 @@ describe('credential path resolution', () => {
 	test('falls back to cwd-relative when no ancestor has a credential', () => {
 		expect(defaultCredentialPath()).toBe(join(process.cwd(), 'data', 'openai-codex-auth.json'));
 	});
+
+	test('uses the project root on first login from the nested Mastra dev cwd', async () => {
+		await writeFile(join(tempDir, 'package.json'), '{}');
+		const nested = join(tempDir, 'src', 'mastra', 'public');
+		await mkdir(nested, { recursive: true });
+		process.chdir(nested);
+
+		expect(defaultCredentialPath()).toBe(join(realpathSync(tempDir), 'data', 'openai-codex-auth.json'));
+	});
 });
 
 describe('codexFetch response translation (SDK non-streaming calls)', () => {
@@ -360,26 +394,18 @@ describe('codexFetch response translation (SDK non-streaming calls)', () => {
 });
 
 describe('refresh rotation through resolveAuth', () => {
-	test('refreshes an expiring credential and persists the rotated pair before reporting it', async () => {
+	test('refreshes at earliestRefreshAt plus 60 seconds even when access expiry is far away', async () => {
+		const old = makeCredential({
+			access: 'old-access',
+			refresh: 'old-refresh',
+			expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+			earliestRefreshAt: Date.now() - 60_001,
+		});
 		await writeCredential(
-			makeCredential({
-				access: 'old-access',
-				refresh: 'old-refresh',
-				expiresAt: Date.now() + 30_000,
-				earliestRefreshAt: Date.now() - 60_000,
-			}),
+			old,
 		);
 		mockFetch({
-			tokenEndpoint: () =>
-				new Response(
-					JSON.stringify({
-						access_token: 'new-access',
-						refresh_token: 'new-refresh',
-						expires_in: 864000,
-						earliest_refresh_at: '2030-01-01T00:00:00Z',
-					}),
-					{ status: 200, headers: { 'Content-Type': 'application/json' } },
-				),
+			tokenEndpoint: refreshedTokenResponse,
 		});
 
 		const auth = await openAICodexGateway.resolveAuth();
@@ -390,29 +416,40 @@ describe('refresh rotation through resolveAuth', () => {
 		const persisted = await readCredential();
 		expect(persisted.access).toBe('new-access');
 		expect(persisted.refresh).toBe('new-refresh');
+
+		// A caller that still holds the old pair observes the rotation instead of reusing it.
+		expect((await refreshCredential(old)).refresh).toBe('new-refresh');
+		expect(fetchCalls.filter(call => call.url.includes('/oauth/token')).length).toBe(1);
 	});
 
 	test('refuses to refresh before the server-declared window', async () => {
-		await writeCredential(
-			makeCredential({
-				expiresAt: Date.now() + 30_000,
-				earliestRefreshAt: Date.now() + 60 * 60 * 1000,
-			}),
-		);
+		const cred = makeCredential({
+			expiresAt: Date.now() - 1,
+			earliestRefreshAt: Date.now() + 60_000,
+		});
+		await writeCredential(cred);
 		const errors: string[] = [];
 		const originalError = console.error;
 		console.error = (message: string) => {
 			errors.push(message);
 		};
 		try {
-			const error = await captureError(() => openAICodexGateway.resolveAuth());
+			const error = await captureError(() => refreshCredential(cred));
 			expect(error.message).toBe(MODEL_AUTH_FAILURE);
-			expect(errors.some(e => e.includes('server-gated'))).toBe(true);
+			expect(errors.some(e => e.includes('detail=before_safe_window'))).toBe(true);
 		}
 		finally {
 			console.error = originalError;
 		}
 		expect(fetchCalls.filter(call => call.url.includes('/oauth/token')).length).toBe(0);
+	});
+
+	test('falls back to expiresAt minus 60 seconds without a server refresh window', async () => {
+		await writeCredential(makeCredential({ expiresAt: Date.now() + 30_000 }));
+		mockFetch({ tokenEndpoint: refreshedTokenResponse });
+
+		expect((await openAICodexGateway.resolveAuth())?.bearerToken).toBe('new-access');
+		expect(fetchCalls.filter(call => call.url.includes('/oauth/token')).length).toBe(1);
 	});
 
 	test('a failed refresh fails loudly instead of falling back to another path', async () => {
@@ -437,6 +474,218 @@ describe('refresh rotation through resolveAuth', () => {
 		finally {
 			console.error = originalError;
 		}
+	});
+});
+
+describe('credential mutation serialization', () => {
+	test('a refresh cannot overwrite a newer device-login credential', async () => {
+		const old = makeCredential({
+			access: 'old-access',
+			refresh: 'old-refresh',
+			earliestRefreshAt: Date.now() - 60_001,
+		});
+		await writeCredential(old);
+		globalThis.setTimeout = ((callback: (...args: unknown[]) => void, _ms?: number, ...args: unknown[]) => {
+			queueMicrotask(() => callback(...args));
+			return 0 as unknown as ReturnType<typeof setTimeout>;
+		}) as typeof globalThis.setTimeout;
+
+		let refreshStarted!: () => void;
+		let releaseRefresh!: () => void;
+		const started = new Promise<void>(resolve => (refreshStarted = resolve));
+		const released = new Promise<void>(resolve => (releaseRefresh = resolve));
+		const idToken = `x.${btoa(JSON.stringify({ chatgpt_account_id: 'login-account' }))}.x`;
+		mockFetch({
+			deviceStart: (call) => {
+				expect(call.init?.signal).toBeInstanceOf(AbortSignal);
+				return Response.json({ device_auth_id: 'device-auth', user_code: 'ABCD-EFGH', interval: 1 });
+			},
+			devicePoll: (call) => {
+				expect(call.init?.signal).toBeInstanceOf(AbortSignal);
+				return Response.json({ authorization_code: 'authorization-code', code_verifier: 'code-verifier' });
+			},
+			tokenEndpoint: async (call) => {
+				const grant = new URLSearchParams(call.init?.body as string).get('grant_type');
+				if (grant === 'refresh_token') {
+					expect(call.init?.signal).toBeInstanceOf(AbortSignal);
+					refreshStarted();
+					await released;
+					return refreshedTokenResponse();
+				}
+				expect(call.init?.signal).toBeInstanceOf(AbortSignal);
+				return Response.json({
+					access_token: 'login-access',
+					refresh_token: 'login-refresh',
+					expires_in: 3600,
+					id_token: idToken,
+				});
+			},
+		});
+
+		const refresh = refreshCredential(old);
+		await started;
+		const login = runDeviceLogin(async () => {});
+		await Promise.resolve();
+		expect(fetchCalls.some(call => call.url.includes('/deviceauth/usercode'))).toBe(false);
+
+		releaseRefresh();
+		await Promise.all([refresh, login]);
+		expect(await readCredential()).toMatchObject({
+			access: 'login-access',
+			refresh: 'login-refresh',
+			accountId: 'login-account',
+		});
+	});
+});
+
+describe('401 credential recovery', () => {
+	function staleCredential(now: number): CodexCredential {
+		return makeCredential({
+			access: 'old-access',
+			refresh: 'old-refresh',
+			expiresAt: now + 24 * 60 * 60 * 1000,
+			earliestRefreshAt: now - 59_999,
+		});
+	}
+
+	test('refreshes after a generation 401 and retries exactly once', async () => {
+		const now = originalDateNow();
+		Date.now = () => now;
+		await writeCredential(staleCredential(now));
+		mockFetch({
+			tokenEndpoint: refreshedTokenResponse,
+			generation: (call) => {
+				const authorization = new Headers(call.init?.headers).get('authorization');
+				if (authorization === 'Bearer old-access') {
+					Date.now = () => now + 1;
+					return new Response('raw provider authorization failure', { status: 401 });
+				}
+				return new Response('ok', { status: 200 });
+			},
+		});
+
+		const result = await performCodexFetch({ model: 'gpt-5.6-terra', input: [], instructions: 'x', stream: true });
+
+		expect(result.status).toBe(200);
+		expect(fetchCalls.filter(call => call.url.includes('/oauth/token')).length).toBe(1);
+		expect(fetchCalls.filter(call => call.url.includes('/codex/responses')).length).toBe(2);
+		expect((await sentHeaders()).get('authorization')).toBe('Bearer new-access');
+	});
+
+	test('uses a credential another request already rotated without refreshing again', async () => {
+		const now = originalDateNow();
+		Date.now = () => now;
+		await writeCredential(staleCredential(now));
+		mockFetch({
+			generation: async (call) => {
+				const authorization = new Headers(call.init?.headers).get('authorization');
+				if (authorization === 'Bearer old-access') {
+					await writeCredential(makeCredential({ access: 'rotated-access', refresh: 'rotated-refresh' }));
+					return new Response('expired', { status: 401 });
+				}
+				return new Response('ok', { status: 200 });
+			},
+		});
+
+		const result = await performCodexFetch({ model: 'gpt-5.6-terra', input: [], instructions: 'x', stream: true });
+
+		expect(result.status).toBe(200);
+		expect(fetchCalls.filter(call => call.url.includes('/oauth/token')).length).toBe(0);
+		expect((await sentHeaders()).get('authorization')).toBe('Bearer rotated-access');
+	});
+
+	test('turns a second 401 into the model-auth sentinel without another refresh', async () => {
+		const now = originalDateNow();
+		Date.now = () => now;
+		await writeCredential(staleCredential(now));
+		mockFetch({
+			tokenEndpoint: refreshedTokenResponse,
+			generation: () => {
+				Date.now = () => now + 1;
+				return new Response('provider text must not escape', { status: 401 });
+			},
+		});
+
+		const error = await captureError(() =>
+			performCodexFetch({ model: 'gpt-5.6-terra', input: [], instructions: 'x', stream: true }),
+		);
+
+		expect(error.message).toBe(MODEL_AUTH_FAILURE);
+		expect(fetchCalls.filter(call => call.url.includes('/oauth/token')).length).toBe(1);
+		expect(fetchCalls.filter(call => call.url.includes('/codex/responses')).length).toBe(2);
+	});
+
+	test('sanitizes refresh failure logs and does not retry generation', async () => {
+		const now = originalDateNow();
+		Date.now = () => now;
+		await writeCredential(staleCredential(now));
+		mockFetch({
+			tokenEndpoint: () => new Response(JSON.stringify({
+				error: {
+					code: 'refresh_token_invalidated',
+					message: 'raw-provider-message test-access-token test-refresh-token test-account-id',
+				},
+			}), { status: 401 }),
+			generation: () => {
+				Date.now = () => now + 1;
+				return new Response('raw generation failure', { status: 401 });
+			},
+		});
+		const errors: string[] = [];
+		const originalError = console.error;
+		console.error = (message: string) => errors.push(message);
+		try {
+			const error = await captureError(() =>
+				performCodexFetch({ model: 'gpt-5.6-terra', input: [], instructions: 'x', stream: true }),
+			);
+			expect(error.message).toBe(MODEL_AUTH_FAILURE);
+		}
+		finally {
+			console.error = originalError;
+		}
+
+		expect(fetchCalls.filter(call => call.url.includes('/oauth/token')).length).toBe(1);
+		expect(fetchCalls.filter(call => call.url.includes('/codex/responses')).length).toBe(1);
+		expect(errors.join('\n')).toContain('status=401 detail=refresh_token_invalidated');
+		expect(errors.join('\n')).not.toMatch(/raw-provider-message|test-access-token|test-refresh-token|test-account-id/);
+	});
+
+	test('concurrent stale requests share one refresh and never reuse the rotated token', async () => {
+		const now = originalDateNow();
+		Date.now = () => now;
+		await writeCredential(staleCredential(now));
+		let staleCalls = 0;
+		let releaseStale!: () => void;
+		const bothStale = new Promise<void>((resolve) => {
+			releaseStale = resolve;
+		});
+		mockFetch({
+			tokenEndpoint: refreshedTokenResponse,
+			generation: async (call) => {
+				const authorization = new Headers(call.init?.headers).get('authorization');
+				if (authorization === 'Bearer old-access') {
+					staleCalls++;
+					if (staleCalls === 2) {
+						Date.now = () => now + 1;
+						releaseStale();
+					}
+					await bothStale;
+					return new Response('expired', { status: 401 });
+				}
+				return new Response('ok', { status: 200 });
+			},
+		});
+
+		const results = await Promise.all([
+			performCodexFetch({ model: 'gpt-5.6-terra', input: [], instructions: 'x', stream: true }),
+			performCodexFetch({ model: 'gpt-5.6-terra', input: [], instructions: 'x', stream: true }),
+		]);
+
+		expect(results.map(result => result.status)).toEqual([200, 200]);
+		const refreshCalls = fetchCalls.filter(call => call.url.includes('/oauth/token'));
+		expect(refreshCalls.length).toBe(1);
+		expect(new URLSearchParams(refreshCalls[0]!.init?.body as string).get('refresh_token')).toBe('old-refresh');
+		expect(fetchCalls.filter(call => call.url.includes('/codex/responses')).length).toBe(4);
 	});
 });
 

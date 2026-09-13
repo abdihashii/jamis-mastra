@@ -12,7 +12,7 @@ const US_STATE_CODES = new Set(
 export function geocodeQueries(location: string): string[] {
 	const trimmed = location.trim();
 	const attempts = [trimmed];
-	const twoPart = trimmed.match(/^(.+),\s*([A-Za-z]{2})$/);
+	const twoPart = trimmed.match(/^(.+),\s*([A-Z]{2})$/i);
 	if (twoPart && US_STATE_CODES.has(twoPart[2].toUpperCase())) {
 		attempts.push(`${twoPart[1]},${twoPart[2].toUpperCase()},US`);
 	}
@@ -28,7 +28,8 @@ export function geocodeQueries(location: string): string[] {
  * @returns A /geo/1.0/zip query when the input is a ZIP, else null
  */
 export function zipQuery(location: string): { zip: string; country: string } | null {
-	const m = location.trim().match(/^(\d{4,5})(?:\s*,\s*([A-Za-z]{2}))?$/);
-	if (!m) return null;
+	const m = location.trim().match(/^(\d{4,5})(?:\s*,\s*([A-Z]{2}))?$/i);
+	if (!m)
+		return null;
 	return { zip: m[1], country: (m[2] ?? 'US').toUpperCase() };
 }
