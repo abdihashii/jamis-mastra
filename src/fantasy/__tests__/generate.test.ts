@@ -188,10 +188,10 @@ describe('renderWeekRecap', () => {
 		expect(text.length).toBeLessThanOrEqual(RECAP_MAX_LENGTH);
 	});
 
-	it('quotes callback originals next to their takes', () => {
+	it('renders callback paraphrases without original chat text', () => {
 		const shaping = shapingOf({ callbacks: [{ messageId: 'm2', take: 'the workshop produced nothing but excuses' }] });
 		const text = renderWeekRecap(factsStub(), shaping, context);
-		expect(text).toContain('“been workshopping plays all night” — bravo');
+		expect(text).not.toContain('been workshopping plays all night');
 		expect(text).toContain('the workshop produced nothing but excuses');
 		expect(text.startsWith('Week 2 —')).toBe(true);
 	});

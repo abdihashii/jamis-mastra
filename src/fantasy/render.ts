@@ -50,9 +50,8 @@ function assemble(facts: WeekFacts, shaping: RecapShaping, context: ChatContextM
 	}
 
 	for (const callback of shaping.callbacks) {
-		const quoted = byId.get(callback.messageId);
-		if (quoted)
-			lines.push('', `“${quoted.text}” — ${quoted.sender}`, callback.take.trim());
+		if (byId.has(callback.messageId))
+			lines.push('', callback.take.trim());
 	}
 
 	if (shaping.spotlightIndex != null && facts.upcoming?.[shaping.spotlightIndex]) {
