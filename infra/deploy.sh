@@ -27,6 +27,27 @@ if [ ! -f .env.prod ]; then
   exit 1
 fi
 
+# Validate with the same Intl implementation the app uses, before replacing the
+# healthy container. Only the short-lived validator receives the env file.
+docker run --rm --env-file .env.prod oven/bun:1.3.14-alpine bun -e '
+const zone = process.env.OPERATOR_TIMEZONE?.trim();
+const correction = "Set OPERATOR_TIMEZONE in .env.prod to an IANA time zone such as America/Chicago.";
+if (!zone) {
+  console.error(`Missing OPERATOR_TIMEZONE. ${correction}`);
+  process.exit(1);
+}
+let valid = !/^[+-]/.test(zone);
+try {
+  new Intl.DateTimeFormat("en-US", { timeZone: zone });
+} catch {
+  valid = false;
+}
+if (!valid) {
+  console.error(`Invalid OPERATOR_TIMEZONE: "${zone}". ${correction}`);
+  process.exit(1);
+}
+'
+
 # No TAILSCALE_IP guard: the app binds 127.0.0.1 and tailscale serve publishes it
 # to the tailnet, so there is no variable left whose value could expose the box.
 docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --build

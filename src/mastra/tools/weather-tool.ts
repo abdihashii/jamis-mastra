@@ -1,10 +1,13 @@
+import type { SqlLike } from '../../lib/operator-time-zone';
+
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
 import { fetchJson } from '../../lib/fetch';
 import { geocodeQueries, zipQuery } from '../../lib/geocode';
-import { localDate, localTime, nextDayDate } from '../../lib/time';
-import { requireEnv } from '../env';
+import { resolveOperatorTimeZone } from '../../lib/operator-time-zone';
+import { localDate, localTime, nextDayDate, zonedDate } from '../../lib/time';
+import { requireEnv, requireOperatorTimeZone } from '../env';
 
 const openWeatherApiKey = requireEnv('OPEN_WEATHER_API_KEY');
 const openWeatherBaseUrl = 'https://api.openweathermap.org';
@@ -233,14 +236,26 @@ export async function getCurrentWeather(where: Where, signal?: AbortSignal): Pro
 
 export async function getForecast(
 	where: Where,
-	ref: { date?: string; day?: string },
+	ref: { date?: string; day?: string; daysAhead?: number; nowMs?: number },
 	signal?: AbortSignal,
+	sql?: SqlLike,
 ): Promise<ForecastSummary> {
-	if ((ref.date === undefined) === (ref.day === undefined)) {
-		throw new Error('Pass exactly one of date ("YYYY-MM-DD") or day ("saturday").');
+	const selectorCount = [ref.date, ref.day, ref.daysAhead].filter(value => value !== undefined).length;
+	if (selectorCount !== 1) {
+		throw new Error('Pass exactly one of date ("YYYY-MM-DD"), day ("saturday"), or daysAhead (0 for today, 1 for tomorrow).');
 	}
 	if (ref.date !== undefined && (!/^\d{4}-\d{2}-\d{2}$/.test(ref.date) || Number.isNaN(Date.parse(ref.date)))) {
 		throw new Error(`Invalid date "${ref.date}". Use a real calendar date as YYYY-MM-DD.`);
+	}
+	if (ref.daysAhead !== undefined && (!Number.isInteger(ref.daysAhead) || ref.daysAhead < 0 || ref.daysAhead > 5)) {
+		throw new Error('daysAhead must be a whole number from 0 through 5.');
+	}
+	let date = ref.date;
+	if (date === undefined) {
+		const { timeZone } = await resolveOperatorTimeZone(requireOperatorTimeZone(), sql);
+		date = ref.day === undefined
+			? zonedDate(timeZone, ref.daysAhead!, ref.nowMs)
+			: nextDayDate(ref.day, timeZone, ref.nowMs);
 	}
 
 	const label = typeof where === 'string' ? where : `${where.lat},${where.lon}`;
@@ -260,7 +275,6 @@ export async function getForecast(
 
 	const { list } = data as ForecastResult;
 	const tz = (data as ForecastResult).city.timezone;
-	const date = ref.date ?? nextDayDate(ref.day!, tz);
 	const clean = list.filter(e => e.main !== undefined && e.wind !== undefined);
 	if (clean.length === 0) {
 		throw unusableData(`forecast for "${label}"`);
@@ -327,7 +341,7 @@ export const weatherTool = createTool({
 	outputSchema: z.object({
 		location: z.string(),
 		country: z.string(),
-		localTime: z.string(),
+		localTime: z.string().describe('Destination-local time with UTC offset'),
 		temperature: z.number().describe('°F'),
 		feelsLike: z.number().describe('°F'),
 		condition: z.string(),
@@ -337,8 +351,8 @@ export const weatherTool = createTool({
 		gustMph: z.number().optional(),
 		visibilityMiles: z.number().optional(),
 		humidityPercent: z.number(),
-		sunrise: z.string(),
-		sunset: z.string(),
+		sunrise: z.string().describe('Destination-local time with UTC offset'),
+		sunset: z.string().describe('Destination-local time with UTC offset'),
 	}),
 	execute: async ({ location, lat, lon }, { abortSignal }) => {
 		return await getCurrentWeather(toWhere(location, lat, lon), abortSignal ?? undefined);
@@ -348,9 +362,9 @@ export const weatherTool = createTool({
 export const forecastTool = createTool({
 	id: 'forecast-tool',
 	description:
-    'Weather forecast for a location on a future date, up to 5 days out. '
-    + 'Use for questions like "what should we wear to the zoo on Saturday". '
-    + 'Prefer day for day-name phrasing ("Saturday") and date for absolute references.',
+		'Weather forecast for a location on a date, up to 5 days out. '
+		+ 'Use for questions like "what should we wear to the zoo on Saturday". '
+		+ 'Use daysAhead for today/tomorrow/count phrasing, day for weekdays, and date for absolute references.',
 	inputSchema: z.object({
 		location: z.string().optional().describe('City name, e.g. "Chicago" or "Paris, FR"'),
 		lat: z.number().min(-90).max(90).optional().describe('Latitude, when the operator gives coordinates'),
@@ -358,8 +372,12 @@ export const forecastTool = createTool({
 		date: z.string().optional().describe('Target date as YYYY-MM-DD, in the location\'s local time'),
 		day: z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
 			.optional()
-			.describe('Nearest upcoming occurrence in the location\'s local calendar, e.g. "saturday" for next Saturday'),
-	}),
+			.describe('Nearest upcoming weekday in the operator time zone, e.g. "saturday"'),
+		daysAhead: z.number().int().min(0).max(5).optional().describe('Operator-zone day offset: 0 for today, 1 for tomorrow'),
+	}).refine(
+		input => [input.date, input.day, input.daysAhead].filter(value => value !== undefined).length === 1,
+		{ message: 'Pass exactly one of date, day, or daysAhead' },
+	),
 	outputSchema: z.object({
 		location: z.string(),
 		date: z.string(),
@@ -372,7 +390,7 @@ export const forecastTool = createTool({
 		windMph: z.number(),
 		humidityPercent: z.number(),
 	}),
-	execute: async ({ location, lat, lon, date, day }, { abortSignal }) => {
-		return await getForecast(toWhere(location, lat, lon), { date, day }, abortSignal ?? undefined);
+	execute: async ({ location, lat, lon, date, day, daysAhead }, { abortSignal }) => {
+		return await getForecast(toWhere(location, lat, lon), { date, day, daysAhead }, abortSignal ?? undefined);
 	},
 });

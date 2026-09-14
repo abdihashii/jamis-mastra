@@ -1,6 +1,8 @@
 # Weather location and timing resolve through checks, never stored state
 
-The operator's location is not modeled by the system in any form: no env var, no memory writes, no inference from the channel. A weather request with no usable place gets a plain-text check ([ADR 0012](0012-jamis-hitl-as-text-checks.md)) owned by the weather agent — not jamis — before any tool call. Relative date words (`tomorrow`, `next Saturday`) resolve in code inside `forecastTool`, against the destination's local zone, so the model never does timezone arithmetic it cannot reliably do. The model is only told today's UTC date; anything it cannot resolve unambiguously is checked with the operator rather than guessed.
+> Superseded in part by [ADR 0019](0019-operator-time-zone.md): unqualified relative dates now resolve in the operator time zone, not the weather destination's zone. The rule against inferring or storing the operator's physical location remains.
+
+The operator's location is not modeled by the system in any form: no env var, no memory writes, no inference from the channel or operator time zone. The weather agent may resolve "here" or "outside" from an explicit place in the current request or an uninterrupted exchange where the operator identified it as their current location; a bare confirmation does not break that exchange. Unless exactly one usable place is explicit and unambiguous, it sends a plain-text check ([ADR 0012](0012-jamis-hitl-as-text-checks.md)) before any tool call. Relative date words (`tomorrow`, `next Saturday`) resolve in code inside `forecastTool`, against the destination's local zone, so the model never does timezone arithmetic it cannot reliably do. The model is only told today's UTC date; anything it cannot resolve unambiguously is checked with the operator rather than guessed.
 
 ## Context
 
@@ -8,7 +10,7 @@ Jamis answers weather over iMessage. The channel metadata carries no place and n
 
 ## Decision
 
-- No operator-location state exists in code, env, or memory. Unclear or missing place in a weather request → the weather agent checks the operator in plain text, then proceeds.
+- No operator-location state exists in code, env, or memory. The weather agent may resolve "here" or "outside" from an explicit place in the current request or an uninterrupted exchange where the operator identified it as their current location. A bare confirmation does not break that exchange. Unless exactly one usable place is explicit and unambiguous, it checks the operator in plain text. Every successful weather answer names the resolved place, including combined responses composed by `jamis`.
 - `jamis` delegates every weather-shaped request — current conditions or forecasts — to weatherAgent in one rule, and no longer screens for location itself. The screening bullet's removal means the check contract lives in exactly one place; the change additionally routes forecast questions onto the weather path (before this, they routed to the research agent and never reached `forecastTool` over the channel).
 - `forecastTool` resolves relative dates itself: input is an optional YYYY-MM-DD `date` or an optional `day` name (exactly one required). A day name resolves to its nearest upcoming occurrence **inclusive of today** in the destination zone: `(targetDow − todayDow + 7) % 7`, computed and unit-tested in `src/lib/time.ts`.
 - The weather agent's instructions carry one injected fact — today's UTC date — as a floor for count phrasings ("in 3 days") that are not weekday names. Wording that leaves the operator's intended day materially ambiguous (user traveling across zones, "Saturday" said near midnight) triggers a check first, per the ask-instead-of-guess rule already in the glossary.

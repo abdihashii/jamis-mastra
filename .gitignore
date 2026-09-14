@@ -15,6 +15,7 @@ src/mastra/public/dist
 *.duckdb.wal
 
 .firecrawl
+.pplx
 
 # Codex subscription credential (data/openai-codex-auth.json lives here)
 data/

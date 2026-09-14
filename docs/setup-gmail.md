@@ -58,9 +58,9 @@ only): the pool lands under the credential's `calendars` key and is what the
 `calendar-events` tool queries. Pool change = re-run the script and re-pick.
 To re-login without changing the pool: `GOOGLE_LOGIN_CALENDAR_POOL=skip`.
 
-Day boundaries for asks like "tomorrow" come from the primary calendar's zone
-(the first pick's zone if the primary calendar was not picked); the rule lives
-in `src/mastra/tools/calendar-events.ts`, plan 012 for the why.
+Day boundaries for Calendar and Gmail relative-day asks come from the effective
+operator time zone. Calendar pool zones remain provider metadata only; see plan
+014 for the rule.
 
 **VPS (prod):** the box has no browser, and Google requires a loopback
 redirect, so the trick is: the consent flow runs in your Mac's browser, the

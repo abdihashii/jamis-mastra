@@ -3,7 +3,8 @@ import { Memory } from '@mastra/memory';
 
 import { getFantasyConfig } from '../../fantasy/config';
 import { createFantasyGroupHandler } from '../../fantasy/ingest';
-import { formatSendblueError, handleSendblueDirectMessage, sendblueAdapter } from '../channels/sendblue';
+import { formatSendblueError, handleSendblueDirectMessage, operatorTimeZoneChangeTool, sendblueAdapter } from '../channels/sendblue';
+import { currentTimeTool } from '../tools/current-time';
 import { fantasyBroadcastAgent } from './fantasy-broadcast-agent';
 import { personalAccountsAgent } from './personal-accounts-agent';
 import { researchAgent } from './research-agent';
@@ -20,6 +21,10 @@ export const jamis = new Agent({
        - Answer ordinary conversation directly when it does not require live or delegated evidence.
        - Treat current or changeable facts, numbers, dates, quotations, named-person or organization status, product or API behavior, high-stakes matters, and recommendations that depend on external facts as verification-required.
        - For every verification-required request, obtain live evidence before stating a factual answer. This is mandatory and never depends on the operator's wording, a request to guess, or your confidence.
+       - For the current date, current time, or operator time zone, call currentTime. Treat the operator time zone as declared civil-time configuration, never evidence of physical location.
+       - To change the operator time zone, map the operator's wording to one exact IANA time zone and call proposeOperatorTimeZoneChange. When a message only states the operator's current place, such as "I'm in Denver," treat it as a time-zone change request, not a factual claim to verify. To reset the override, call it with null. The tool sends the proposal or rejection directly to the channel, so do not send another response after a proposed or rejected result. If denied, say operator time-zone changes are unavailable in this context.
+       - Application code consumes a valid next-message confirmation before you run. Therefore, a bare yes, confirm, no, decline, or cancel that reaches you has no pending operator time-zone proposal and must not be treated as one.
+       - When asked where the operator is and what their operator time zone is, say physical location is unknown, then report the exact effective IANA zone and whether currentTime says it is an override or default.
        - Delegate weather requests, current conditions or forecasts, to weatherAgent. Delegate every other general online verification and explicit online-research request to researchAgent. Delegate personal-account requests (Gmail today, Calendar later) to personalAccountsAgent. If a weather request also contains a separate verification-required claim, delegate both agents for their respective claims.
        - Give researchAgent only the current public research task and necessary public context, never secrets or unrelated conversation.
        - Delegate fantasy league group chat broadcast requests (draft, or send a previously confirmed draft) to fantasyBroadcastAgent, quoting the draft id and draft text verbatim. Never compose broadcast text yourself: relay the agent's draft id and text verbatim from this conversation, and claim sent only when the agent returned a sent outcome for the draft id shown to the operator.
@@ -32,11 +37,12 @@ export const jamis = new Agent({
          [1] Source title: https://raw-url
          Every factual sentence, bullet, quotation, page title, or stated purpose before Sources must end with its supporting marker, such as "The default is two days.[1]" or "A quoted sentence."[1] A marker on a heading does not cite the sentences or bullets beneath it; repeat the marker for each supported item. A recommendation or caveat is not exempt: cite any factual premise it contains, or state only an uncited judgment. Never omit the literal Sources: heading, put a citation marker on its own line, or end with a bare source entry. Use no more than three entries. Cite only a source the memo says was scraped, never a search result alone.
        - If research fails or its evidence is inadequate, reply only: "I could not verify the requested factual answer." Do not add a factual finding, candidate answer, citation, URL, or inference from an omitted search result or page, even with an unverified disclaimer. Do not cite a rejected lead as if it were evidence. Do not substitute model memory, confidence, another web tool, or a guess.
-       - Follow weatherAgent's existing response contract for weather-only answers. When an answer also contains Firecrawl-researched claims, follow both the weather and citation contracts.
+       - Follow weatherAgent's existing response contract for weather-only answers. Every response containing weather, including a combined response, must name the resolved weather place. When an answer also contains Firecrawl-researched claims, follow both the weather and citation contracts.
        - Do not narrate routing, tool calls, or internal agent names unless the operator asks.
 `,
 	model: 'openai-codex/gpt-5.6-terra',
 	agents: { weatherAgent, researchAgent, personalAccountsAgent, fantasyBroadcastAgent },
+	tools: { currentTime: currentTimeTool, proposeOperatorTimeZoneChange: operatorTimeZoneChangeTool },
 	memory: new Memory({
 		options: {
 			observationalMemory: {
@@ -50,8 +56,12 @@ export const jamis = new Agent({
 			openai: { reasoningEffort: 'max' },
 		},
 		delegation: {
-			messageFilter: ({ messages, primitiveId }) =>
-				['research-agent', 'personal-accounts-agent'].includes(primitiveId) ? [] : messages,
+			messageFilter: ({ messages, primitiveId }) => {
+				if (primitiveId === 'weather-agent') {
+					return messages.filter(({ role }) => role === 'user' || role === 'signal').slice(-2);
+				}
+				return ['research-agent', 'personal-accounts-agent'].includes(primitiveId) ? [] : messages;
+			},
 		},
 	},
 	channels: {

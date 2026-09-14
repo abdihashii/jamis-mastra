@@ -45,6 +45,10 @@ _Avoid_: approval (implies a button card)
 You, logging in as `root` over the tailnet. The only account with privilege on the box. The `jamis` account is the agent's, and holds read-only inspection rights, never `sudo` in general and never the `docker` group.
 _Avoid_: admin user, deploy user
 
+**Operator time zone**:
+The operator's explicitly confirmed civil time zone, used to interpret date references and present times to the operator. It can come from system setup or conversation and does not represent or prove the operator's live physical location.
+_Avoid_: app timezone (ambiguous), detected location
+
 **Channel**:
 A messaging platform the operator reaches an agent through, instead of Studio. iMessage over Sendblue is the first one.
 _Avoid_: integration, connector, bridge

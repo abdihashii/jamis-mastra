@@ -1,3 +1,5 @@
+import type { SqlLike } from '../../lib/operator-time-zone.js';
+
 import { Buffer } from 'node:buffer';
 
 import { createTool } from '@mastra/core/tools';
@@ -9,7 +11,9 @@ import {
 	GOOGLE_AUTH_FAILURE,
 	refreshCredential,
 } from '../../lib/google-oauth.js';
-import { requireEnv } from '../env';
+import { resolveOperatorTimeZone } from '../../lib/operator-time-zone.js';
+import { zonedDayWindow } from '../../lib/time.js';
+import { requireEnv, requireOperatorTimeZone } from '../env';
 
 // Missing client config is a hard failure at boot, same as the other API keys.
 const gmailAuth = {
@@ -29,6 +33,7 @@ interface GmailMessageSummary {
 interface GmailListResult {
 	messages?: GmailMessageSummary[];
 	resultSizeEstimate?: number;
+	nextPageToken?: string;
 }
 
 interface GmailPayloadPart {
@@ -117,52 +122,84 @@ async function gmailGet(url: string, signal?: AbortSignal): Promise<{ ok: boolea
 
 /** Search the operator's mailbox and fetch each hit. Never logs ids, subjects, or bodies. */
 export async function searchGmail(
-	input: { query: string; maxResults?: number },
+	input: { query: string; maxResults?: number; relativeDay?: 'today' | 'yesterday'; nowMs?: number },
 	signal?: AbortSignal,
+	sql?: SqlLike,
 ): Promise<GmailSearchResult> {
 	if (!input.query.trim()) {
 		// Rides the subagent's "rejected" relay rule instead of the service-trouble branch.
 		throw new Error('Gmail rejected the query: empty query.');
 	}
 	const maxResults = input.maxResults ?? DEFAULT_MAX_RESULTS;
-	const listUrl = `${GMAIL_API}/messages?q=${encodeURIComponent(input.query)}&maxResults=${maxResults}`;
-	const listRes = await gmailGet(listUrl, signal);
-	if (listRes.status === 400) {
-		// The provider's detail stays server-side; thrown text reaching the operator must be static.
-		console.error(`[gmail-search] list rejected the query: ${(listRes.json as { error?: { message?: string } } | null)?.error?.message ?? 'no detail'}`);
-		throw new Error('Gmail rejected the query. Check the search syntax.');
+	let dayBounds: [number, number] | undefined;
+	if (input.relativeDay) {
+		const { timeZone } = await resolveOperatorTimeZone(requireOperatorTimeZone(), sql);
+		const [from, to] = zonedDayWindow(timeZone, 1, input.nowMs, input.relativeDay === 'yesterday' ? -1 : 0);
+		dayBounds = [Date.parse(from), Date.parse(to)];
 	}
-	if (!listRes.ok) {
-		throw serviceError('messages.list', listRes.status);
-	}
-	const list = listRes.json as GmailListResult | null;
-	if (list === null || (list.messages !== undefined && !Array.isArray(list.messages))) {
-		throw unusableData('messages.list');
+	let query = input.query;
+	if (dayBounds) {
+		// Provider date terms only bound pagination; numeric internalDate below decides membership.
+		const dayMs = 24 * 60 * 60 * 1000;
+		const after = new Date(dayBounds[0] - 2 * dayMs).toISOString().slice(0, 10).replaceAll('-', '/');
+		const before = new Date(dayBounds[1] + 2 * dayMs).toISOString().slice(0, 10).replaceAll('-', '/');
+		query += ` after:${after} before:${before}`;
 	}
 
-	const hits = (list.messages ?? []).slice(0, maxResults);
 	const messages: GmailSearchResultMessage[] = [];
-	for (const hit of hits) {
-		const getRes = await gmailGet(`${GMAIL_API}/messages/${encodeURIComponent(hit.id)}?format=full`, signal);
-		if (!getRes.ok) {
-			throw serviceError('messages.get', getRes.status);
+	let estimatedTotal: number | undefined;
+	let pageToken: string | undefined;
+	do {
+		const params = new URLSearchParams({ q: query, maxResults: String(maxResults) });
+		if (pageToken)
+			params.set('pageToken', pageToken);
+		const listRes = await gmailGet(`${GMAIL_API}/messages?${params}`, signal);
+		if (listRes.status === 400) {
+			// The provider's detail stays server-side; thrown text reaching the operator must be static.
+			console.error(`[gmail-search] list rejected the query: ${(listRes.json as { error?: { message?: string } } | null)?.error?.message ?? 'no detail'}`);
+			throw new Error('Gmail rejected the query. Check the search syntax.');
 		}
-		const msg = getRes.json as GmailGetResult | null;
-		if (!msg?.id || !msg.internalDate || !Number.isFinite(Number(msg.internalDate))) {
-			throw unusableData('messages.get');
+		if (!listRes.ok) {
+			throw serviceError('messages.list', listRes.status);
 		}
-		const textPart = findTextPlain(msg.payload);
-		messages.push({
-			subject: headerOf(msg.payload, 'Subject'),
-			from: headerOf(msg.payload, 'From'),
-			date: new Date(Number(msg.internalDate)).toISOString(),
-			snippet: msg.snippet ?? '',
-			...(textPart?.body?.data ? { body: decodeBody(textPart.body.data) } : {}),
-		});
-	}
+		const list = listRes.json as GmailListResult | null;
+		if (
+			list === null
+			|| (list.messages !== undefined && !Array.isArray(list.messages))
+			|| (list.nextPageToken !== undefined && typeof list.nextPageToken !== 'string')
+		) {
+			throw unusableData('messages.list');
+		}
+		estimatedTotal ??= list.resultSizeEstimate;
+
+		for (const hit of (list.messages ?? []).slice(0, maxResults)) {
+			const getRes = await gmailGet(`${GMAIL_API}/messages/${encodeURIComponent(hit.id)}?format=full`, signal);
+			if (!getRes.ok) {
+				throw serviceError('messages.get', getRes.status);
+			}
+			const msg = getRes.json as GmailGetResult | null;
+			if (!msg?.id || !msg.internalDate || !Number.isFinite(Number(msg.internalDate))) {
+				throw unusableData('messages.get');
+			}
+			const internalDate = Number(msg.internalDate);
+			if (dayBounds && (internalDate < dayBounds[0] || internalDate >= dayBounds[1]))
+				continue;
+			const textPart = findTextPlain(msg.payload);
+			messages.push({
+				subject: headerOf(msg.payload, 'Subject'),
+				from: headerOf(msg.payload, 'From'),
+				date: new Date(internalDate).toISOString(),
+				snippet: msg.snippet ?? '',
+				...(textPart?.body?.data ? { body: decodeBody(textPart.body.data) } : {}),
+			});
+			if (messages.length === maxResults)
+				break;
+		}
+		pageToken = dayBounds && messages.length < maxResults ? list.nextPageToken : undefined;
+	} while (pageToken);
 
 	return {
-		estimatedTotal: list.resultSizeEstimate ?? messages.length,
+		estimatedTotal: estimatedTotal ?? messages.length,
 		messages,
 	};
 }
@@ -172,10 +209,12 @@ export const gmailSearchTool = createTool({
 	description:
 		'Search the operator\'s Gmail (read-only) and fetch matching messages. '
 		+ 'Use Gmail search-box syntax for the query: "is:unread", "from:someone@example.com", '
-		+ '"subject:invoice newer_than:7d". Returns subject, sender, date, snippet, and body text per message.',
+		+ '"subject:invoice newer_than:7d". Use relativeDay for exact operator-local today/yesterday filtering. '
+		+ 'Returns subject, sender, date, snippet, and body text per message.',
 	inputSchema: z.object({
 		query: z.string().min(1).describe('Gmail search-box syntax, e.g. "is:unread" or "from:sarah@example.com newer_than:7d"'),
-		maxResults: z.number().int().min(1).max(20).optional().describe('Max messages to fetch (default 5). Keep small; each result includes body text.'),
+		maxResults: z.number().int().min(1).max(20).optional().describe('Max messages to return (default 5). Relative-day searches may inspect more candidates.'),
+		relativeDay: z.enum(['today', 'yesterday']).optional().describe('Filter fetched messages to this day in the effective operator time zone'),
 	}),
 	outputSchema: z.object({
 		estimatedTotal: z.number().describe('Gmail\'s estimate of total matches; can exceed messages returned'),
@@ -187,7 +226,7 @@ export const gmailSearchTool = createTool({
 			body: z.string().optional(),
 		})),
 	}),
-	execute: async ({ query, maxResults }, { abortSignal }) => {
-		return await searchGmail({ query, maxResults }, abortSignal ?? undefined);
+	execute: async ({ query, maxResults, relativeDay }, { abortSignal }) => {
+		return await searchGmail({ query, maxResults, relativeDay }, abortSignal ?? undefined);
 	},
 });
