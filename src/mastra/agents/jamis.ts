@@ -56,8 +56,12 @@ export const jamis = new Agent({
 			openai: { reasoningEffort: 'max' },
 		},
 		delegation: {
-			messageFilter: ({ messages, primitiveId }) =>
-				['research-agent', 'personal-accounts-agent'].includes(primitiveId) ? [] : messages,
+			messageFilter: ({ messages, primitiveId }) => {
+				if (primitiveId === 'weather-agent') {
+					return messages.filter(({ role }) => role === 'user' || role === 'signal').slice(-2);
+				}
+				return ['research-agent', 'personal-accounts-agent'].includes(primitiveId) ? [] : messages;
+			},
 		},
 	},
 	channels: {
