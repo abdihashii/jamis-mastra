@@ -2,6 +2,6 @@
 - [ ] gmail send tool
 - [x] google calendar read tool
 - [ ] google calendar send tool
-- [ ] update weather agent to return farenheight
+- [x] update weather agent to return farenheight
 - [ ] bash tool
 - [ ] grep tool
