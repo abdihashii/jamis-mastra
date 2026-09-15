@@ -11,7 +11,7 @@ import { z } from 'zod';
  * by (league, week, version, model), so a new version lands as history rather
  * than an overwrite of the old rendering.
  */
-export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v5';
+export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v6';
 
 /** Shipped recap model. One constant; edit this line to swap generators. */
 export const DEFAULT_RECAP_MODEL = 'openai-codex/gpt-5.6-sol';
@@ -25,10 +25,16 @@ export interface ChatContextMessage {
 	text: string;
 }
 
+const awardTakeSchema = z.string().min(1).max(180).nullable();
+
 /** Model output is only flavor: facts are rendered from WeekFacts, never from the model. */
 export const recapShapingSchema = z.object({
-	/** Punchy one-liner. No numbers that are not in the facts. */
-	headline: z.string().max(200),
+	awards: z.object({
+		roughestWeek: awardTakeSchema,
+		bestWeek: awardTakeSchema,
+		mostEntertainingMatchup: awardTakeSchema,
+		biggestBlowout: awardTakeSchema,
+	}),
 	/** Callbacks into archived group chat. Zero callbacks is always valid. */
 	callbacks: z
 		.array(
@@ -39,9 +45,6 @@ export const recapShapingSchema = z.object({
 			}),
 		)
 		.max(3),
-	/** Upcoming-matchup index to spotlight, or null to skip. */
-	spotlightIndex: z.number().int().nonnegative().nullable(),
-	signoff: z.string().max(160),
 });
 
 export type RecapShaping = z.infer<typeof recapShapingSchema>;
@@ -84,23 +87,25 @@ export function toChatContext(
 }
 
 /** The one league-facing voice; recaps and broadcasts both speak as ibn Jamis. */
-export const FANTASY_VOICE = `Style: plain prose, short declaratives, free of jargon and wordiness. Humor: optional and rare, landing on the league, its rituals, and the group's culture (callbacks prized), never on a manager's play. Banned: em dashes, '[name] here.' openings, media-theater cliches ('per the transaction wire', 'terms were not disclosed', 'analysts are calling it'), canned pleasantries. Identity: the group-facing persona is ibn Jamis (son of Jamis); never explain or unpack the name; claim only what it actually does.`;
+export const FANTASY_VOICE = `Style: plain prose, short declaratives, free of jargon and wordiness. Humor must be grounded in supplied facts or group-chat culture. Banned: em dashes, generic sports-announcer hype, AI self-reference, emojis, canned pleasantries, and media-theater cliches ('per the transaction wire', 'terms were not disclosed', 'analysts are calling it'). Identity: the group-facing persona is ibn Jamis (son of Jamis); never explain or unpack the name; claim only what it actually does.`;
 
 const INSTRUCTIONS = `You are the Fantasy Agent: you flavor a deterministic fantasy football weekly recap.
-You never state scores, records, rankings, or any other fact — the deterministic renderer owns every number, and writes the "Week N" prefix itself.
-Your job is only the surrounding voice: a punchy headline, reactions to archived group-chat messages, one spotlight pick among the week's upcoming matchups, and a signoff.
+You never state scores, records, rankings, or any other fact. The deterministic renderer owns every number and every award label.
+Your job is one short satirical take for each fixed award, plus optional reactions to archived group-chat messages.
 
 Hard rules:
-- Never write digits. Not a score, not a record, not a week number: no digits in headline, takes, or signoff (enforced).
+- Never write digits. The renderer writes every number.
+- Base each award take only on its supplied result. Do not invent lineup mistakes, injuries, transactions, motives, or events.
+- Return null for an award unless you have a genuinely funny, specific line. An unadorned fact is better than a forced joke.
+- Be direct, conversational, and willing to be mean about that week's fantasy performance. Light profanity is allowed. Personal traits and real-life circumstances are not.
+- Cut every disposable word. One or two short sentences maximum, with the strongest word or turn as late as natural.
+- The renderer puts every manager name immediately before your take. Do not repeat, alter, or spell out a manager name.
+- Find a distinct angle in the actual result. If the line would work equally well after swapping in another award or matchup, return null.
+- Direct ridicule beats a decorative metaphor. Avoid stock constructions involving floors, basements, digging, paperwork, scenery, magnifying glasses, before-and-after photos, hostile takeovers, resignation letters, cautionary tales, or any close rewrite.
 - Callbacks reference ONLY message ids from the provided context list. Your "take" is a reaction or paraphrase, never a verbatim copy.
-- Zero callbacks is always valid, especially when the chat was quiet or off-topic.
-- Spotlight picks a provided upcoming matchup index, or null when none is worth hyping.
+- Use a callback only when the original message already supplies a funny premise and the new context improves it. Otherwise use zero callbacks.
 - Voice: ${FANTASY_VOICE}
-
-Shape exemplar (match this flavor, do not copy verbatim):
-- headline: half the league won on Sunday; the other half filed for an internal review.
-- callback take (someone typed "I am never starting him again"): week-one vow. Filed.
-- signoff: new week starts when the NFL says so, not when the group chat declares it.`;
+`;
 
 export function createFantasyAgent(model: string): Agent {
 	return new Agent({
@@ -120,14 +125,17 @@ function factsSummary(facts: WeekFacts): string {
 		lines.push(result.winner ? `${result.winner.displayName} def. ${result.loser!.displayName} (${pair})` : `${pair}, tie`);
 	}
 	if (facts.high)
-		lines.push(`High: ${facts.high.teams.map(t => t.displayName).join(', ')} at ${facts.high.points}`);
+		lines.push(`Best Week: ${facts.high.teams.map(t => t.displayName).join(', ')} at ${facts.high.points}`);
 	if (facts.low)
-		lines.push(`Low: ${facts.low.teams.map(t => t.displayName).join(', ')} at ${facts.low.points}`);
-	if (facts.standings) {
-		for (const row of facts.standings) lines.push(`Standings ${row.rank}. ${row.team.displayName} ${row.wins}-${row.losses}-${row.ties}, ${row.pointsFor} pts`);
+		lines.push(`Roughest Week: ${facts.low.teams.map(t => t.displayName).join(', ')} at ${facts.low.points}`);
+	if (facts.closest) {
+		const tied = facts.results.filter(r => r.margin === facts.closest!.margin);
+		lines.push(`Most Entertaining Matchup: ${tied.map(r => `${r.a.displayName} ${r.aPoints} vs ${r.b.displayName} ${r.bPoints}`).join('; ')}, margin ${facts.closest.margin}`);
 	}
-	if (facts.upcoming)
-		facts.upcoming.forEach((u, i) => lines.push(`Upcoming[${i}]: ${u.a.displayName} vs ${u.b.displayName}`));
+	if (facts.blowout) {
+		const tied = facts.results.filter(r => r.margin === facts.blowout!.margin);
+		lines.push(`Biggest Blowout: ${tied.map(r => `${r.a.displayName} ${r.aPoints} vs ${r.b.displayName} ${r.bPoints}`).join('; ')}, margin ${facts.blowout.margin}`);
+	}
 	return lines.join('\n');
 }
 
@@ -139,17 +147,21 @@ export function buildRecapPrompt(facts: WeekFacts, context: ChatContextMessage[]
 }
 
 /** Validates the model stayed inside its lane. Throws ShapingValidationError otherwise. */
-export function validateShaping(shaping: RecapShaping, context: ChatContextMessage[], facts: WeekFacts): RecapShaping {
+export function validateShaping(shaping: RecapShaping, context: ChatContextMessage[], _facts: WeekFacts): RecapShaping {
 	const byId = new Map(context.map(m => [m.id, m]));
 
 	// Every model field: zero digits (renderer owns numbers outright) and, once long
 	// enough to be cargo, never a verbatim echo of archived chat (either direction).
-	const freeTextFields: Array<[string, string]> = [
-		['headline', shaping.headline],
-		['signoff', shaping.signoff],
+	const freeTextFields: Array<[string, string | null]> = [
+		['roughestWeek', shaping.awards.roughestWeek],
+		['bestWeek', shaping.awards.bestWeek],
+		['mostEntertainingMatchup', shaping.awards.mostEntertainingMatchup],
+		['biggestBlowout', shaping.awards.biggestBlowout],
 		...shaping.callbacks.map((c): [string, string] => [`callback ${c.messageId}`, c.take]),
 	];
 	for (const [label, text] of freeTextFields) {
+		if (text == null)
+			continue;
 		const normalized = text.trim().toLowerCase();
 		if (/\d/.test(normalized))
 			throw new ShapingValidationError(`Digits are never allowed in ${label}; the renderer writes every number`);
@@ -166,11 +178,6 @@ export function validateShaping(shaping: RecapShaping, context: ChatContextMessa
 	for (const callback of shaping.callbacks) {
 		if (!byId.has(callback.messageId))
 			throw new ShapingValidationError(`Callback references unknown message id "${callback.messageId}"`);
-	}
-	if (shaping.spotlightIndex != null) {
-		const upcoming = facts.upcoming ?? [];
-		if (shaping.spotlightIndex >= upcoming.length)
-			throw new ShapingValidationError(`Spotlight index ${shaping.spotlightIndex} is out of bounds for ${upcoming.length} upcoming matchups`);
 	}
 	return shaping;
 }

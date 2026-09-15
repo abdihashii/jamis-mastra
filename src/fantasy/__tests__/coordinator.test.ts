@@ -26,6 +26,7 @@ const managers = [
 function factsStub(): WeekFacts {
 	const alpha = { rosterId: 1, userId: 'u1', displayName: 'alpha' };
 	const bravo = { rosterId: 2, userId: 'u2', displayName: 'bravo' };
+	const result = { a: alpha, b: bravo, aPoints: 120.5, bPoints: 97.25, margin: 23.25, winner: alpha, loser: bravo };
 	return {
 		leagueId: '111',
 		leagueName: 'Test League',
@@ -33,11 +34,11 @@ function factsStub(): WeekFacts {
 		week: 2,
 		isPlayoffWeek: false,
 		isChampionshipWeek: false,
-		results: [{ a: alpha, b: bravo, aPoints: 120.5, bPoints: 97.25, margin: 23.25, winner: alpha, loser: bravo }],
+		results: [result],
 		high: { teams: [alpha], points: 120.5 },
 		low: { teams: [bravo], points: 97.25 },
-		closest: null,
-		blowout: null,
+		closest: result,
+		blowout: result,
 		standings: null,
 		movement: [],
 		upcoming: [{ a: bravo, b: alpha }],
@@ -45,10 +46,13 @@ function factsStub(): WeekFacts {
 }
 
 const shaping = {
-	headline: 'A quiet week for the last-place dynasty.',
+	awards: {
+		roughestWeek: 'A quiet week for the last-place dynasty.',
+		bestWeek: 'The league briefly became a private showcase.',
+		mostEntertainingMatchup: 'Nobody was permitted a comfortable Sunday.',
+		biggestBlowout: 'The contest became paperwork before dinner.',
+	},
 	callbacks: [],
-	spotlightIndex: 0,
-	signoff: 'Onward.',
 };
 
 /** In-memory RunsStore preserving the SQL functions' semantics. */
@@ -232,7 +236,7 @@ describe('runWeeklyRecap delivery state machine', () => {
 		expect(row.deliverySource).toBe('api');
 		expect(row.finalText).toBe(sends[0]);
 		expect(row.sendAttemptAt).toEqual(new Date(NOW));
-		expect(recorded[0].generatorVersion).toBe('fantasy-recap-v5');
+		expect(recorded[0].generatorVersion).toBe('fantasy-recap-v6');
 		expect(recorded[0].finalText).toBe(sends[0]);
 		expect(dms).toEqual([]);
 	});

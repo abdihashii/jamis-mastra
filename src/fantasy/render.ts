@@ -19,51 +19,31 @@ export function renderWeekRecap(facts: WeekFacts, shaping: RecapShaping, context
 
 function assemble(facts: WeekFacts, shaping: RecapShaping, context: ChatContextMessage[]): string {
 	const byId = new Map(context.map(m => [m.id, m]));
-	const move = new Map(facts.movement.map(m => [m.team.rosterId, m]));
+	if (!facts.high || !facts.low || !facts.closest || !facts.blowout)
+		throw new RecapRenderError('All four weekly awards require at least one scored matchup');
 
-	const lines: string[] = [`Week ${facts.week} — ${shaping.headline.trim()}`, ''];
-
-	for (const result of facts.results) {
-		const pair = `${result.a.displayName} ${result.aPoints}-${result.b.displayName} ${result.bPoints}`;
-		lines.push(result.winner
-			? `${result.winner.displayName} def. ${result.loser!.displayName} (${pair})`
-			: `Tie: ${pair}`);
-	}
-	lines.push('');
-	if (facts.high)
-		lines.push(`High scorer: ${facts.high.teams.map(t => t.displayName).join(', ')} (${facts.high.points})`);
-	if (facts.low)
-		lines.push(`Low scorer: ${facts.low.teams.map(t => t.displayName).join(', ')} (${facts.low.points})`);
-	if (facts.closest && resultsAreDistinct(facts.results))
-		lines.push(`Closest: ${facts.closest.a.displayName} vs ${facts.closest.b.displayName}, margin ${facts.closest.margin}`);
-	if (facts.blowout && resultsAreDistinct(facts.results))
-		lines.push(`Blowout: ${facts.blowout.a.displayName} vs ${facts.blowout.b.displayName}, margin ${facts.blowout.margin}`);
-
-	if (facts.standings) {
-		lines.push('', 'Standings:');
-		for (const row of facts.standings) {
-			const moved = move.get(row.team.rosterId);
-			const arrow = moved ? moved.toRank < moved.fromRank ? ' ▲' : ' ▼' : '';
-			const record = row.ties > 0 ? `${row.wins}-${row.losses}-${row.ties}` : `${row.wins}-${row.losses}`;
-			lines.push(`${row.rank}. ${row.team.displayName} (${record}, ${row.pointsFor} pts)${arrow}`);
-		}
-	}
+	const closest = facts.results
+		.filter(r => r.margin === facts.closest!.margin)
+		.map(r => `${r.a.displayName} ${r.aPoints}, ${r.b.displayName} ${r.bPoints}`)
+		.join('; ');
+	const blowouts = facts.results
+		.filter(r => r.margin === facts.blowout!.margin)
+		.map(r => `${r.a.displayName} ${r.aPoints}, ${r.b.displayName} ${r.bPoints}`)
+		.join('; ');
+	const take = (text: string | null) => text ? ` ${text.trim()}` : '';
+	const lines: string[] = [
+		`Week ${facts.week} Recap`,
+		'',
+		`- Roughest Week: ${facts.low.teams.map(t => t.displayName).join(', ')} (${facts.low.points} points).${take(shaping.awards.roughestWeek)}`,
+		`- Best Week: ${facts.high.teams.map(t => t.displayName).join(', ')} (${facts.high.points} points).${take(shaping.awards.bestWeek)}`,
+		`- Most Entertaining Matchup: ${closest} (${facts.closest.margin}-point margin).${take(shaping.awards.mostEntertainingMatchup)}`,
+		`- Biggest Blowout: ${blowouts} (${facts.blowout.margin}-point margin).${take(shaping.awards.biggestBlowout)}`,
+	];
 
 	for (const callback of shaping.callbacks) {
 		if (byId.has(callback.messageId))
 			lines.push('', callback.take.trim());
 	}
 
-	if (shaping.spotlightIndex != null && facts.upcoming?.[shaping.spotlightIndex]) {
-		const spotlight = facts.upcoming[shaping.spotlightIndex];
-		lines.push('', `Watch next week: ${spotlight.a.displayName} vs ${spotlight.b.displayName}`);
-	}
-
-	lines.push('', shaping.signoff.trim());
 	return lines.join('\n');
-}
-
-/** All-tie weeks make "closest" and "blowout" the same matchup, which reads as noise. */
-function resultsAreDistinct(results: WeekFacts['results']): boolean {
-	return new Set(results.map(r => r.margin)).size > 1;
 }

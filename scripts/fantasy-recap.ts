@@ -23,7 +23,7 @@ import {
 	validateShaping,
 } from '../src/fantasy/generate';
 
-import { ensureFantasyRecapsTable, getFantasySql, recordClaimedGeneration, recordGeneration } from '../src/fantasy/recaps';
+import { ensureFantasyRecapsTable, getFantasySql, recordClaimedGeneration } from '../src/fantasy/recaps';
 import { RECAP_MAX_LENGTH, renderWeekRecap } from '../src/fantasy/render';
 import { createRunsStore } from '../src/fantasy/runs';
 import {
@@ -134,23 +134,7 @@ async function main() {
 	const text = renderWeekRecap(facts, shaping, context);
 
 	console.log(text);
-	console.log(`\n(${FANTASY_GENERATOR_VERSION} / ${model} — ${text.length}/${RECAP_MAX_LENGTH} chars, ${shaping.callbacks.length} callbacks)`);
-
-	try {
-		await ensureFantasyRecapsTable();
-		await recordGeneration({
-			leagueId: league.id,
-			fantasyWeek: week,
-			generatorVersion: FANTASY_GENERATOR_VERSION,
-			model,
-			finalText: text,
-			facts,
-		});
-		console.log('(recorded in fantasy_recap_generations)');
-	}
-	catch (error) {
-		console.error('[fantasy-recap] generation not recorded:', error);
-	}
+	console.log(`\n(${FANTASY_GENERATOR_VERSION} / ${model}: ${text.length}/${RECAP_MAX_LENGTH} chars, ${shaping.callbacks.length} callbacks)`);
 }
 
 interface ChatFixtureEntry {

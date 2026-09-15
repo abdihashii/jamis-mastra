@@ -74,10 +74,13 @@ function factsStub(overrides: Partial<WeekFacts> = {}): WeekFacts {
 
 function shapingOf(overrides: Partial<RecapShaping> = {}): RecapShaping {
 	return {
-		headline: 'Bravo, we need to talk.',
+		awards: {
+			roughestWeek: 'The lineup submitted a resignation letter.',
+			bestWeek: 'The league briefly became a private showcase.',
+			mostEntertainingMatchup: 'Nobody was permitted a comfortable Sunday.',
+			biggestBlowout: 'The contest became paperwork before dinner.',
+		},
 		callbacks: [],
-		spotlightIndex: null,
-		signoff: 'See you Sunday.',
 		...overrides,
 	};
 }
@@ -154,37 +157,31 @@ describe('validateShaping', () => {
 
 	it('rejects digits anywhere in model fields; the renderer owns numbers outright', () => {
 		const facts = factsStub();
-		expect(() => validateShaping(shapingOf({ headline: 'Week 1 chaos' }), context, facts)).toThrow(/[Dd]igits/);
-		expect(() => validateShaping(shapingOf({ signoff: 'See you Sunday the 7th.' }), context, facts)).toThrow(/[Dd]igits/);
+		expect(() => validateShaping(shapingOf({ awards: { ...shapingOf().awards, roughestWeek: 'Week 1 chaos' } }), context, facts)).toThrow(/[Dd]igits/);
 		expect(() => validateShaping(shapingOf({ callbacks: [{ messageId: 'm1', take: 'the workshop produced 97 points of nothing' }] }), context, facts)).toThrow(/[Dd]igits/);
 	});
 
-	it('reject long verbatim echoes in headline and signoff, not just takes', () => {
+	it('rejects long verbatim echoes in award takes, not just callbacks', () => {
 		const facts = factsStub();
-		const echoedHeadline = shapingOf({ headline: 'bravo is cooked this week, and honestly the chat called it' });
+		const echoedHeadline = shapingOf({ awards: { ...shapingOf().awards, bestWeek: 'bravo is cooked this week, and honestly the chat called it' } });
 		// contains the m1 message text verbatim
 		expect(() => validateShaping(echoedHeadline, context, facts)).toThrow(/echoes archived chat/);
-		// short generic signoffs stay legal even when the phrase appeared in chat
-		const fine = shapingOf({ signoff: 'bravo is cooked' });
+		// short generic phrases stay legal even when they appeared in chat
+		const fine = shapingOf({ awards: { ...shapingOf().awards, bestWeek: 'bravo is cooked' } });
 		expect(validateShaping(fine, context, facts)).toEqual(fine);
-	});
-
-	it('bounds spotlightIndex to the upcoming slate', () => {
-		const facts = factsStub();
-		expect(() => validateShaping(shapingOf({ spotlightIndex: 5 }), context, facts)).toThrow(/out of bounds/);
-		expect(validateShaping(shapingOf({ spotlightIndex: 0 }), context, facts).spotlightIndex).toBe(0);
 	});
 });
 
 describe('renderWeekRecap', () => {
-	it('renders facts deterministically with records and movement arrows', () => {
-		const text = renderWeekRecap(factsStub(), shapingOf({ spotlightIndex: 0 }), context);
-		expect(text).toContain('alpha def. bravo (alpha 120.5-bravo 97.25)');
-		expect(text).toContain('1. alpha (2-0, 250.5 pts) ▲');
-		expect(text).toContain('2. bravo (0-2, 187.25 pts)');
-		expect(text).toContain('Watch next week: bravo vs alpha');
-		expect(text).toContain('Bravo, we need to talk.');
-		expect(text).toContain('See you Sunday.');
+	it('renders the fixed heading and four factual award bullets', () => {
+		const text = renderWeekRecap(factsStub(), shapingOf(), context);
+		expect(text.startsWith('Week 2 Recap\n\n')).toBe(true);
+		expect(text).toContain('- Roughest Week: bravo (97.25 points).');
+		expect(text).toContain('- Best Week: alpha (120.5 points).');
+		expect(text).toContain('- Most Entertaining Matchup: alpha 120.5, bravo 97.25 (23.25-point margin).');
+		expect(text).toContain('- Biggest Blowout: alpha 120.5, bravo 97.25 (23.25-point margin).');
+		expect(text).not.toContain('Standings:');
+		expect(text).not.toContain('Watch next week:');
 		expect(text.length).toBeLessThanOrEqual(RECAP_MAX_LENGTH);
 	});
 
@@ -193,57 +190,51 @@ describe('renderWeekRecap', () => {
 		const text = renderWeekRecap(factsStub(), shaping, context);
 		expect(text).not.toContain('been workshopping plays all night');
 		expect(text).toContain('the workshop produced nothing but excuses');
-		expect(text.startsWith('Week 2 —')).toBe(true);
+		expect(text.startsWith('Week 2 Recap')).toBe(true);
 	});
 
 	it('sacrifices callbacks to stay under the length cap, facts untouched', () => {
-		// ~60 standings rows plus headline/signoff sit near the cap; appending the
-		// callbacks exceeds it, forcing a drop. Assert facts lines survive either way.
-		const bulkyStandings = Array.from({ length: 50 }, (_, i) => ({
-			rank: i + 1,
-			team: { rosterId: 100 + i, userId: `u-${i}`, displayName: `team-${i}` },
-			wins: 5,
-			losses: 3,
-			ties: 0,
-			pointsFor: 1500 + i,
-		}));
-		const facts = factsStub({ standings: bulkyStandings });
+		const long = 'team'.repeat(55);
+		const alpha = { rosterId: 1, userId: 'u1', displayName: `${long}a` };
+		const bravo = { rosterId: 2, userId: 'u2', displayName: `${long}b` };
+		const result = { a: alpha, b: bravo, aPoints: 120.5, bPoints: 97.25, margin: 23.25, winner: alpha, loser: bravo };
+		const facts = factsStub({ results: [result], high: { teams: [alpha], points: 120.5 }, low: { teams: [bravo], points: 97.25 }, closest: result, blowout: result });
 		const withCallbacks = shapingOf({
 			callbacks: [
 				{ messageId: 'm1', take: 'x'.repeat(160) },
 				{ messageId: 'm2', take: 'y'.repeat(160) },
 			],
-			headline: 'h'.repeat(200),
-			signoff: 's'.repeat(160),
 		});
 		const text = renderWeekRecap(facts, withCallbacks, context);
 		expect(text.length).toBeLessThanOrEqual(RECAP_MAX_LENGTH);
-		expect(text).toContain('alpha def. bravo');
-		expect(text).toContain('Standings:');
+		expect(text).toContain(`${long}a 120.5`);
 		// cap was actually approached: the dropped take(s) are gone
 		expect(text.includes('x'.repeat(160)) && text.includes('y'.repeat(160))).toBe(false);
 	});
 
 	it('throws when facts alone overflow the envelope', () => {
-		const alpha = { rosterId: 1, userId: 'u1', displayName: 'alpha' };
-		const monsterStandings = Array.from({ length: 120 }, (_, i) => ({
-			rank: i + 1,
-			team: { ...alpha, rosterId: 100 + i, displayName: `team-${i}` },
-			wins: i,
-			losses: 0,
-			ties: 0,
-			pointsFor: 1000 + i,
-		}));
-		const facts = factsStub({ standings: monsterStandings });
+		const long = 'team'.repeat(300);
+		const alpha = { rosterId: 1, userId: 'u1', displayName: `${long}a` };
+		const bravo = { rosterId: 2, userId: 'u2', displayName: `${long}b` };
+		const result = { a: alpha, b: bravo, aPoints: 120.5, bPoints: 97.25, margin: 23.25, winner: alpha, loser: bravo };
+		const facts = factsStub({ results: [result], high: { teams: [alpha], points: 120.5 }, low: { teams: [bravo], points: 97.25 }, closest: result, blowout: result });
 		expect(() => renderWeekRecap(facts, shapingOf(), context)).toThrow(RecapRenderError);
 	});
 
-	it('skips closest/blowout labels on all-tie weeks', () => {
-		const tied = factsStub();
-		tied.results = [{ ...tied.results[0], aPoints: 0, bPoints: 0, margin: 0, winner: null, loser: null }];
-		const text = renderWeekRecap(tied, shapingOf(), context);
-		expect(text).not.toContain('Closest:');
-		expect(text).not.toContain('Blowout:');
+	it('renders all matchups tied for a weekly matchup award', () => {
+		const facts = factsStub();
+		const charlie = { rosterId: 3, userId: 'u3', displayName: 'charlie' };
+		const delta = { rosterId: 4, userId: 'u4', displayName: 'delta' };
+		facts.results.push({ a: charlie, b: delta, aPoints: 110, bPoints: 86.75, margin: 23.25, winner: charlie, loser: delta });
+		const text = renderWeekRecap(facts, shapingOf(), context);
+		expect(text).toContain('alpha 120.5, bravo 97.25; charlie 110, delta 86.75');
+	});
+
+	it('leaves an award factual when the model returns no worthwhile joke', () => {
+		const shaping = shapingOf({ awards: { ...shapingOf().awards, bestWeek: null } });
+		const text = renderWeekRecap(factsStub(), shaping, context);
+		expect(text).toContain('- Best Week: alpha (120.5 points).\n');
+		expect(text).not.toContain('null');
 	});
 });
 
