@@ -1,6 +1,6 @@
 import type { WeekFactsInput } from '../analysis';
 
-import type { BracketGame, SleeperLeague, SleeperManager, SleeperScore } from '../sleeper';
+import type { BracketGame, SleeperLeague, SleeperManager, SleeperPlayer, SleeperScore } from '../sleeper';
 import { describe, expect, it } from 'bun:test';
 import { buildWeekFacts } from '../analysis';
 import { SleeperDataError } from '../sleeper';
@@ -20,6 +20,7 @@ const league: SleeperLeague = {
 	totalRosters: 4,
 	playoffWeekStart: 3,
 	playoffRounds: 2,
+	rosterPositions: ['QB', 'RB', 'WR', 'FLEX', 'BN'],
 };
 
 const bracket: BracketGame[] = [
@@ -49,8 +50,13 @@ const bracket: BracketGame[] = [
 	},
 ];
 
-function score(rosterId: number, matchupId: number | null, points: number): SleeperScore {
-	return { rosterId, matchupId, points };
+function score(
+	rosterId: number,
+	matchupId: number | null,
+	points: number,
+	lineup: Partial<Pick<SleeperScore, 'starters' | 'players' | 'playerPoints'>> = {},
+): SleeperScore {
+	return { rosterId, matchupId, points, starters: [], players: [], playerPoints: {}, ...lineup };
 }
 
 const week1 = [
@@ -183,6 +189,78 @@ describe('buildWeekFacts — regular season', () => {
 		expect(facts.upcoming!.map(u => `${u.a.displayName} vs ${u.b.displayName}`).sort()).toEqual([
 			'alpha vs charlie',
 			'bravo vs delta',
+		]);
+	});
+
+	it('curates three top starters and only match-flipping same-position bench players', () => {
+		const players: SleeperPlayer[] = [
+			{ id: 'q1', name: 'Quarterback One', position: 'QB' },
+			{ id: 'q2', name: 'Quarterback Two', position: 'QB' },
+			{ id: 'q3', name: 'Quarterback Three', position: 'QB' },
+			{ id: 'q4', name: 'Quarterback Four', position: 'QB' },
+			{ id: 'rb-low', name: 'Started Runner', position: 'RB' },
+			{ id: 'rb-bench', name: 'Benched Runner', position: 'RB' },
+			{ id: 'wr-low', name: 'Started Receiver', position: 'WR' },
+			{ id: 'wr-bench', name: 'Benched Receiver', position: 'WR' },
+		];
+		const scores = [
+			score(1, 10, 100, {
+				starters: ['q1', 'rb-low'],
+				players: ['q1', 'rb-low', 'rb-bench'],
+				playerPoints: { 'q1': 30, 'rb-low': 5, 'rb-bench': 16 },
+			}),
+			score(2, 10, 110, {
+				starters: ['q2'],
+				players: ['q2'],
+				playerPoints: { q2: 40 },
+			}),
+			score(3, 11, 120, {
+				starters: ['q3'],
+				players: ['q3'],
+				playerPoints: { q3: 45 },
+			}),
+			score(4, 11, 80, {
+				starters: ['q4', 'wr-low'],
+				players: ['q4', 'wr-low', 'wr-bench'],
+				playerPoints: { 'q4': 40, 'wr-low': 20, 'wr-bench': 60 },
+			}),
+		];
+		const facts = buildWeekFacts(input({
+			week: 1,
+			players,
+			scoresByWeek: new Map([[1, scores]]),
+		}));
+
+		expect(facts.playerStoryCandidates).toEqual([
+			{
+				kind: 'top-starter',
+				team: expect.objectContaining({ displayName: 'charlie' }),
+				player: players[2],
+				points: 45,
+			},
+			{
+				kind: 'top-starter',
+				team: expect.objectContaining({ displayName: 'bravo' }),
+				player: players[1],
+				points: 40,
+			},
+			{
+				kind: 'top-starter',
+				team: expect.objectContaining({ displayName: 'delta' }),
+				player: players[3],
+				points: 40,
+			},
+			{
+				kind: 'bench-flip',
+				team: expect.objectContaining({ displayName: 'alpha' }),
+				opponent: expect.objectContaining({ displayName: 'bravo' }),
+				benchedPlayer: players[5],
+				benchedPoints: 16,
+				startedPlayer: players[4],
+				startedPoints: 5,
+				pointSwing: 11,
+				lossMargin: 10,
+			},
 		]);
 	});
 });

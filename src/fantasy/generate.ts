@@ -142,7 +142,7 @@ function factsSummary(facts: WeekFacts): string {
 export function buildRecapPrompt(facts: WeekFacts, context: ChatContextMessage[]): string {
 	const chat = context.length > 0
 		? context.map(m => `[${m.id}] ${m.sender}: ${m.text}`).join('\n')
-		: '(the group chat was quiet this week — use zero callbacks)';
+		: '(the group chat was quiet this week, use zero callbacks)';
 	return `${factsSummary(facts)}\n\nArchived group chat (callback pool):\n${chat}\n\nReturn the shaping object only.`;
 }
 

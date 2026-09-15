@@ -22,6 +22,7 @@ export interface SleeperLeague {
 	playoffWeekStart: number;
 	/** Counted from the winners bracket; V1 supports one-week rounds only. */
 	playoffRounds: number;
+	rosterPositions: string[];
 }
 
 export interface SleeperManager {
@@ -34,6 +35,15 @@ export interface SleeperScore {
 	rosterId: number;
 	matchupId: number | null;
 	points: number | null;
+	starters: string[];
+	players: string[];
+	playerPoints: Record<string, number>;
+}
+
+export interface SleeperPlayer {
+	id: string;
+	name: string;
+	position: string;
 }
 
 export interface BracketFeeder {
@@ -65,6 +75,7 @@ const leagueSchema = z.looseObject({
 	season: z.string(),
 	status: z.string(),
 	total_rosters: z.number().int().positive(),
+	roster_positions: z.array(z.string().min(1)),
 	settings: z.looseObject({
 		playoff_week_start: z.number().int().positive(),
 		playoff_round_type: z.number().int(),
@@ -80,7 +91,19 @@ const scoreSchema = z.looseObject({
 	roster_id: z.number().int().positive(),
 	matchup_id: z.number().int().nullable(),
 	points: z.number().nullable(),
+	starters: z.array(z.string()),
+	players: z.array(z.string()),
+	players_points: z.record(z.string(), z.number().nullable()),
 });
+
+const playerSchema = z.looseObject({
+	player_id: z.string(),
+	full_name: z.string().min(1),
+	position: z.string().min(1),
+});
+
+const PLAYER_CACHE_MS = 24 * 60 * 60 * 1_000;
+let playerCache: { expiresAt: number; byId: Map<string, SleeperPlayer | null> } | null = null;
 
 const feederSchema = z.object({ w: z.number().int().optional(), l: z.number().int().optional() });
 
@@ -129,6 +152,7 @@ export async function getLeague(leagueId: string): Promise<SleeperLeague> {
 		totalRosters: l.total_rosters,
 		playoffWeekStart: l.settings.playoff_week_start,
 		playoffRounds: 0, // filled by withBracketRounds once the bracket is known
+		rosterPositions: l.roster_positions,
 	};
 }
 
@@ -165,7 +189,42 @@ export async function getScores(leagueId: string, week: number): Promise<Sleeper
 		matchupId: e.matchup_id,
 		// Sleeper points are 2-decimal; snap at read so sums never carry float dust.
 		points: e.points == null ? null : Math.round(e.points * 100) / 100,
+		starters: e.starters,
+		players: e.players,
+		playerPoints: Object.fromEntries(
+			Object.entries(e.players_points)
+				.filter((entry): entry is [string, number] => entry[1] != null)
+				.map(([id, points]) => [id, Math.round(points * 100) / 100]),
+		),
 	}));
+}
+
+/** Fetches the public player catalog but retains only fields needed by recap analysis. */
+export async function getPlayers(playerIds: Iterable<string>): Promise<SleeperPlayer[]> {
+	const ids = [...new Set(playerIds)];
+	if (ids.length === 0)
+		return [];
+	const now = Date.now();
+	if (playerCache && playerCache.expiresAt > now && ids.every(id => playerCache!.byId.has(id))) {
+		return ids.flatMap(id => playerCache!.byId.get(id) ?? []);
+	}
+
+	const { ok, status, json } = await fetchJson(`${BASE}/players/nfl`);
+	if (!ok)
+		throw new SleeperDataError(`Sleeper player catalog responded ${status}`);
+	if (!json || typeof json !== 'object' || Array.isArray(json))
+		throw new SleeperDataError('Sleeper player catalog did not match its expected shape');
+
+	const catalog = json as Record<string, unknown>;
+	const byId = new Map<string, SleeperPlayer | null>();
+	for (const id of ids) {
+		const parsed = playerSchema.safeParse(catalog[id]);
+		byId.set(id, parsed.success
+			? { id: parsed.data.player_id, name: parsed.data.full_name, position: parsed.data.position }
+			: null);
+	}
+	playerCache = { expiresAt: now + PLAYER_CACHE_MS, byId };
+	return ids.flatMap(id => byId.get(id) ?? []);
 }
 
 export async function getWinnersBracket(leagueId: string): Promise<BracketGame[]> {

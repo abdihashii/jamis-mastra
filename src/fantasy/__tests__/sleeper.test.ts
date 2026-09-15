@@ -7,6 +7,7 @@ import {
 	getLeague,
 	getManagers,
 	getNflState,
+	getPlayers,
 	getScores,
 	getWinnersBracket,
 	isWeekComplete,
@@ -26,6 +27,7 @@ const league: SleeperLeague = {
 	totalRosters: 4,
 	playoffWeekStart: 3,
 	playoffRounds: 2,
+	rosterPositions: ['QB', 'RB', 'WR', 'FLEX', 'BN'],
 };
 
 const bracket: BracketGame[] = [
@@ -86,6 +88,7 @@ const leagueJson = {
 	season: '2026',
 	status: 'in_season',
 	total_rosters: 4,
+	roster_positions: ['QB', 'RB', 'WR', 'FLEX', 'BN'],
 	settings: { playoff_week_start: 3, playoff_round_type: 0, playoff_teams: 4 },
 };
 
@@ -93,6 +96,11 @@ describe('normalization', () => {
 	it('parses NFL state', async () => {
 		stubFetch({ 'state/nfl': { week: 10, season: '2026', season_type: 'regular' } });
 		expect(await getNflState()).toEqual({ week: 10, season: '2026', seasonType: 'regular' });
+	});
+
+	it('normalizes league roster positions', async () => {
+		stubFetch({ [`league/${league.id}`]: leagueJson });
+		expect((await getLeague(league.id)).rosterPositions).toEqual(['QB', 'RB', 'WR', 'FLEX', 'BN']);
 	});
 
 	it('rejects multi-week playoff rounds outright', async () => {
@@ -122,8 +130,40 @@ describe('normalization', () => {
 	});
 
 	it('snaps points to two decimals and keeps matchup pairing', async () => {
-		stubFetch({ [`league/${league.id}/matchups/2`]: [{ roster_id: 1, matchup_id: 10, points: 100.005 }] });
-		expect(await getScores(league.id, 2)).toEqual([{ rosterId: 1, matchupId: 10, points: 100.01 }]);
+		stubFetch({
+			[`league/${league.id}/matchups/2`]: [{
+				roster_id: 1,
+				matchup_id: 10,
+				points: 100.005,
+				starters: ['p1'],
+				players: ['p1', 'p2'],
+				players_points: { p1: 20.005, p2: 10 },
+			}],
+		});
+		expect(await getScores(league.id, 2)).toEqual([{
+			rosterId: 1,
+			matchupId: 10,
+			points: 100.01,
+			starters: ['p1'],
+			players: ['p1', 'p2'],
+			playerPoints: { p1: 20.01, p2: 10 },
+		}]);
+	});
+
+	it('loads only requested player fields and caches the catalog', async () => {
+		stubFetch({
+			'players/nfl': {
+				p1: { player_id: 'p1', full_name: 'Player One', position: 'RB', extra: 'ignored' },
+				p2: { player_id: 'p2', full_name: 'Player Two', position: 'WR' },
+			},
+		});
+		expect(await getPlayers(['p1', 'missing'])).toEqual([
+			{ id: 'p1', name: 'Player One', position: 'RB' },
+		]);
+		expect(await getPlayers(['p1', 'missing'])).toEqual([
+			{ id: 'p1', name: 'Player One', position: 'RB' },
+		]);
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
 	});
 
 	it('rejects an empty matchup week', async () => {

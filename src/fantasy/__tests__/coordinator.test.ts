@@ -42,6 +42,7 @@ function factsStub(): WeekFacts {
 		standings: null,
 		movement: [],
 		upcoming: [{ a: bravo, b: alpha }],
+		playerStoryCandidates: [],
 	};
 }
 

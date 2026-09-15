@@ -39,6 +39,34 @@ Use Bun's PostgreSQL client against the existing `DATABASE_URL`; add no database
 
 The scheduled workflow uses Mastra's declarative schedule with cron `0 10 * * *` and the configured IANA timezone. Keep the default in-process scheduler in the current single long-lived application container. Do not add Redis, a second worker container, or an external cron service in V1.
 
+## Editorial recap follow-up
+
+Implement this follow-up as two independently reviewable commits. Neither commit authorizes a production write, push, deploy, or live group send.
+
+### 1. Curated player story candidates
+
+**Goal:** Give the eventual editorial a small deterministic set of player facts without sending full lineups to the model.
+
+Normalize starters, rostered players, and player points from each weekly matchup. Resolve only the needed player IDs from Sleeper's public player catalog and cache the minimal name and primary-position fields in memory for 24 hours. Derive the three highest-scoring starters league-wide, sorted by points then player ID, plus at most one bench candidate per losing roster. A bench candidate qualifies only when the benched player shares the starter's primary position and the point difference is strictly greater than the matchup loss margin. Missing catalog data removes only the affected player candidate and never blocks valid matchup facts.
+
+**Verification:** Focused normalization and analysis tests, full repository checks, then a live read-only `inspect` against Sleeper.
+
+**Proposed commit:** `feat: add fantasy player story candidates`
+
+### 2. Optional closing editorial
+
+**Goal:** Replace the standalone receipts list with an unheaded closing editorial about the week's biggest stories.
+
+The model may return zero to four stories. Each story is its own paragraph with two to four sentences. The complete editorial is limited to 12 sentences and 180 words, with one blank line after Highlights and between stories. Stories may interpret results, consequences, contrasts, curated player facts, or supported chat context, but must not repeat a Highlight fact, another story's premise, a callback, or a joke. Exact duplicate Highlights are omitted after their first appearance.
+
+Callbacks are optional, zero to four total, normally no more than one per story. Two are allowed only when the exchange itself is the story. Eligible context may be pregame, live, or postgame within the recap window. The model receives exact UTC timestamps and known mapped speakers only. Callback sentences reference a unique archived message ID and a `{speaker}` placeholder; application code performs deterministic attribution. Verbatim quotes, copied source phrases, unsupported chronology, invented motive, forced conclusions, and forced comedy are rejected. Humor is optional and never a quota.
+
+If the rendered recap exceeds 2,000 characters, remove the weakest complete editorial paragraph until it fits. Never truncate a paragraph. If no story qualifies, omit the editorial completely.
+
+**Verification:** Structured-output and renderer tests, then one archived iMessage dry run through a transaction forced read-only. Report only message count and UTC bounds, verify recap row counts before and after, and never call Sendblue.
+
+**Proposed commit:** `feat: add fantasy recap editorial`
+
 ## Commands
 
 One Bun script exposes the same coordinator used by the scheduled workflow:
@@ -126,4 +154,4 @@ Each stage is independently committable. For every stage: implement, run `bun te
 
 ## Explicitly deferred
 
-No transactions, waivers, research/news, power rankings, projections, win probabilities, start/sit advice, long-term lore, embeddings, chat summarizer, conversational Fantasy Agent, Jamis-triggered broadcast, multi-league support, multi-group support, media analysis, runtime A/B service, distributed workers, or custom chat-history database.
+No transactions, waivers, research/news, power rankings, projections, win probabilities, start/sit advice, full lineup dumps, long-term lore, embeddings, chat summarizer, conversational Fantasy Agent, Jamis-triggered broadcast, multi-league support, multi-group support, media analysis, runtime A/B service, distributed workers, or custom chat-history database.

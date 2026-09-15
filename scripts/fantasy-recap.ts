@@ -31,6 +31,7 @@ import {
 	getLeague,
 	getManagers,
 	getNflState,
+	getPlayers,
 	getScores,
 	getWinnersBracket,
 	isWeekComplete,
@@ -66,7 +67,7 @@ async function main() {
 		const shim = new Mastra({
 			gateways: { 'openai-codex': openAICodexGateway },
 			agents: { fantasy: createFantasyAgent(DEFAULT_RECAP_MODEL) },
-			storage: new PostgresStore({ url: process.env.DATABASE_URL! }),
+			storage: new PostgresStore({ id: 'fantasy-cli-storage', connectionString: process.env.DATABASE_URL! }),
 		});
 		const result = await runDailyRecap(config, shim);
 		console.log(`run: ${result.outcome}${result.week != null ? ` (week ${result.week})` : ''}`);
@@ -171,7 +172,11 @@ async function loadChatFixture(path: string, managers: SleeperManager[]) {
 /** Reads the archived fantasy thread newest-first; anything odd reads as an empty week. */
 async function readThreadMessages(groupId: string, since?: Date) {
 	try {
-		const store = await new PostgresStore({ url: process.env.DATABASE_URL! }).getStore('memory');
+		const store = await new PostgresStore({
+			id: 'fantasy-preview-storage',
+			connectionString: process.env.DATABASE_URL!,
+			disableInit: true,
+		}).getStore('memory');
 		if (!store)
 			throw new Error('no memory store');
 		const { messages } = await store.listMessages({
@@ -203,7 +208,15 @@ async function factsFor(
 	// Upcoming regular-season pairings come from the next week's matchup rows;
 	// playoff pairings come from the resolved winners bracket instead.
 	const nextWeekScores = week + 1 < league.playoffWeekStart ? await getScores(config.sleeperLeagueId, week + 1) : undefined;
-	return buildWeekFacts({ league, week, managers, bracket, scoresByWeek, nextWeekScores });
+	let players: Awaited<ReturnType<typeof getPlayers>> = [];
+	try {
+		const scores = scoresByWeek.get(week) ?? [];
+		players = await getPlayers(scores.flatMap(score => [...score.players, ...score.starters]));
+	}
+	catch (error) {
+		console.warn('[fantasy-recap] player catalog unavailable; continuing without player stories:', error);
+	}
+	return buildWeekFacts({ league, week, managers, bracket, scoresByWeek, nextWeekScores, players });
 }
 
 /** Structured-output generation for one model id; the one call shape both run and preview share. */
@@ -264,6 +277,17 @@ function print(facts: WeekFacts, provisional: boolean) {
 	}
 	if (facts.movement.length > 0) {
 		console.log(`\nMovement: ${facts.movement.map(m => `${m.team.displayName} ${m.fromRank}→${m.toRank}`).join(', ')}`);
+	}
+	if (facts.playerStoryCandidates.length > 0) {
+		console.log('\nPlayer story candidates:');
+		for (const candidate of facts.playerStoryCandidates) {
+			if (candidate.kind === 'top-starter') {
+				console.log(`  Top starter: ${candidate.player.name} (${candidate.player.position}) scored ${candidate.points} for ${candidate.team.displayName}`);
+			}
+			else {
+				console.log(`  Bench flip: ${candidate.benchedPlayer.name} (${candidate.benchedPoints}) over ${candidate.startedPlayer.name} (${candidate.startedPoints}) would add ${candidate.pointSwing} for ${candidate.team.displayName}, above the ${candidate.lossMargin}-point loss to ${candidate.opponent.displayName}`);
+			}
+		}
 	}
 
 	if (facts.upcoming === null) {

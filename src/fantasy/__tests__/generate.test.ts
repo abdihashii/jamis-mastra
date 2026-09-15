@@ -68,6 +68,7 @@ function factsStub(overrides: Partial<WeekFacts> = {}): WeekFacts {
 		],
 		movement: [{ team: alpha, fromRank: 2, toRank: 1 }],
 		upcoming: [{ a: bravo, b: alpha }],
+		playerStoryCandidates: [],
 		...overrides,
 	};
 }

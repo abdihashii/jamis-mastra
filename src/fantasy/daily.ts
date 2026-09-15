@@ -13,7 +13,7 @@ import { runWeeklyRecap } from './coordinator';
 import { buildRecapPrompt, DEFAULT_RECAP_MODEL, recapShapingSchema, ShapingValidationError, validateShaping } from './generate';
 import { ensureFantasyRecapsTable, getFantasySql, recordClaimedGeneration } from './recaps';
 import { createRunsStore } from './runs';
-import { getLeague, getManagers, getNflState, getScores, getWinnersBracket, latestCompletedWeek, withBracketRounds } from './sleeper';
+import { getLeague, getManagers, getNflState, getPlayers, getScores, getWinnersBracket, latestCompletedWeek, withBracketRounds } from './sleeper';
 
 export type DailyOutcome
 	= | { outcome: CoordinatorOutcome; week: number | null }
@@ -128,5 +128,13 @@ async function factsForWeek(
 		scoresByWeek.set(w, await getScores(config.sleeperLeagueId, w));
 	}
 	const nextWeekScores = week + 1 < league.playoffWeekStart ? await getScores(config.sleeperLeagueId, week + 1) : undefined;
-	return buildWeekFacts({ league, week, managers, bracket, scoresByWeek, nextWeekScores });
+	let players: Awaited<ReturnType<typeof getPlayers>> = [];
+	try {
+		const scores = scoresByWeek.get(week) ?? [];
+		players = await getPlayers(scores.flatMap(score => [...score.players, ...score.starters]));
+	}
+	catch (error) {
+		console.warn('[fantasy-recap] player catalog unavailable; continuing without player stories:', error);
+	}
+	return buildWeekFacts({ league, week, managers, bracket, scoresByWeek, nextWeekScores, players });
 }

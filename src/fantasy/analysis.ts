@@ -1,4 +1,4 @@
-import type { BracketGame, SleeperLeague, SleeperManager, SleeperScore } from './sleeper';
+import type { BracketGame, SleeperLeague, SleeperManager, SleeperPlayer, SleeperScore } from './sleeper';
 import { championshipWeek, SleeperDataError, winnerPathGameIds } from './sleeper';
 
 export interface TeamRef {
@@ -43,6 +43,23 @@ export interface UpcomingMatchup {
 	b: TeamRef;
 }
 
+export type PlayerStoryCandidate
+	= | { kind: 'top-starter'; team: TeamRef; player: SleeperPlayer; points: number }
+		| {
+			kind: 'bench-flip';
+			team: TeamRef;
+			opponent: TeamRef;
+			benchedPlayer: SleeperPlayer;
+			benchedPoints: number;
+			startedPlayer: SleeperPlayer;
+			startedPoints: number;
+			pointSwing: number;
+			lossMargin: number;
+		};
+
+type TopStarterCandidate = Extract<PlayerStoryCandidate, { kind: 'top-starter' }>;
+type BenchFlipCandidate = Extract<PlayerStoryCandidate, { kind: 'bench-flip' }>;
+
 export interface WeekFacts {
 	leagueId: string;
 	leagueName: string;
@@ -61,6 +78,7 @@ export interface WeekFacts {
 	movement: StandingMove[];
 	/** null on the championship week; [] when nothing is resolvable yet. */
 	upcoming: UpcomingMatchup[] | null;
+	playerStoryCandidates: PlayerStoryCandidate[];
 }
 
 export interface WeekFactsInput {
@@ -72,6 +90,8 @@ export interface WeekFactsInput {
 	scoresByWeek: Map<number, SleeperScore[]>;
 	/** Matchup rows for week+1, regular season only. Omitted next to/inside playoffs. */
 	nextWeekScores?: SleeperScore[];
+	/** Missing catalog data simply removes player candidates, not matchup facts. */
+	players?: SleeperPlayer[];
 }
 
 export function buildWeekFacts(input: WeekFactsInput): WeekFacts {
@@ -97,6 +117,7 @@ export function buildWeekFacts(input: WeekFactsInput): WeekFacts {
 	const movement = computeMovement(input, week, standings, teams);
 
 	const upcoming = isChampionshipWeek ? null : computeUpcoming(input, teams);
+	const playerStoryCandidates = buildPlayerStoryCandidates(currentWeekScores(input, week), results, teams, input.players ?? []);
 
 	return {
 		leagueId: league.id,
@@ -113,7 +134,67 @@ export function buildWeekFacts(input: WeekFactsInput): WeekFacts {
 		standings,
 		movement,
 		upcoming,
+		playerStoryCandidates,
 	};
+}
+
+function buildPlayerStoryCandidates(
+	scores: SleeperScore[],
+	results: MatchupResult[],
+	teams: Map<number, TeamRef>,
+	players: SleeperPlayer[],
+): PlayerStoryCandidate[] {
+	const playerById = new Map(players.map(player => [player.id, player]));
+	const topStarters = scores.flatMap((score) => {
+		const team = teams.get(score.rosterId);
+		if (!team)
+			return [];
+		return score.starters.flatMap((id): TopStarterCandidate[] => {
+			const player = playerById.get(id);
+			const points = score.playerPoints[id];
+			return player && points != null ? [{ kind: 'top-starter', team, player, points }] : [];
+		});
+	})
+		.sort((a, b) => b.points - a.points || a.player.id.localeCompare(b.player.id))
+		.slice(0, 3);
+
+	const scoreByRoster = new Map(scores.map(score => [score.rosterId, score]));
+	const benchFlips = results.flatMap((result): BenchFlipCandidate[] => {
+		if (!result.loser || !result.winner)
+			return [];
+		const score = scoreByRoster.get(result.loser.rosterId);
+		if (!score)
+			return [];
+		const starterIds = new Set(score.starters);
+		const options = score.players
+			.filter(id => !starterIds.has(id))
+			.flatMap((benchId) => {
+				const benchedPlayer = playerById.get(benchId);
+				const benchedPoints = score.playerPoints[benchId];
+				if (!benchedPlayer || benchedPoints == null)
+					return [];
+				return score.starters.flatMap((starterId) => {
+					const startedPlayer = playerById.get(starterId);
+					const startedPoints = score.playerPoints[starterId];
+					if (!startedPlayer || startedPoints == null || startedPlayer.position !== benchedPlayer.position)
+						return [];
+					const pointSwing = Math.round((benchedPoints - startedPoints) * 100) / 100;
+					return pointSwing > result.margin
+						? [{ benchedPlayer, benchedPoints, startedPlayer, startedPoints, pointSwing }]
+						: [];
+				});
+			})
+			.sort((a, b) => b.pointSwing - a.pointSwing
+				|| a.benchedPlayer.id.localeCompare(b.benchedPlayer.id)
+				|| a.startedPlayer.id.localeCompare(b.startedPlayer.id));
+		const pick = options[0];
+		return pick
+			? [{ kind: 'bench-flip', team: result.loser, opponent: result.winner, ...pick, lossMargin: result.margin }]
+			: [];
+	});
+
+	benchFlips.sort((a, b) => b.benchedPoints - a.benchedPoints || a.benchedPlayer.id.localeCompare(b.benchedPlayer.id));
+	return [...topStarters, ...benchFlips];
 }
 
 function currentWeekScores(input: WeekFactsInput, week: number): SleeperScore[] {
