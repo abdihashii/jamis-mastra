@@ -53,7 +53,7 @@ const shaping = {
 		mostEntertainingMatchup: 'Nobody was permitted a comfortable Sunday.',
 		biggestBlowout: 'The contest became paperwork before dinner.',
 	},
-	callbacks: [],
+	editorial: [],
 };
 
 /** In-memory RunsStore preserving the SQL functions' semantics. */
@@ -237,7 +237,7 @@ describe('runWeeklyRecap delivery state machine', () => {
 		expect(row.deliverySource).toBe('api');
 		expect(row.finalText).toBe(sends[0]);
 		expect(row.sendAttemptAt).toEqual(new Date(NOW));
-		expect(recorded[0].generatorVersion).toBe('fantasy-recap-v6');
+		expect(recorded[0].generatorVersion).toBe('fantasy-recap-v7');
 		expect(recorded[0].finalText).toBe(sends[0]);
 		expect(dms).toEqual([]);
 	});

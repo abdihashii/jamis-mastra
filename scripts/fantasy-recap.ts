@@ -1,9 +1,10 @@
 import type { MatchupResult, WeekFacts } from '../src/fantasy/analysis';
 import type { FantasyConfig } from '../src/fantasy/config';
-import type { RecapShaping } from '../src/fantasy/generate';
+import type { ChatContextMessage, RecapShaping } from '../src/fantasy/generate';
 import type { RecapGenerationRecord } from '../src/fantasy/recaps';
 
 import type { SleeperManager } from '../src/fantasy/sleeper';
+import { SQL } from 'bun';
 import { readFile } from 'node:fs/promises';
 import process from 'node:process';
 import { Mastra } from '@mastra/core/mastra';
@@ -127,21 +128,31 @@ async function main() {
 	const chatPath = chatFlag >= 0 ? flags[chatFlag + 1] : undefined;
 	if (chatFlag >= 0 && (!chatPath || chatPath.startsWith('--')))
 		fail(usage, 1);
+	const previewSql = chatPath ? null : new SQL(readOnlyDatabaseUrl());
+	const before = previewSql ? await recapRowCounts(previewSql, config.sleeperLeagueId) : null;
 	const context = chatPath
 		? await loadChatFixture(chatPath, managers)
 		: toChatContext(await readThreadMessages(config.sendblueGroupId), config, managers);
 
 	const shaping = await shapingGenerator(model)(facts, context);
 	const text = renderWeekRecap(facts, shaping, context);
+	const after = previewSql ? await recapRowCounts(previewSql, config.sleeperLeagueId) : null;
+	if (before && after && (before.generations !== after.generations || before.runs !== after.runs))
+		throw new Error('Preview changed fantasy recap row counts');
 
 	console.log(text);
-	console.log(`\n(${FANTASY_GENERATOR_VERSION} / ${model}: ${text.length}/${RECAP_MAX_LENGTH} chars, ${shaping.callbacks.length} callbacks)`);
+	const callbacks = shaping.editorial.flatMap(story => story.sentences).filter(sentence => sentence.callbackMessageId != null).length;
+	console.log(`\n(${FANTASY_GENERATOR_VERSION} / ${model}: ${text.length}/${RECAP_MAX_LENGTH} chars, ${callbacks} callbacks)`);
+	console.log(chatSummary(context));
+	if (before)
+		console.log(`Database rows unchanged: ${before.generations} generations, ${before.runs} runs.`);
 }
 
 interface ChatFixtureEntry {
 	id: string;
 	senderNumber: string;
 	text: string;
+	createdAt: string;
 }
 
 /** Debug helper: load a synthetic banter file so voice tests use shared chat input. */
@@ -162,19 +173,22 @@ async function loadChatFixture(path: string, managers: SleeperManager[]) {
 	}
 	const displayNameByUserId = new Map(managers.map(m => [m.userId, m.displayName]));
 	const config = parseFantasyConfig();
-	return entries.map(entry => ({
-		id: entry.id,
-		text: entry.text,
-		sender: (config && displayNameByUserId.get(config.managerMap[entry.senderNumber])) || 'unknown sender',
-	}));
+	const context = entries.flatMap((entry): ChatContextMessage[] => {
+		const sender = config && displayNameByUserId.get(config.managerMap[entry.senderNumber]);
+		const timestamp = Date.parse(entry.createdAt);
+		if (!Number.isFinite(timestamp) || !/(?:Z|[+-]\d{2}:\d{2})$/i.test(entry.createdAt))
+			throw new SleeperDataError(`--chat entry ${entry.id} has an invalid createdAt`);
+		return sender ? [{ id: entry.id, text: entry.text, sender, createdAt: new Date(timestamp).toISOString() }] : [];
+	});
+	return context.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-/** Reads the archived fantasy thread newest-first; anything odd reads as an empty week. */
+/** Reads the archived fantasy thread newest-first. Preview failures stay visible. */
 async function readThreadMessages(groupId: string, since?: Date) {
 	try {
 		const store = await new PostgresStore({
 			id: 'fantasy-preview-storage',
-			connectionString: process.env.DATABASE_URL!,
+			connectionString: readOnlyDatabaseUrl(),
 			disableInit: true,
 		}).getStore('memory');
 		if (!store)
@@ -187,10 +201,41 @@ async function readThreadMessages(groupId: string, since?: Date) {
 		});
 		return messages;
 	}
-	catch (error) {
-		console.error('[fantasy-recap] could not read chat context; proceeding with none:', error);
-		return [];
+	catch {
+		throw new Error('Archived chat could not be read in preview mode');
 	}
+}
+
+function readOnlyDatabaseUrl(): string {
+	const value = process.env.DATABASE_URL;
+	if (!value)
+		throw new Error('DATABASE_URL is required for archived-chat preview');
+	const url = new URL(value);
+	const setting = '-c default_transaction_read_only=on';
+	const options = url.searchParams.get('options');
+	url.searchParams.set('options', options ? `${options} ${setting}` : setting);
+	return url.toString();
+}
+
+async function recapRowCounts(sql: SQL, leagueId: string): Promise<{ generations: number; runs: number }> {
+	const [setting] = await sql`SHOW default_transaction_read_only` as Array<{ default_transaction_read_only: string }>;
+	if (setting?.default_transaction_read_only !== 'on')
+		throw new Error('Preview database connection is not read-only');
+	const [row] = await sql`
+		SELECT
+			(SELECT count(*)::int FROM fantasy_recap_generations WHERE league_id = ${leagueId}) AS generations,
+			(SELECT count(*)::int FROM fantasy_recap_runs WHERE league_id = ${leagueId}) AS runs
+	` as Array<{ generations: number; runs: number }>;
+	if (!row)
+		throw new Error('Preview database row counts unavailable');
+	return row;
+}
+
+function chatSummary(context: ChatContextMessage[]): string {
+	if (context.length === 0)
+		return 'Archived chat: 0 mapped messages.';
+	const timestamps = context.map(message => message.createdAt).sort();
+	return `Archived chat: ${context.length} mapped messages, ${timestamps[0]} to ${timestamps.at(-1)} UTC.`;
 }
 
 /** All week-N matchup rows + (regular season) week N+1 for the upcoming slate. */
@@ -229,6 +274,7 @@ function shapingGenerator(model: string) {
 	return async (facts: WeekFacts, context: ReturnType<typeof toChatContext>): Promise<RecapShaping> => {
 		const result = await mastra.getAgent('fantasy').generate(buildRecapPrompt(facts, context), {
 			structuredOutput: { schema: recapShapingSchema },
+			tracingOptions: { hideInput: true, hideOutput: true },
 		});
 		if (!result.object)
 			throw new ShapingValidationError('the model returned no structured recap output');

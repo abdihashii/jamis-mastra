@@ -55,6 +55,8 @@ Normalize starters, rostered players, and player points from each weekly matchup
 
 ### 2. Optional closing editorial
 
+**Status:** done. A 2026-09-14 UTC dry run used 25 mapped archived messages, rendered two editorial paragraphs with two callbacks, and left production recap rows unchanged at zero generations and zero runs.
+
 **Goal:** Replace the standalone receipts list with an unheaded closing editorial about the week's biggest stories.
 
 The model may return zero to four stories. Each story is its own paragraph with two to four sentences. The complete editorial is limited to 12 sentences and 180 words, with one blank line after Highlights and between stories. Stories may interpret results, consequences, contrasts, curated player facts, or supported chat context, but must not repeat a Highlight fact, another story's premise, a callback, or a joke. Exact duplicate Highlights are omitted after their first appearance.
