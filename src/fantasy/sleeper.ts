@@ -91,7 +91,7 @@ const scoreSchema = z.looseObject({
 	roster_id: z.number().int().positive(),
 	matchup_id: z.number().int().nullable(),
 	points: z.number().nullable(),
-	starters: z.array(z.string()),
+	starters: z.array(z.string()).nullable(),
 	players: z.array(z.string()),
 	players_points: z.record(z.string(), z.number().nullable()),
 });
@@ -189,7 +189,7 @@ export async function getScores(leagueId: string, week: number): Promise<Sleeper
 		matchupId: e.matchup_id,
 		// Sleeper points are 2-decimal; snap at read so sums never carry float dust.
 		points: e.points == null ? null : Math.round(e.points * 100) / 100,
-		starters: e.starters,
+		starters: e.starters ?? [],
 		players: e.players,
 		playerPoints: Object.fromEntries(
 			Object.entries(e.players_points)

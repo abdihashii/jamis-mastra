@@ -150,6 +150,20 @@ describe('normalization', () => {
 		}]);
 	});
 
+	it('accepts an unset upcoming lineup', async () => {
+		stubFetch({
+			[`league/${league.id}/matchups/2`]: [{
+				roster_id: 1,
+				matchup_id: 10,
+				points: 0,
+				starters: null,
+				players: ['p1'],
+				players_points: { p1: 0 },
+			}],
+		});
+		expect((await getScores(league.id, 2))[0]?.starters).toEqual([]);
+	});
+
 	it('loads only requested player fields and caches the catalog', async () => {
 		stubFetch({
 			'players/nfl': {
