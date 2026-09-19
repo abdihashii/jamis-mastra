@@ -1,6 +1,6 @@
 # 016: Application incident triage
 
-Status: **Planned.**
+Status: **Stages 1-2 complete on `abdirahmanhaji/jam-65-triage-specific-incident`; Stage 3 next.**
 
 Linear: [JAM-65](https://linear.app/abdirahman-haji/issue/JAM-65/let-jamis-triage-a-specific-application-incident).
 
@@ -46,6 +46,8 @@ No result field carries provider text, stored `last_error`, span input/output, m
 
 ## Stage 1: Lock the language and evidence ownership
 
+**Status:** Complete, commit `2fbf751`.
+
 **Goal:** Commit the reviewed terminology, correlation boundary, and implementation plan before application code changes.
 
 **Critical files:**
@@ -67,6 +69,8 @@ No result field carries provider text, stored `last_error`, span input/output, m
 **Proposed commit:** `docs: define application incident triage`
 
 ## Stage 2: Correlate authenticated Sendblue requests
+
+**Status:** Complete, commit `0b27126`.
 
 **Goal:** Give every authenticated operator message exact, content-free channel and Jamis trace correlation without adding storage.
 
