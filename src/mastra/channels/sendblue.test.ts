@@ -1,4 +1,5 @@
 import type { ChannelHandlerContext } from '@mastra/core/channels';
+import type { AnyExportedSpan } from '@mastra/core/observability';
 import type { Message, Thread } from 'chat';
 import type { SqlLike } from '../../lib/operator-time-zone';
 
@@ -8,7 +9,9 @@ import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { TracingEventType } from '@mastra/core/observability';
 import { RequestContext } from '@mastra/core/request-context';
+import { Observability } from '@mastra/observability';
 import { MODEL_AUTH_FAILURE } from '../gateways/openai-codex-auth.js';
 
 process.env.JAMIS_ALLOWED_NUMBER = '+15555550101';
@@ -22,7 +25,9 @@ const {
 	CODEX_AUTH_CHANNEL_ERROR,
 	formatSendblueError,
 	GENERIC_CHANNEL_ERROR,
+	getSendblueChannelCapability,
 	handleSendblueDirectMessage,
+	hashSendblueMessageHandle,
 	isOpenAILoginCommand,
 	operatorTimeZoneChangeTool,
 	OPENAI_LOGIN_FAILURE,
@@ -30,6 +35,8 @@ const {
 	OPENAI_LOGIN_SUCCESS,
 	OPENAI_LOGIN_TIMEOUT,
 	proposeOperatorTimeZoneChange,
+	SENDBLUE_CHANNEL_SPAN_NAME,
+	SENDBLUE_CORRELATION_KEY,
 } = await import('./sendblue.js');
 
 const { consumePendingOperatorTimeZoneChange } = await import('../../lib/operator-time-zone.js');
@@ -77,8 +84,33 @@ function makeThread(
 	} as unknown as Thread;
 }
 
-function makeHandlerContext(): ChannelHandlerContext {
-	return { requestContext: new RequestContext(), signalMetadata: {} };
+function makeHandlerContext(observability?: Observability): ChannelHandlerContext {
+	return {
+		mastra: observability ? { observability } as never : undefined,
+		requestContext: new RequestContext(),
+		signalMetadata: {},
+	};
+}
+
+function captureObservability(spans: AnyExportedSpan[]): Observability {
+	return new Observability({
+		configs: {
+			default: {
+				serviceName: 'test',
+				requestContextKeys: [SENDBLUE_CORRELATION_KEY],
+				exporters: [{
+					name: 'capture',
+					onTracingEvent: (event) => {
+						if (event.type === TracingEventType.SPAN_ENDED)
+							spans.push(event.exportedSpan);
+					},
+					flush: async () => {},
+					shutdown: async () => {},
+					exportTracingEvent: async () => {},
+				}],
+			},
+		},
+	});
 }
 
 function memorySql(initialOverride?: string | null) {
@@ -216,6 +248,139 @@ describe('Sendblue error formatting', () => {
 	});
 });
 
+describe('Sendblue request correlation', () => {
+	test('hashes provider handles deterministically without sharing correlation', () => {
+		const first = hashSendblueMessageHandle('provider-message-1');
+
+		expect(first).toBe(hashSendblueMessageHandle('provider-message-1'));
+		expect(first).not.toBe(hashSendblueMessageHandle('provider-message-2'));
+		expect(first).toMatch(/^[a-f\d]{64}$/);
+		expect(first).not.toContain('provider-message-1');
+	});
+
+	test('binds the live thread and message only to the authenticated request context', async () => {
+		const fixture = memorySql();
+		const contexts = [makeHandlerContext(), makeHandlerContext()];
+		const messages = [
+			makeMessage('first', operatorNumber, 'provider-message-a'),
+			makeMessage('second', operatorNumber, 'provider-message-b'),
+		];
+		const seen: unknown[] = [];
+
+		await Promise.all(messages.map((message, index) => handleSendblueDirectMessage(
+			makeThread([]),
+			message,
+			async (thread) => {
+				const capability = getSendblueChannelCapability(contexts[index]!.requestContext);
+				const unrelated = getSendblueChannelCapability(contexts[1 - index]!.requestContext);
+				seen.push(capability);
+				expect(capability?.message).toBe(message);
+				expect(capability?.thread).toBe(thread);
+				if (unrelated) {
+					expect(unrelated.message).toBe(messages[1 - index]);
+					expect(unrelated).not.toBe(capability);
+				}
+			},
+			contexts[index],
+			fixture.sql,
+		)));
+
+		expect(seen).toHaveLength(2);
+		expect(contexts.map(context => context.requestContext.getRaw(SENDBLUE_CORRELATION_KEY))).toEqual(
+			messages.map(message => hashSendblueMessageHandle(message.id)),
+		);
+		expect(contexts[0]!.requestContext.getRaw(SENDBLUE_CORRELATION_KEY))
+			.not
+			.toBe(contexts[1]!.requestContext.getRaw(SENDBLUE_CORRELATION_KEY));
+		for (const context of contexts)
+			expect(getSendblueChannelCapability(context.requestContext)).toBeUndefined();
+
+		const forged = new RequestContext();
+		forged.setRaw(SENDBLUE_CORRELATION_KEY, hashSendblueMessageHandle('forged'));
+		expect(getSendblueChannelCapability(forged)).toBeUndefined();
+	});
+
+	test('does not correlate rejected, malformed, or missing-context messages', async () => {
+		const fixture = memorySql();
+		for (const [thread, message] of [
+			[makeThread([]), makeMessage('not operator', '+15555550999')],
+			[makeThread([], undefined, { adapterName: 'slack' }), makeMessage('wrong adapter')],
+			[makeThread([], undefined, { isDM: false }), makeMessage('group')],
+		] as const) {
+			const context = makeHandlerContext();
+			await handleSendblueDirectMessage(thread, message, async () => {}, context, fixture.sql);
+			expect(context.requestContext.getRaw(SENDBLUE_CORRELATION_KEY)).toBeUndefined();
+			expect(getSendblueChannelCapability(context.requestContext)).toBeUndefined();
+		}
+
+		for (const id of ['', '   ']) {
+			const malformedContext = makeHandlerContext();
+			const malformed = makeMessage('malformed', operatorNumber, id, directThreadId);
+			await handleSendblueDirectMessage(makeThread([]), malformed, async () => {
+				expect(getSendblueChannelCapability(malformedContext.requestContext)).toBeUndefined();
+			}, malformedContext, fixture.sql);
+			expect(malformedContext.requestContext.getRaw(SENDBLUE_CORRELATION_KEY)).toBeUndefined();
+		}
+
+		let missingContextCalls = 0;
+		await handleSendblueDirectMessage(
+			makeThread([]),
+			makeMessage('missing context'),
+			async () => { missingContextCalls++; },
+			undefined,
+			fixture.sql,
+		);
+		expect(missingContextCalls).toBe(1);
+	});
+
+	test('records only fixed channel outcomes and never raw failure details', async () => {
+		const fixture = memorySql();
+		const spans: AnyExportedSpan[] = [];
+		const observability = captureObservability(spans);
+
+		const deliveredContext = makeHandlerContext(observability);
+		const delivered = makeMessage('private operator text', operatorNumber, 'raw-provider-handle-delivered');
+		const failedContext = makeHandlerContext(observability);
+		const failed = makeMessage('another private text', operatorNumber, 'raw-provider-handle-failed');
+		await Promise.all([
+			handleSendblueDirectMessage(
+				makeThread([]),
+				delivered,
+				async thread => void await thread.post('private reply text'),
+				deliveredContext,
+				fixture.sql,
+			),
+			expect(handleSendblueDirectMessage(
+				makeThread([], async () => { throw new Error('raw provider failure body'); }),
+				failed,
+				async thread => void await thread.post('reply that fails'),
+				failedContext,
+				fixture.sql,
+			)).rejects.toThrow('raw provider failure body'),
+		]);
+
+		await observability.flush();
+		const channelSpans = spans.filter(span => span.name === SENDBLUE_CHANNEL_SPAN_NAME);
+		expect(new Set(channelSpans.map(span => span.traceId)).size).toBe(2);
+		expect(channelSpans.map(span => span.metadata)).toEqual([
+			{
+				[SENDBLUE_CORRELATION_KEY]: hashSendblueMessageHandle(delivered.id),
+				stage: 'reply_delivery',
+				classification: 'delivered',
+			},
+			{
+				[SENDBLUE_CORRELATION_KEY]: hashSendblueMessageHandle(failed.id),
+				stage: 'reply_delivery',
+				classification: 'failed',
+			},
+		]);
+		expect(JSON.stringify(channelSpans)).not.toMatch(
+			/raw-provider-handle|private operator text|private reply text|another private text|reply that fails|raw provider failure body|15555550101/,
+		);
+		await observability.shutdown();
+	});
+});
+
 describe('OpenAI login command routing', () => {
 	test('normalizes outer whitespace and case but rejects near matches', () => {
 		for (const text of ['login openai', ' LOGIN OPENAI\n', '\tLogin OpenAI '])
@@ -238,12 +403,15 @@ describe('OpenAI login command routing', () => {
 	});
 
 	test('routes every other operator message through the model', async () => {
+		const fixture = memorySql();
 		const messages: string[] = [];
 		let defaultCalls = 0;
 		await handleSendblueDirectMessage(
 			makeThread(messages),
 			makeMessage('login openai now'),
 			async () => { defaultCalls++; },
+			undefined,
+			fixture.sql,
 		);
 
 		expect(messages).toEqual([]);
@@ -405,18 +573,24 @@ describe('operator time zone change routing', () => {
 		const fixture = memorySql();
 		await seedProposal(fixture, 'America/Denver', 'proposal-2');
 
+		const context = makeHandlerContext();
+		const decline = makeMessage('no', operatorNumber, 'decline-1');
 		const messages: string[] = [];
 		let defaultCalls = 0;
 		await handleSendblueDirectMessage(
-			makeThread(messages),
-			makeMessage('no', operatorNumber, 'decline-1'),
+			makeThread(messages, async () => {
+				expect(getSendblueChannelCapability(context.requestContext)?.message).toBe(decline);
+			}),
+			decline,
 			async () => { defaultCalls++; },
-			makeHandlerContext(),
+			context,
 			fixture.sql,
 		);
 
 		expect(messages).toEqual(['Operator time zone change declined.']);
 		expect(defaultCalls).toBe(0);
+		expect(context.requestContext.getRaw(SENDBLUE_CORRELATION_KEY)).toBe(hashSendblueMessageHandle(decline.id));
+		expect(getSendblueChannelCapability(context.requestContext)).toBeUndefined();
 		expect(fixture.proposal()).toBeUndefined();
 		expect(fixture.override()).toBeUndefined();
 	});
@@ -792,9 +966,17 @@ describe('OpenAI login flow', () => {
 		const postStarted = new Promise<void>(resolve => (urlPostStarted = resolve));
 		const postReleased = new Promise<void>(resolve => (releaseUrlPost = resolve));
 		const completed = new Promise<void>(resolve => (loginCompleted = resolve));
+		const fixture = memorySql();
+		const loginContext = makeHandlerContext();
+		const loginMessage = makeMessage('login openai', operatorNumber, 'login-correlated');
+		const duplicateSpans: AnyExportedSpan[] = [];
+		const duplicateObservability = captureObservability(duplicateSpans);
+		const duplicateContext = makeHandlerContext(duplicateObservability);
+		const duplicateMessage = makeMessage('LOGIN OPENAI', operatorNumber, 'login-duplicate');
 		const messages: string[] = [];
 		const thread = makeThread(messages, async (message) => {
 			if (message.startsWith('Open ')) {
+				expect(getSendblueChannelCapability(loginContext.requestContext)?.message).toBe(loginMessage);
 				urlPostStarted();
 				await postReleased;
 			}
@@ -806,18 +988,31 @@ describe('OpenAI login flow', () => {
 			defaultCalls++;
 		};
 
-		const login = handleSendblueDirectMessage(thread, makeMessage('login openai'), defaultHandler);
+		const login = handleSendblueDirectMessage(thread, loginMessage, defaultHandler, loginContext, fixture.sql);
 		await postStarted;
 		expect(fetchCalls.filter(url => url.includes('/deviceauth/usercode')).length).toBe(1);
 		expect(fetchCalls.some(url => url.includes('/deviceauth/token'))).toBe(false);
 
 		releaseUrlPost();
 		await login;
+		expect(loginContext.requestContext.getRaw(SENDBLUE_CORRELATION_KEY)).toBe(hashSendblueMessageHandle(loginMessage.id));
+		expect(getSendblueChannelCapability(loginContext.requestContext)).toBeUndefined();
 		expect(fetchCalls.some(url => url.includes('/deviceauth/token'))).toBe(false);
 
-		await handleSendblueDirectMessage(thread, makeMessage('LOGIN OPENAI'), defaultHandler);
+		await handleSendblueDirectMessage(
+			thread,
+			duplicateMessage,
+			defaultHandler,
+			duplicateContext,
+			fixture.sql,
+		);
 		expect(messages[1]).toBe(OPENAI_LOGIN_IN_PROGRESS);
 		expect(fetchCalls.filter(url => url.includes('/deviceauth/usercode')).length).toBe(1);
+		await duplicateObservability.flush();
+		expect(duplicateSpans.map(span => span.metadata?.[SENDBLUE_CORRELATION_KEY])).toEqual([
+			hashSendblueMessageHandle(duplicateMessage.id),
+		]);
+		await duplicateObservability.shutdown();
 
 		releasePolling();
 		await completed;

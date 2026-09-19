@@ -1,9 +1,13 @@
 import type { ChannelHandlerContext } from '@mastra/core/channels';
+import type { Span } from '@mastra/core/observability';
 import type { RequestContext } from '@mastra/core/request-context';
 import type { Message, Thread } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
 import type { SqlLike } from '../../lib/operator-time-zone';
 
+import { createHash } from 'node:crypto';
+
+import { SpanType } from '@mastra/core/observability';
 import { createTool } from '@mastra/core/tools';
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
 import { z } from 'zod';
@@ -20,6 +24,12 @@ export const OPENAI_LOGIN_SUCCESS = 'OpenAI login complete.';
 export const OPENAI_LOGIN_TIMEOUT = 'OpenAI login timed out. Send "login openai" to try again.';
 export const OPENAI_LOGIN_FAILURE = 'OpenAI login failed. The error was logged.';
 export const OPERATOR_TIME_ZONE_DECLINED = 'Operator time zone change declined.';
+export const SENDBLUE_CHANNEL_SPAN_NAME = 'sendblue.channel';
+export const SENDBLUE_CORRELATION_KEY = 'sendblue_message_digest';
+
+export function hashSendblueMessageHandle(messageHandle: string): string {
+	return createHash('sha256').update(messageHandle).digest('hex');
+}
 
 export function formatSendblueError(error: Error): string {
 	return error.message.includes(MODEL_AUTH_FAILURE) ? CODEX_AUTH_CHANNEL_ERROR : GENERIC_CHANNEL_ERROR;
@@ -43,22 +53,30 @@ export function isOpenAILoginCommand(message: Message): boolean {
 	return message.text.trim().toLowerCase() === 'login openai';
 }
 
-interface OperatorTimeZoneChannelCapability {
+export interface SendblueChannelCapability {
+	readonly message: Message;
+	readonly thread: Thread;
+}
+
+interface SendblueChannelCapabilityInternal extends SendblueChannelCapability {
 	messageId: string;
 	messageAt: Date;
-	thread: Thread;
 	threadId: string;
 	used: boolean;
 }
 
-const operatorTimeZoneCapabilities = new WeakMap<RequestContext, OperatorTimeZoneChannelCapability>();
+const sendblueChannelCapabilities = new WeakMap<RequestContext, SendblueChannelCapabilityInternal>();
+
+export function getSendblueChannelCapability(requestContext: RequestContext): SendblueChannelCapability | undefined {
+	return sendblueChannelCapabilities.get(requestContext);
+}
 
 export async function proposeOperatorTimeZoneChange(
 	timeZone: string | null,
 	requestContext: RequestContext,
 	sql?: SqlLike,
 ): Promise<{ status: 'denied' | 'proposed' | 'rejected' }> {
-	const capability = operatorTimeZoneCapabilities.get(requestContext);
+	const capability = sendblueChannelCapabilities.get(requestContext);
 	if (!capability || capability.used)
 		return { status: 'denied' };
 	capability.used = true;
@@ -158,15 +176,15 @@ function enqueueDirectMessage(task: () => Promise<void>): Promise<void> {
 	return current;
 }
 
-async function handleOpenAILoginCommand(thread: Thread): Promise<void> {
+async function handleOpenAILoginCommand(thread: Thread): Promise<{ completion?: Promise<void> }> {
 	if (openAILoginInFlight) {
 		await thread.post(OPENAI_LOGIN_IN_PROGRESS);
-		return;
+		return {};
 	}
 
 	let acknowledge!: () => void;
 	const acknowledged = new Promise<void>(resolve => (acknowledge = resolve));
-	openAILoginInFlight = runDeviceLogin(async ({ url, userCode }) => {
+	const completion = runDeviceLogin(async ({ url, userCode }) => {
 		await thread.post(`Open ${url} and enter code: ${userCode}`);
 		acknowledge();
 	}).then(async () => {
@@ -190,7 +208,9 @@ async function handleOpenAILoginCommand(thread: Thread): Promise<void> {
 		openAILoginInFlight = null;
 		acknowledge();
 	});
+	openAILoginInFlight = completion;
 	await acknowledged;
+	return { completion };
 }
 
 export async function handleSendblueDirectMessage(
@@ -205,68 +225,109 @@ export async function handleSendblueDirectMessage(
 
 	const messageAt = message.metadata?.dateSent;
 	const hasSource = !!thread.id
-		&& !!message.id
+		&& !!message.id.trim()
 		&& message.threadId === thread.id
 		&& messageAt instanceof Date
 		&& Number.isFinite(messageAt.getTime());
-	if (isOpenAILoginCommand(message)) {
-		return await enqueueDirectMessage(async () => {
-			const login = handleOpenAILoginCommand(thread);
-			if (context && hasSource && messageAt) {
-				try {
-					await consumePendingOperatorTimeZoneChange(thread.id, message.id, messageAt, false, sql);
-				}
-				catch {
-					console.error('[operator-time-zone] Failed to clear a pending proposal during OpenAI login.');
-				}
-			}
-			await login;
+	const correlation = context && hasSource && messageAt ? { context, messageAt } : undefined;
+	let spanEndedLater = false;
+	let span: Span<SpanType.GENERIC> | undefined;
+	let observedThread = thread;
+	if (correlation) {
+		const digest = hashSendblueMessageHandle(message.id);
+		correlation.context.requestContext.setRaw(SENDBLUE_CORRELATION_KEY, digest);
+		span = correlation.context.mastra?.observability.getDefaultInstance()?.startSpan({
+			name: SENDBLUE_CHANNEL_SPAN_NAME,
+			type: SpanType.GENERIC,
+			requestContext: correlation.context.requestContext,
+			metadata: { stage: 'channel_intake', classification: 'accepted' },
 		});
-	}
-
-	return await enqueueDirectMessage(async () => {
-		await deliverPendingOperatorTimeZoneNotification(thread, sql);
-		if (context && hasSource && messageAt) {
-			const confirmationRequested = isOperatorTimeZoneConfirmation(message.text);
-			const proposal = confirmationRequested ? await readPendingOperatorTimeZoneProposal(sql) : null;
-			const confirmed = !!proposal
-				&& proposal.threadId === thread.id
-				&& await isImmediatelyFollowingOperatorMessage(thread, message, proposal.messageId);
-			const pending = await consumePendingOperatorTimeZoneChange(thread.id, message.id, messageAt, confirmed, sql);
-			if (!pending)
-				return;
-			if (pending.applied) {
-				await deliverPendingOperatorTimeZoneNotification(thread, sql);
-				return;
-			}
-			if (pending.consumedProposal && isOperatorTimeZoneDecline(message.text)) {
-				await thread.post(OPERATOR_TIME_ZONE_DECLINED);
-				return;
-			}
-			if (pending.consumedProposal && confirmationRequested) {
-				await thread.post('Operator time zone change canceled.');
-				return;
-			}
-		}
-		if (!context || !hasSource || !messageAt) {
-			await defaultHandler(thread, message);
-			return;
-		}
-		const capability: OperatorTimeZoneChannelCapability = {
+		let deliveryFailed = false;
+		const boundarySpan = span;
+		observedThread = boundarySpan
+			? new Proxy(thread, {
+					get(target, property, receiver) {
+						if (property !== 'post')
+							return Reflect.get(target, property, receiver);
+						return async (postable: unknown) => {
+							try {
+								const result = await Reflect.apply(target.post, target, [postable]);
+								if (!deliveryFailed)
+									boundarySpan.update({ metadata: { stage: 'reply_delivery', classification: 'delivered' } });
+								return result;
+							}
+							catch (error) {
+								deliveryFailed = true;
+								boundarySpan.update({ metadata: { stage: 'reply_delivery', classification: 'failed' } });
+								throw error;
+							}
+						};
+					},
+				})
+			: thread;
+		const capability: SendblueChannelCapabilityInternal = {
+			message,
 			messageId: message.id,
-			messageAt,
-			thread,
+			messageAt: correlation.messageAt,
+			thread: observedThread,
 			threadId: thread.id,
 			used: false,
 		};
-		operatorTimeZoneCapabilities.set(context.requestContext, capability);
-		try {
-			await defaultHandler(thread, message);
+		sendblueChannelCapabilities.set(correlation.context.requestContext, capability);
+	}
+
+	try {
+		if (isOpenAILoginCommand(message)) {
+			return await enqueueDirectMessage(async () => {
+				const { completion } = await handleOpenAILoginCommand(observedThread);
+				if (correlation) {
+					try {
+						await consumePendingOperatorTimeZoneChange(thread.id, message.id, correlation.messageAt, false, sql);
+					}
+					catch {
+						console.error('[operator-time-zone] Failed to clear a pending proposal during OpenAI login.');
+					}
+				}
+				if (span && completion) {
+					spanEndedLater = true;
+					void completion.then(() => span.end(), () => span.end());
+				}
+			});
 		}
-		finally {
-			operatorTimeZoneCapabilities.delete(context.requestContext);
-		}
-	});
+
+		return await enqueueDirectMessage(async () => {
+			await deliverPendingOperatorTimeZoneNotification(observedThread, sql);
+			if (correlation) {
+				const confirmationRequested = isOperatorTimeZoneConfirmation(message.text);
+				const proposal = confirmationRequested ? await readPendingOperatorTimeZoneProposal(sql) : null;
+				const confirmed = !!proposal
+					&& proposal.threadId === thread.id
+					&& await isImmediatelyFollowingOperatorMessage(observedThread, message, proposal.messageId);
+				const pending = await consumePendingOperatorTimeZoneChange(thread.id, message.id, correlation.messageAt, confirmed, sql);
+				if (!pending)
+					return;
+				if (pending.applied) {
+					await deliverPendingOperatorTimeZoneNotification(observedThread, sql);
+					return;
+				}
+				if (pending.consumedProposal && isOperatorTimeZoneDecline(message.text)) {
+					await observedThread.post(OPERATOR_TIME_ZONE_DECLINED);
+					return;
+				}
+				if (pending.consumedProposal && confirmationRequested) {
+					await observedThread.post('Operator time zone change canceled.');
+					return;
+				}
+			}
+			await defaultHandler(observedThread, message);
+		});
+	}
+	finally {
+		if (correlation)
+			sendblueChannelCapabilities.delete(correlation.context.requestContext);
+		if (!spanEndedLater)
+			span?.end();
+	}
 }
 
 // The Sendblue adapter attaches the raw platform payload; group_id is the
