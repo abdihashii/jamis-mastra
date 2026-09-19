@@ -8,16 +8,6 @@ const inputTokenMetric = 'mastra_model_total_input_tokens';
 const outputTokenMetric = 'mastra_model_total_output_tokens';
 const redactedMessage = '[redacted sensitive log message]';
 
-const sensitiveMessagePatterns = [
-	/(?:^|[^a-z0-9])(?:system|developer|user|assistant)(?:\s+(?:prompt|message))?\s*[:=-]/i,
-	/(?:^|[^a-z0-9])(?:prompt|response(?:\s+(?:body|content))?|request\s+body|payload|email\s+(?:body|content)|message\s+body)\s*[:=]/i,
-	/(?:^|[^a-z0-9])(?:api[-_\s]?key|access[-_\s]?token|refresh[-_\s]?token|authorization(?:\s+header)?|password|secret|credential|database[-_\s]?url|connection[-_\s]?string)(?:\b|_)/i,
-	/\bbearer\s+\S+/i,
-	/\b(?:sk[-_][\w-]{8,}|gh[pousr]_\w{20,}|github_pat_\w{20,}|xox[baprs]-[\w-]{10,}|AIza[\w-]{20,})\b/i,
-	/\b[a-z][a-z0-9+.-]*:\/\/[^/\s:@]+:[^@\s/]+@/i,
-	/\b(?:ignore|disregard|override)\b.{1,80}\b(?:instruction|prompt|message|rule|direction|guidance)s?\b/i,
-];
-
 const unavailableQuerySchema = z.enum([
 	'storage',
 	'completedRuns',
@@ -60,18 +50,6 @@ const monitoringOutputSchema = z.object({
 export type MonitoringStore = Pick<ObservabilityStorage, 'getMetricAggregate' | 'listLogs'>;
 export type MonitoringSummary = z.infer<typeof monitoringOutputSchema>;
 
-function sanitizeMessage(message: string): string {
-	const normalized = message.replace(/\p{Cc}+/gu, ' ').replace(/\s+/g, ' ').trim();
-	if (sensitiveMessagePatterns.some(pattern => pattern.test(normalized))) {
-		return redactedMessage;
-	}
-
-	const redacted = normalized
-		.replace(/[\w.%+-]+@[\w.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
-		.replace(/\+?\d(?:[\s().-]*\d){7,}/g, '[redacted-phone]');
-	return redacted.slice(0, 500);
-}
-
 function unavailableSummary(start: Date, end: Date): MonitoringSummary {
 	return {
 		status: 'unavailable',
@@ -105,7 +83,7 @@ export async function readMonitoring(
 	}
 
 	const timestamp = { start, end };
-	const [completedResult, failedResult, averageResult, inputResult, outputResult, logsResult] = await Promise.allSettled([
+	const [completedResult, failedResult, averageResult, inputResult, inputCountResult, outputResult, outputCountResult, logsResult] = await Promise.allSettled([
 		store.getMetricAggregate({
 			name: [durationMetric],
 			aggregation: 'count',
@@ -127,8 +105,18 @@ export async function readMonitoring(
 			filters: { timestamp, rootEntityName: 'Jamis' },
 		}),
 		store.getMetricAggregate({
+			name: [inputTokenMetric],
+			aggregation: 'count',
+			filters: { timestamp, rootEntityName: 'Jamis' },
+		}),
+		store.getMetricAggregate({
 			name: [outputTokenMetric],
 			aggregation: 'sum',
+			filters: { timestamp, rootEntityName: 'Jamis' },
+		}),
+		store.getMetricAggregate({
+			name: [outputTokenMetric],
+			aggregation: 'count',
 			filters: { timestamp, rootEntityName: 'Jamis' },
 		}),
 		store.listLogs({
@@ -143,20 +131,36 @@ export async function readMonitoring(
 		}),
 	]);
 
-	const queryNames = ['completedRuns', 'failedRuns', 'averageDuration', 'inputTokens', 'outputTokens', 'logs'] as const;
-	const queryResults = [completedResult, failedResult, averageResult, inputResult, outputResult, logsResult] as const;
+	const queryResults = [
+		['completedRuns', completedResult],
+		['failedRuns', failedResult],
+		['averageDuration', averageResult],
+		['inputTokens', inputResult],
+		['inputTokens', inputCountResult],
+		['outputTokens', outputResult],
+		['outputTokens', outputCountResult],
+		['logs', logsResult],
+	] as const;
 	const unavailableQueries: z.infer<typeof unavailableQuerySchema>[] = [];
-	queryResults.forEach((result, index) => {
-		if (result.status === 'rejected') {
-			unavailableQueries.push(queryNames[index]!);
+	queryResults.forEach(([name, result]) => {
+		if (result.status === 'rejected' && !unavailableQueries.includes(name)) {
+			unavailableQueries.push(name);
 		}
 	});
 
 	const completedRuns = completedResult.status === 'fulfilled' ? completedResult.value.value ?? 0 : null;
 	const failedRuns = failedResult.status === 'fulfilled' ? failedResult.value.value ?? 0 : null;
 	const averageDurationMs = averageResult.status === 'fulfilled' ? averageResult.value.value : null;
-	const inputTokens = inputResult.status === 'fulfilled' ? inputResult.value.value : null;
-	const outputTokens = outputResult.status === 'fulfilled' ? outputResult.value.value : null;
+	const inputTokens = inputResult.status === 'fulfilled'
+		&& inputCountResult.status === 'fulfilled'
+		&& (inputCountResult.value.value ?? 0) > 0
+		? inputResult.value.value
+		: null;
+	const outputTokens = outputResult.status === 'fulfilled'
+		&& outputCountResult.status === 'fulfilled'
+		&& (outputCountResult.value.value ?? 0) > 0
+		? outputResult.value.value
+		: null;
 	const logs = logsResult.status === 'fulfilled'
 		? logsResult.value.logs.slice(0, 20).map(log => ({
 				timestamp: log.timestamp.toISOString(),
@@ -165,7 +169,7 @@ export async function readMonitoring(
 				entityName: log.entityName ?? null,
 				traceId: log.traceId ?? null,
 				spanId: log.spanId ?? null,
-				message: sanitizeMessage(log.message),
+				message: redactedMessage,
 			}))
 		: [];
 
@@ -199,7 +203,10 @@ export const checkMonitoringTool = createTool({
 	inputSchema: monitoringInputSchema,
 	outputSchema: monitoringOutputSchema,
 	execute: async ({ hours }, context) => await readMonitoring(
-		async () => await context.mastra?.getStorage()?.getStore('observability'),
+		async () => {
+			await context.mastra?.observability.flush();
+			return await context.mastra?.getStorage()?.getStore('observability');
+		},
 		hours,
 	),
 });

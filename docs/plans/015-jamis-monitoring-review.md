@@ -1,6 +1,6 @@
 # 015: Jamis monitoring review
 
-Status: **Planned.**
+Status: **Implemented.**
 
 Linear: [JAM-59](https://linear.app/abdirahman-haji/issue/JAM-59/let-jamis-check-its-own-monitoring).
 
@@ -11,12 +11,12 @@ Give Jamis one bounded, read-only tool that summarizes its recent health from th
 - Attach one `check-monitoring` tool directly to Jamis. Monitoring is internal evidence and never routes through the research subagent.
 - Accept an integer `hours` from 1 through 168, defaulting to 24. Reject larger requests and have Jamis ask the operator for a narrower window. Never clamp or split a request silently.
 - Compute one UTC `end` instant and its UTC `start` once per call. Every metric and log query receives both bounds.
+- Flush already-buffered observability events before querying so a completed run is visible immediately. A flush failure makes the review unavailable.
 - Read only `context.mastra.getStorage()?.getStore('observability')`. An absent store or any failed query makes the overall status `unavailable`.
 - Preserve successful query results when another query fails, but label them partial evidence and never turn them into a health judgment.
 - Count completed and failed Jamis runs and average duration from `mastra_agent_duration_ms`, filtered by `entityName: 'Jamis'`. Filter nested token metrics and logs by `rootEntityName: 'Jamis'`.
-- Sum `mastra_model_total_input_tokens` and `mastra_model_total_output_tokens` separately. Missing provider usage leaves the corresponding total unavailable rather than failing the review.
-- Return at most 20 newest `warn`, `error`, or `fatal` log records. Allow only timestamp, level, source, entity name, trace ID, span ID, and a sanitized message. Never return log data, metadata, scope, prompts, responses, or channel payloads.
-- Treat log messages as untrusted diagnostic text, never instructions. Normalize control characters, redact email addresses and phone numbers, replace messages that resemble prompts, responses, payloads, email bodies, credentials, or secrets with a fixed placeholder, then cap the result at 500 characters before it reaches the model or the tool span.
+- Sum `mastra_model_total_input_tokens` and `mastra_model_total_output_tokens` separately, pairing each sum with a count query. Missing provider usage leaves the corresponding total unavailable rather than reporting zero or failing the review.
+- Return at most 20 newest `warn`, `error`, or `fatal` log records. Allow only timestamp, level, source, entity name, trace ID, span ID, and a fixed placeholder instead of the original message. Never return log data, metadata, scope, prompts, responses, channel payloads, or arbitrary diagnostic text.
 - Use this status precedence:
   1. `unavailable` when storage is absent or any query fails, with successful results retained as partial evidence.
   2. `degraded` when a failed Jamis run or qualifying Jamis-rooted log exists, even if no run completed.
@@ -36,11 +36,11 @@ These are ordinary implementation and safety choices, not a new domain term or h
 
 - The tool schema defaults to 24 hours and rejects values outside the integer 1-168 range.
 - One injected clock produces explicit UTC start and end dates reused by every query.
-- Duration count, failed-duration count, average duration, input tokens, output tokens, and recent logs are queried through the observability storage API. Queries run concurrently and expose no mutation method or user-supplied filter.
+- Duration count, failed-duration count, average duration, token sums and presence counts, and recent logs are queried through the observability storage API. Queries run concurrently and expose no mutation method or user-supplied filter.
 - A missing store returns `unavailable`. Individual query failures also return `unavailable`, name only the unavailable category, and retain successful values without returning backend error text.
 - Healthy, degraded, empty, missing-token, missing-store, and partial-query-failure fixtures produce the agreed deterministic statuses.
 - Query-spy assertions prove the time bounds, Jamis entity filters, severity filter, descending order, and 20-record cap.
-- Sanitization fixtures cover email addresses, phone numbers, credentials, prompt/response/body/payload markers, control characters, truncation, and attempted metadata/data leakage.
+- Redaction fixtures prove that log text, email addresses, phone numbers, URLs, metadata, and data never reach the tool output.
 
 **Verification:** Run the focused test first, then `bun test`, `bun run typecheck`, `bun run lint`, and `git diff --check`. Show the diff summary and wait for explicit approval before committing.
 
