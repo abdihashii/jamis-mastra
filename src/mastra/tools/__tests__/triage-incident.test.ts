@@ -112,9 +112,11 @@ function storeFixture(options: {
 		},
 		listBranches: async (args) => {
 			options.onBranches?.(args);
+			const entityId = (args.filters as { entityId?: string } | undefined)?.entityId;
+			const matching = entityId ? branches.filter(branch => branch.entityId === entityId) : branches;
 			return {
-				branches,
-				pagination: { total: branches.length, page: 0, perPage: 6, hasMore: false },
+				branches: matching,
+				pagination: { total: matching.length, page: 0, perPage: 6, hasMore: false },
 			} as never;
 		},
 		getStructure: async ({ traceId }) => options.structures?.get(traceId) as never ?? null,
@@ -452,6 +454,36 @@ describe('bounded incident reader', () => {
 		expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
 	});
 
+	test('maps canonical tool components to their Mastra registration keys', async () => {
+		for (const [component, entityId] of [
+			['check-monitoring', 'checkMonitoring'],
+			['current-time', 'currentTime'],
+			['propose-operator-time-zone-change', 'proposeOperatorTimeZoneChange'],
+			['calendar-events', 'calendarEventsTool'],
+			['gmail-search', 'gmailSearchTool'],
+			['firecrawl-search', 'firecrawlSearch'],
+			['firecrawl-scrape', 'firecrawlScrape'],
+			['weather-tool', 'weatherTool'],
+			['forecast-tool', 'forecastTool'],
+		] as const) {
+			const tool = traceRow({ entityId, spanType: SpanType.TOOL_CALL, traceId: `trace-${entityId}`, spanId: `span-${entityId}` });
+			let queriedEntityId: unknown;
+			const result = await readIncident(
+				{ kind: 'application', component, window: { start, end } },
+				{
+					flush: async () => {},
+					getStore: async () => storeFixture({
+						branches: [tool],
+						structures: new Map([[tool.traceId, structure(tool)]]),
+						onBranches: (args) => { queriedEntityId = (args as { filters?: { entityId?: string } }).filters?.entityId; },
+					}),
+				},
+			);
+			expect(queriedEntityId).toBe(entityId);
+			expect(result).toMatchObject({ status: 'found', incident: { component, stage: 'tool' } });
+		}
+	});
+
 	test('resolves an exact configured Fantasy week outside the trace window and validates its stored trace', async () => {
 		const workflow = traceRow({
 			name: 'fantasy-weekly-recap',
@@ -472,9 +504,9 @@ describe('bounded incident reader', () => {
 				fantasyLeagueId: '111',
 				flush: async () => { seen.push('flush'); },
 				getStore: async () => storeFixture({ structures: new Map([[workflow.traceId, structure(workflow)]]) }),
-				readFantasyRun: async (leagueId, week) => {
+				readFantasyRuns: async (leagueId, week) => {
 					seen.push({ leagueId, week });
-					return fantasyRun();
+					return [fantasyRun()];
 				},
 			},
 		);
@@ -498,28 +530,28 @@ describe('bounded incident reader', () => {
 		expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
 	});
 
-	test('surfaces the latest actionable Fantasy run with missing or stale trace evidence', async () => {
+	test('bounds actionable Fantasy runs and validates only exact-week trace evidence', async () => {
 		const updatedAt = new Date(start.getTime() + 60_000);
-		const missing = await readIncident(
+		const single = await readIncident(
 			{ kind: 'application', component: 'fantasy-weekly-recap', window: { start, end } },
 			{
 				fantasyLeagueId: '111',
 				flush: async () => {},
 				getStore: async () => storeFixture(),
-				readFantasyRun: async (_leagueId, week) => {
+				readFantasyRuns: async (_leagueId, week) => {
 					expect(week).toBeUndefined();
-					return fantasyRun({
+					return [fantasyRun({
 						fantasyWeek: 7,
 						status: 'delivery_unknown',
 						latestAttemptTraceId: null,
 						failureStage: 'reply_delivery',
 						failureClassification: 'execution_interrupted',
 						updatedAt,
-					});
+					})];
 				},
 			},
 		);
-		expect(missing).toMatchObject({
+		expect(single).toMatchObject({
 			status: 'found',
 			incident: {
 				humanDomainReference: 'week 7',
@@ -527,7 +559,27 @@ describe('bounded incident reader', () => {
 				classification: 'execution_interrupted',
 				impact: 'delivery_unconfirmed',
 			},
-			evidenceGaps: ['trace_reference_missing', 'cause_unproven'],
+			evidenceGaps: ['trace_identity_not_exact', 'cause_unproven'],
+		});
+
+		const multiple = await readIncident(
+			{ kind: 'application', component: 'fantasy-weekly-recap', window: { start, end } },
+			{
+				fantasyLeagueId: '111',
+				flush: async () => {},
+				getStore: async () => storeFixture(),
+				readFantasyRuns: async () => [
+					fantasyRun({ fantasyWeek: 6, updatedAt: new Date(start.getTime() + 30_000) }),
+					fantasyRun({ fantasyWeek: 7, updatedAt }),
+				],
+			},
+		);
+		expect(multiple).toMatchObject({
+			status: 'ambiguous',
+			candidates: [
+				{ component: 'fantasy-weekly-recap', humanDomainReference: 'week 6' },
+				{ component: 'fantasy-weekly-recap', humanDomainReference: 'week 7' },
+			],
 		});
 
 		const stale = await readIncident(
@@ -538,7 +590,7 @@ describe('bounded incident reader', () => {
 				getStore: async () => storeFixture({
 					structures: new Map([['trace-fantasy', structure(traceRow({ traceId: 'trace-fantasy', entityId: 'jamis' }))]]),
 				}),
-				readFantasyRun: async () => fantasyRun(),
+				readFantasyRuns: async () => [fantasyRun()],
 			},
 		);
 		expect(stale).toMatchObject({
@@ -552,11 +604,11 @@ describe('bounded incident reader', () => {
 				fantasyLeagueId: '111',
 				flush: async () => {},
 				getStore: async () => storeFixture(),
-				readFantasyRun: async () => fantasyRun({
+				readFantasyRuns: async () => [fantasyRun({
 					latestAttemptTraceId: null,
 					failureStage: rawDiagnostic as never,
 					failureClassification: rawDiagnostic as never,
-				}),
+				})],
 			},
 		);
 		expect(corrupted).toMatchObject({
@@ -564,7 +616,7 @@ describe('bounded incident reader', () => {
 			incident: { stage: 'unknown', classification: 'unknown' },
 			evidenceGaps: ['failure_stage_unknown', 'trace_reference_missing', 'cause_unproven'],
 		});
-		expect(JSON.stringify([missing, stale, corrupted])).not.toContain(rawDiagnostic);
+		expect(JSON.stringify([single, multiple, stale, corrupted])).not.toContain(rawDiagnostic);
 	});
 
 	test('includes fixed channel failures in broad bounded history', async () => {
@@ -617,6 +669,70 @@ describe('bounded incident reader', () => {
 			evidenceGaps: ['trace_identity_not_exact', 'cause_unproven'],
 		});
 		expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
+	});
+
+	test('includes bounded durable Fantasy failures in broad history', async () => {
+		const run = fantasyRun({
+			fantasyWeek: 4,
+			latestAttemptTraceId: null,
+			updatedAt: new Date(start.getTime() + 60_000),
+		});
+		const result = await readIncident(
+			{ kind: 'application', window: { start, end } },
+			{
+				fantasyLeagueId: '111',
+				flush: async () => {},
+				getStore: async () => storeFixture(),
+				readFantasyRuns: async (_leagueId, week) => {
+					expect(week).toBeUndefined();
+					return [run];
+				},
+			},
+		);
+		expect(result).toEqual({
+			status: 'found',
+			targetKind: 'application',
+			incident: {
+				component: 'fantasy-weekly-recap',
+				occurrenceTimeUtc: run.updatedAt.toISOString(),
+				stage: 'scheduled_job',
+				humanDomainReference: 'week 4',
+				classification: 'execution_failed',
+				scope: 'single_execution',
+				impact: 'execution_failed',
+			},
+			evidenceGaps: ['trace_identity_not_exact', 'cause_unproven'],
+		});
+
+		const root = traceRow({ startedAt: new Date(start.getTime() + 120_000) });
+		const secondRun = fantasyRun({
+			fantasyWeek: 5,
+			latestAttemptTraceId: null,
+			updatedAt: new Date(start.getTime() + 90_000),
+		});
+		const rootCalls: unknown[] = [];
+		const mixed = await readIncident(
+			{ kind: 'application', window: { start, end } },
+			{
+				fantasyLeagueId: '111',
+				flush: async () => {},
+				getStore: async () => storeFixture({
+					roots: [root],
+					structures: new Map([[root.traceId, structure(root)]]),
+					onRoots: args => rootCalls.push(args),
+				}),
+				readFantasyRuns: async () => [run, secondRun],
+			},
+		);
+		expect(rootCalls[0]).toMatchObject({ pagination: { page: 0, perPage: 4 } });
+		expect(mixed).toMatchObject({
+			status: 'ambiguous',
+			candidates: [
+				{ component: 'fantasy-weekly-recap', humanDomainReference: 'week 4' },
+				{ component: 'fantasy-weekly-recap', humanDomainReference: 'week 5' },
+				{ component: 'jamis' },
+			],
+		});
 	});
 
 	test('returns deterministic zero, one, two, and over-five broad results', async () => {

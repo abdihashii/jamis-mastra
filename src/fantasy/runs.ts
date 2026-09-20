@@ -261,15 +261,15 @@ export async function latestSentRunBefore(leagueId: string, week: number, sql: S
 	return rows[0] ? toRun(rows[0]) : null;
 }
 
-/** Latest unresolved failure for bounded incident triage, not a monitoring signal. */
-export async function latestActionableRun(leagueId: string, start: Date, end: Date, sql: SqlLike): Promise<RecapRun | null> {
+/** Bounded unresolved failures for incident triage, not a monitoring signal. */
+export async function listActionableRuns(leagueId: string, start: Date, end: Date, limit: number, sql: SqlLike): Promise<RecapRun[]> {
 	const rows = (await sql`
 		SELECT * FROM fantasy_recap_runs
 		WHERE league_id = ${leagueId} AND status IN ('failed', 'delivery_unknown')
 			AND updated_at >= ${start.toISOString()} AND updated_at <= ${end.toISOString()}
-		ORDER BY updated_at DESC LIMIT 1
+		ORDER BY updated_at ASC, fantasy_week ASC LIMIT ${limit}
 	`) as RunRow[];
-	return rows[0] ? toRun(rows[0]) : null;
+	return rows.map(toRun);
 }
 
 /** The store port the coordinator orchestrates against (PG impl below, in-memory in tests). */

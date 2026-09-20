@@ -7,7 +7,7 @@ import type { RecapRun } from '../runs';
 import { describe, expect, it } from 'bun:test';
 import { parseFantasyConfig } from '../config';
 import { confirmSent, retryWeek, runWeeklyRecap } from '../coordinator';
-import { ensureFantasyRunsTable, latestActionableRun } from '../runs';
+import { ensureFantasyRunsTable, listActionableRuns } from '../runs';
 
 const config = parseFantasyConfig({
 	FANTASY_SENDBLUE_GROUP_ID: 'g1',
@@ -611,10 +611,11 @@ describe('fantasy recap run schema', () => {
 		}) as SqlLike;
 		const windowStart = new Date('2026-09-01T00:00:00.000Z');
 		const windowEnd = new Date('2026-09-02T00:00:00.000Z');
-		await latestActionableRun('111', windowStart, windowEnd, querySql);
+		await listActionableRuns('111', windowStart, windowEnd, 6, querySql);
 		expect(queryCalls[0]!.statement).toContain('updated_at >=');
 		expect(queryCalls[0]!.statement).toContain('updated_at <=');
-		expect(queryCalls[0]!.values).toEqual(['111', windowStart.toISOString(), windowEnd.toISOString()]);
+		expect(queryCalls[0]!.statement).toContain('ORDER BY updated_at ASC, fantasy_week ASC');
+		expect(queryCalls[0]!.values).toEqual(['111', windowStart.toISOString(), windowEnd.toISOString(), 6]);
 	});
 });
 
