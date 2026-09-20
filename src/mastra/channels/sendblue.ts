@@ -230,6 +230,8 @@ export async function handleSendblueDirectMessage(
 		&& messageAt instanceof Date
 		&& Number.isFinite(messageAt.getTime());
 	const correlation = context && hasSource && messageAt ? { context, messageAt } : undefined;
+	let defaultHandlerStarted = false;
+	let deliveryFailed = false;
 	let spanEndedLater = false;
 	let span: Span<SpanType.GENERIC> | undefined;
 	let observedThread = thread;
@@ -242,7 +244,6 @@ export async function handleSendblueDirectMessage(
 			requestContext: correlation.context.requestContext,
 			metadata: { stage: 'channel_intake', classification: 'accepted' },
 		});
-		let deliveryFailed = false;
 		const boundarySpan = span;
 		observedThread = boundarySpan
 			? new Proxy(thread, {
@@ -319,8 +320,14 @@ export async function handleSendblueDirectMessage(
 					return;
 				}
 			}
+			defaultHandlerStarted = true;
 			await defaultHandler(observedThread, message);
 		});
+	}
+	catch (error) {
+		if (!defaultHandlerStarted && !deliveryFailed)
+			span?.update({ metadata: { stage: 'channel_intake', classification: 'failed' } });
+		throw error;
 	}
 	finally {
 		if (correlation)

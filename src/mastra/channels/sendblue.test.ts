@@ -379,6 +379,38 @@ describe('Sendblue request correlation', () => {
 		);
 		await observability.shutdown();
 	});
+
+	test('records pre-agent failures as fixed channel-intake failures', async () => {
+		const spans: AnyExportedSpan[] = [];
+		const observability = captureObservability(spans);
+		const context = makeHandlerContext(observability);
+		const incoming = makeMessage('private operator text', operatorNumber, 'raw-provider-handle-intake');
+		const failingSql = (async () => {
+			throw new Error('raw storage failure body');
+		}) as SqlLike;
+		let defaultCalls = 0;
+
+		await expect(handleSendblueDirectMessage(
+			makeThread([]),
+			incoming,
+			async () => { defaultCalls++; },
+			context,
+			failingSql,
+		)).rejects.toThrow('raw storage failure body');
+
+		await observability.flush();
+		const channelSpan = spans.find(span => span.name === SENDBLUE_CHANNEL_SPAN_NAME);
+		expect(defaultCalls).toBe(0);
+		expect(channelSpan?.metadata).toEqual({
+			[SENDBLUE_CORRELATION_KEY]: hashSendblueMessageHandle(incoming.id),
+			stage: 'channel_intake',
+			classification: 'failed',
+		});
+		expect(JSON.stringify(channelSpan)).not.toMatch(
+			/raw-provider-handle|private operator text|raw storage failure body|15555550101/,
+		);
+		await observability.shutdown();
+	});
 });
 
 describe('OpenAI login command routing', () => {
