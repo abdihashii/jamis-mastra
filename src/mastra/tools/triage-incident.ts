@@ -60,13 +60,10 @@ const incidentWindowInputSchema = z.object({
 }).strict();
 const triageIncidentInputSchema = z.object({
 	kind: z.enum(['preceding_request', 'application']),
-	component: incidentComponentSchema.optional(),
-	window: incidentWindowInputSchema.optional(),
-	humanDomainReference: z.string().trim().regex(/^week\s+([1-9]|1[0-8])$/i).optional(),
-}).strict().superRefine((input, context) => {
-	if (input.kind === 'preceding_request' && (input.component !== undefined || input.window !== undefined || input.humanDomainReference !== undefined))
-		context.addIssue({ code: 'custom', message: 'preceding_request accepts no application clues' });
-});
+	component: incidentComponentSchema.nullish(),
+	window: incidentWindowInputSchema.nullish(),
+	humanDomainReference: z.string().trim().regex(/^week\s+([1-9]|1[0-8])$/i).nullish(),
+}).strict();
 
 type TriageIncidentInput = z.infer<typeof triageIncidentInputSchema>;
 
@@ -715,7 +712,9 @@ function targetFromInput(input: TriageIncidentInput, timeZone?: string, nowMs = 
 	const endMs = input.window ? dateTimeInstant(input.window.end, timeZone) : nowMs;
 	const startMs = input.window ? dateTimeInstant(input.window.start, timeZone) : endMs - DEFAULT_WINDOW_MS;
 	return {
-		...input,
+		kind: 'application',
+		...(input.component ? { component: input.component } : {}),
+		...(input.humanDomainReference ? { humanDomainReference: input.humanDomainReference } : {}),
 		window: { start: new Date(startMs), end: new Date(endMs) },
 	};
 }

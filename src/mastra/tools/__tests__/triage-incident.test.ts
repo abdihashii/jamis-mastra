@@ -186,10 +186,18 @@ describe('bounded incident reader', () => {
 		const jsonSchema = z.toJSONSchema(schema);
 		expect(jsonSchema.type).toBe('object');
 		expect(jsonSchema.properties?.humanDomainReference).toMatchObject({
-			type: 'string',
-			pattern: '^week\\s+([1-9]|1[0-8])$',
+			anyOf: [
+				{ type: 'string', pattern: '^week\\s+([1-9]|1[0-8])$' },
+				{ type: 'null' },
+			],
 		});
 		expect(schema.parse({ kind: 'preceding_request' })).toEqual({ kind: 'preceding_request' });
+		expect(schema.parse({ kind: 'preceding_request', component: 'jamis', window: null, humanDomainReference: null })).toEqual({
+			kind: 'preceding_request',
+			component: 'jamis',
+			window: null,
+			humanDomainReference: null,
+		});
 		expect(schema.parse({ kind: 'application', component: 'fantasy-weekly-recap', humanDomainReference: 'Week 1' })).toEqual({
 			kind: 'application',
 			component: 'fantasy-weekly-recap',
@@ -197,7 +205,6 @@ describe('bounded incident reader', () => {
 		});
 		for (const input of [
 			{ kind: 'preceding_request', traceId: 'trace-1' },
-			{ kind: 'preceding_request', component: 'jamis' },
 			{ kind: 'application', component: 'unknown-component' },
 			{ kind: 'application', messageId: 'provider-message' },
 			{ kind: 'application', humanDomainReference: 'thread 123' },
@@ -260,7 +267,7 @@ describe('bounded incident reader', () => {
 	test('denies preceding-request capability to Studio and subagent tool calls', async () => {
 		let flushed = 0;
 		const execute = async (requestContext: MastraRequestContext, agentId?: string) => await triageIncidentTool.execute!(
-			{ kind: 'preceding_request' },
+			{ kind: 'preceding_request', component: 'jamis', window: null, humanDomainReference: null },
 			{
 				...(agentId ? { agent: { agentId } } : {}),
 				requestContext,
