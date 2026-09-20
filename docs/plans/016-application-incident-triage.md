@@ -1,6 +1,6 @@
 # 016: Application incident triage
 
-Status: **Complete. Production runs `89a09c0`; both Stage 5 deployment smokes passed on 2026-09-20 UTC.**
+Status: **Complete. Production runs `89a09c0`; both Stage 5 deployment smokes passed on 2026-09-20 UTC; pre-merge review fixes `6aa6499` and `73f2687` are locally verified.**
 
 Linear: [JAM-65](https://linear.app/abdirahman-haji/issue/JAM-65/let-jamis-triage-a-specific-application-incident).
 
@@ -234,7 +234,9 @@ After all approved stage commits:
 4. Fix only verified findings, rerun the focused checks, then rerun `rtk bun test`, `rtk bun run typecheck`, `rtk bun run lint`, `rtk bun run build`, and `rtk git diff --check`.
 5. Check every testable JAM-65 acceptance criterion and list the final commits. Pushing still requires separate approval.
 
-**Result:** Complete. Correctness, security, integration, contract, and Ponytail reviews have no surviving JAM-65 findings. All Linear acceptance criteria are checked. Final implementation commits: `2fbf751`, `0b27126`, `c7cf99a`, `e64705f`, `34747f0`, and `89a09c0`.
+**Result:** Complete. Correctness, security, integration, contract, and Ponytail reviews have no surviving JAM-65 findings. All Linear acceptance criteria are checked. Final implementation commits: `2fbf751`, `0b27126`, `c7cf99a`, `e64705f`, `34747f0`, `89a09c0`, `6aa6499`, and `73f2687`.
+
+**Pre-merge review 2026-09-20 UTC.** Final PR review found four correctness gaps: pre-agent intake errors stayed classified as accepted, canonical tool IDs did not match Mastra trace registration keys, broad history omitted durable Fantasy failures, and component-only Fantasy lookup selected the newest failed week. Commits `6aa6499` and `73f2687` fix those paths with bounded candidate merging and deterministic ordering. The final gate passed with 312 tests across 22 files, typecheck, lint, build, and `git diff --check`; fresh correctness, data-integrity, contract, and Ponytail reviews had no findings. These pre-merge fixes are not part of the earlier production smoke; production remains on `89a09c0`.
 
 ## Research basis
 
