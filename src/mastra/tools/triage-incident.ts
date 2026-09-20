@@ -1,8 +1,12 @@
 import type { RequestContext } from '@mastra/core/request-context';
 import type { GetStructureResponse, ObservabilityStorage } from '@mastra/core/storage';
+import type { RecapRun } from '../../fantasy/runs';
 
 import { SpanType } from '@mastra/core/observability';
 import { extractBranchSpans, TraceStatus } from '@mastra/core/storage';
+import { getFantasyConfig } from '../../fantasy/config';
+import { getFantasySql } from '../../fantasy/recaps';
+import { getRun, latestActionableRun } from '../../fantasy/runs';
 
 import {
 	getSendblueChannelCapability,
@@ -50,7 +54,7 @@ export type IncidentFailureStage
 		| 'application_storage'
 		| 'reply_delivery'
 		| 'unknown';
-export type IncidentClassification = 'intake_failed' | 'execution_failed' | 'delivery_failed' | 'unknown';
+export type IncidentClassification = 'intake_failed' | 'execution_failed' | 'execution_interrupted' | 'delivery_failed' | 'unknown';
 export type IncidentEvidenceGap
 	= | 'invalid_window'
 		| 'unsupported_component'
@@ -60,7 +64,12 @@ export type IncidentEvidenceGap
 		| 'observability_flush_failed'
 		| 'observability_storage_unavailable'
 		| 'observability_query_failed'
+		| 'fantasy_configuration_unavailable'
+		| 'fantasy_storage_unavailable'
+		| 'unsupported_domain_reference'
 		| 'trace_structure_unavailable'
+		| 'trace_reference_missing'
+		| 'trace_reference_stale'
 		| 'failure_stage_unknown'
 		| 'trace_identity_not_exact'
 		| 'cause_unproven'
@@ -72,6 +81,7 @@ export type IncidentTarget
 		| {
 			kind: 'application';
 			component?: IncidentComponent;
+			humanDomainReference?: string;
 			window: { start: Date; end: Date };
 		};
 
@@ -79,6 +89,7 @@ export interface IncidentCandidate {
 	component: IncidentComponent | 'unknown';
 	occurrenceTimeUtc: string;
 	stage: IncidentFailureStage;
+	humanDomainReference?: string;
 }
 
 export type IncidentResult
@@ -88,7 +99,7 @@ export type IncidentResult
 		incident: IncidentCandidate & {
 			classification: IncidentClassification;
 			scope: 'single_request' | 'single_execution';
-			impact: 'request_failed' | 'execution_failed' | 'execution_degraded' | 'reply_not_delivered';
+			impact: 'request_failed' | 'execution_failed' | 'execution_degraded' | 'reply_not_delivered' | 'delivery_unconfirmed';
 			cause?: 'reply_delivery_failed';
 			traceReference?: { traceId: string; spanId: string };
 		};
@@ -126,6 +137,8 @@ interface IncidentReaderContext {
 	flush: () => Promise<void>;
 	getStore: () => Promise<IncidentStore | undefined>;
 	requestContext?: RequestContext;
+	fantasyLeagueId?: string;
+	readFantasyRun?: (leagueId: string, week?: number) => Promise<RecapRun | null>;
 }
 
 function isIncidentComponent(value: unknown): value is IncidentComponent {
@@ -423,6 +436,119 @@ async function readApplicationIncident(
 	return inspected.failed ? found(target, selected[0]!, inspected, false) : notFound(target);
 }
 
+function fantasyWeek(reference: string | undefined): number | undefined {
+	const match = reference?.trim().match(/^week\s+([1-9]|1[0-8])$/i);
+	return match ? Number(match[1]) : undefined;
+}
+
+function fantasyFailureStage(value: unknown): IncidentFailureStage {
+	return value === 'scheduled_job' || value === 'model' || value === 'application_storage' || value === 'reply_delivery'
+		? value
+		: 'unknown';
+}
+
+function fantasyFailureClassification(value: unknown): IncidentClassification {
+	return value === 'execution_failed' || value === 'execution_interrupted' || value === 'delivery_failed' || value === 'unknown'
+		? value
+		: 'unknown';
+}
+
+async function readFantasyIncident(
+	target: Extract<IncidentTarget, { kind: 'application' }>,
+	context: IncidentReaderContext,
+): Promise<IncidentResult> {
+	const week = fantasyWeek(target.humanDomainReference);
+	if (target.humanDomainReference && week === undefined)
+		return unavailable(target, 'unsupported_domain_reference');
+	const leagueId = context.fantasyLeagueId ?? getFantasyConfig()?.sleeperLeagueId;
+	if (!leagueId)
+		return unavailable(target, 'fantasy_configuration_unavailable');
+
+	let run: RecapRun | null;
+	try {
+		run = context.readFantasyRun
+			? await context.readFantasyRun(leagueId, week)
+			: week === undefined
+				? await latestActionableRun(leagueId, target.window.start, target.window.end, getFantasySql())
+				: await getRun(leagueId, week, getFantasySql());
+	}
+	catch {
+		return unavailable(target, 'fantasy_storage_unavailable');
+	}
+	if (!run || (run.status !== 'failed' && run.status !== 'delivery_unknown'))
+		return notFound(target);
+	if (week === undefined && (run.updatedAt < target.window.start || run.updatedAt > target.window.end))
+		return notFound(target);
+
+	const stage = fantasyFailureStage(run.failureStage);
+	const classification = fantasyFailureClassification(run.failureClassification);
+	const evidenceGaps: IncidentEvidenceGap[] = stage === 'unknown' ? ['failure_stage_unknown'] : [];
+	let traceReference: { traceId: string; spanId: string } | undefined;
+	if (!run.latestAttemptTraceId) {
+		evidenceGaps.push('trace_reference_missing');
+	}
+	else {
+		try {
+			await context.flush();
+		}
+		catch {
+			evidenceGaps.push('observability_flush_failed');
+		}
+		if (!evidenceGaps.includes('observability_flush_failed')) {
+			let store: IncidentStore | undefined;
+			try {
+				store = await context.getStore();
+			}
+			catch {
+				evidenceGaps.push('observability_storage_unavailable');
+			}
+			if (!store) {
+				if (!evidenceGaps.includes('observability_storage_unavailable'))
+					evidenceGaps.push('observability_storage_unavailable');
+			}
+			else {
+				try {
+					const structure = await store.getStructure({ traceId: run.latestAttemptTraceId });
+					const span = structure?.traceId === run.latestAttemptTraceId
+						? (structure.spans as TraceRow[]).find(candidate =>
+								candidate.entityId === 'fantasy-weekly-recap'
+								&& (candidate.spanType === SpanType.WORKFLOW_RUN || candidate.spanType === SpanType.WORKFLOW_STEP))
+						: undefined;
+					if (span)
+						traceReference = { traceId: run.latestAttemptTraceId, spanId: span.spanId };
+					else
+						evidenceGaps.push('trace_reference_stale');
+				}
+				catch {
+					evidenceGaps.push('observability_query_failed');
+				}
+			}
+		}
+	}
+
+	const provenDeliveryFailure = stage === 'reply_delivery' && classification === 'delivery_failed';
+	if (!provenDeliveryFailure)
+		evidenceGaps.push('cause_unproven');
+	return {
+		status: 'found',
+		targetKind: 'application',
+		incident: {
+			component: 'fantasy-weekly-recap',
+			occurrenceTimeUtc: run.updatedAt.toISOString(),
+			stage,
+			humanDomainReference: `week ${run.fantasyWeek}`,
+			classification,
+			scope: 'single_execution',
+			impact: run.status === 'delivery_unknown'
+				? 'delivery_unconfirmed'
+				: provenDeliveryFailure ? 'reply_not_delivered' : 'execution_failed',
+			...(provenDeliveryFailure ? { cause: 'reply_delivery_failed' as const } : {}),
+			...(traceReference ? { traceReference } : {}),
+		},
+		evidenceGaps,
+	};
+}
+
 export async function readIncident(target: IncidentTarget, context: IncidentReaderContext): Promise<IncidentResult> {
 	if (target.kind === 'application') {
 		const startMs = target.window.start.getTime();
@@ -431,6 +557,10 @@ export async function readIncident(target: IncidentTarget, context: IncidentRead
 			return unavailable(target, 'invalid_window');
 		if (target.component !== undefined && !isIncidentComponent(target.component))
 			return unavailable(target, 'unsupported_component');
+		if (target.humanDomainReference && target.component !== 'fantasy-weekly-recap')
+			return unavailable(target, 'unsupported_domain_reference');
+		if (target.component === 'fantasy-weekly-recap')
+			return readFantasyIncident(target, context);
 	}
 
 	const preceding = target.kind === 'preceding_request'

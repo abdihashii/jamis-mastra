@@ -18,9 +18,11 @@ const weeklyRecapStep = createStep({
 	id: 'weekly-recap',
 	inputSchema: z.object({}),
 	outputSchema: outcomeSchema,
-	execute: async ({ mastra }) => {
+	execute: async ({ mastra, tracingContext }) => {
 		const started = Date.now();
-		const outcome = await runDailyRecap(getFantasyConfig(), mastra!);
+		const outcome = await runDailyRecap(getFantasyConfig(), mastra!, {
+			traceId: tracingContext?.currentSpan?.externalTraceId,
+		});
 		// Structured, content-free: league/week/status/duration make traces; never text or numbers of people.
 		mastra?.getLogger()?.info('[fantasy-recap] daily run', {
 			outcome: outcome.outcome,

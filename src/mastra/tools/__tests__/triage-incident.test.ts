@@ -1,11 +1,12 @@
 import type { ChannelHandlerContext } from '@mastra/core/channels';
 import type { Message, Thread } from 'chat';
+import type { RecapRun } from '../../../fantasy/runs';
 import type { SqlLike } from '../../../lib/operator-time-zone';
 
+import { describe, expect, test } from 'bun:test';
 import { SpanType } from '@mastra/core/observability';
 import { RequestContext as MastraRequestContext } from '@mastra/core/request-context';
 import { TraceStatus } from '@mastra/core/storage';
-import { describe, expect, test } from 'bun:test';
 
 process.env.JAMIS_ALLOWED_NUMBER = '+15555550101';
 process.env.SENDBLUE_API_KEY = 'test-api-key';
@@ -13,6 +14,10 @@ process.env.SENDBLUE_API_SECRET = 'test-api-secret';
 process.env.SENDBLUE_FROM_NUMBER = '+15555550100';
 process.env.SENDBLUE_WEBHOOK_SECRET = 'test-webhook-secret';
 process.env.OPERATOR_TIMEZONE = 'UTC';
+process.env.FANTASY_SENDBLUE_GROUP_ID = 'fantasy-group';
+process.env.FANTASY_SLEEPER_LEAGUE_ID = '111';
+process.env.FANTASY_MANAGER_MAP = '{}';
+process.env.FANTASY_RECAP_TIMEZONE = 'America/Chicago';
 
 const {
 	handleSendblueDirectMessage,
@@ -57,6 +62,28 @@ function traceRow(overrides: Record<string, unknown> = {}) {
 
 function structure(...spans: ReturnType<typeof traceRow>[]) {
 	return { traceId: spans[0]?.traceId ?? 'trace-1', spans };
+}
+
+function fantasyRun(overrides: Partial<RecapRun> = {}): RecapRun {
+	return {
+		leagueId: '111',
+		fantasyWeek: 1,
+		status: 'failed',
+		latestAttemptTraceId: 'trace-fantasy',
+		failureStage: 'scheduled_job',
+		failureClassification: 'execution_failed',
+		finalText: null,
+		claimToken: null,
+		leaseExpiresAt: null,
+		sendAttemptAt: null,
+		messageHandle: null,
+		deliverySource: null,
+		sentAt: null,
+		lastError: rawDiagnostic,
+		createdAt: new Date('2026-01-01T00:00:00.000Z'),
+		updatedAt: new Date('2026-01-01T00:01:00.000Z'),
+		...overrides,
+	};
 }
 
 function storeFixture(options: {
@@ -309,6 +336,121 @@ describe('bounded incident reader', () => {
 			evidenceGaps: ['trace_identity_not_exact', 'cause_unproven'],
 		});
 		expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
+	});
+
+	test('resolves an exact configured Fantasy week outside the trace window and validates its stored trace', async () => {
+		const workflow = traceRow({
+			name: 'fantasy-weekly-recap',
+			spanType: SpanType.WORKFLOW_RUN,
+			entityId: 'fantasy-weekly-recap',
+			traceId: 'trace-fantasy',
+			spanId: 'span-fantasy',
+		});
+		const seen: unknown[] = [];
+		const result = await readIncident(
+			{
+				kind: 'application',
+				component: 'fantasy-weekly-recap',
+				humanDomainReference: 'week 1',
+				window: { start, end },
+			},
+			{
+				fantasyLeagueId: '111',
+				flush: async () => { seen.push('flush'); },
+				getStore: async () => storeFixture({ structures: new Map([[workflow.traceId, structure(workflow)]]) }),
+				readFantasyRun: async (leagueId, week) => {
+					seen.push({ leagueId, week });
+					return fantasyRun();
+				},
+			},
+		);
+
+		expect(seen).toEqual([{ leagueId: '111', week: 1 }, 'flush']);
+		expect(result).toEqual({
+			status: 'found',
+			targetKind: 'application',
+			incident: {
+				component: 'fantasy-weekly-recap',
+				occurrenceTimeUtc: '2026-01-01T00:01:00.000Z',
+				stage: 'scheduled_job',
+				humanDomainReference: 'week 1',
+				classification: 'execution_failed',
+				scope: 'single_execution',
+				impact: 'execution_failed',
+				traceReference: { traceId: 'trace-fantasy', spanId: 'span-fantasy' },
+			},
+			evidenceGaps: ['cause_unproven'],
+		});
+		expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
+	});
+
+	test('surfaces the latest actionable Fantasy run with missing or stale trace evidence', async () => {
+		const updatedAt = new Date(start.getTime() + 60_000);
+		const missing = await readIncident(
+			{ kind: 'application', component: 'fantasy-weekly-recap', window: { start, end } },
+			{
+				fantasyLeagueId: '111',
+				flush: async () => {},
+				getStore: async () => storeFixture(),
+				readFantasyRun: async (_leagueId, week) => {
+					expect(week).toBeUndefined();
+					return fantasyRun({
+						fantasyWeek: 7,
+						status: 'delivery_unknown',
+						latestAttemptTraceId: null,
+						failureStage: 'reply_delivery',
+						failureClassification: 'execution_interrupted',
+						updatedAt,
+					});
+				},
+			},
+		);
+		expect(missing).toMatchObject({
+			status: 'found',
+			incident: {
+				humanDomainReference: 'week 7',
+				stage: 'reply_delivery',
+				classification: 'execution_interrupted',
+				impact: 'delivery_unconfirmed',
+			},
+			evidenceGaps: ['trace_reference_missing', 'cause_unproven'],
+		});
+
+		const stale = await readIncident(
+			{ kind: 'application', component: 'fantasy-weekly-recap', humanDomainReference: 'week 1', window: { start, end } },
+			{
+				fantasyLeagueId: '111',
+				flush: async () => {},
+				getStore: async () => storeFixture({
+					structures: new Map([['trace-fantasy', structure(traceRow({ traceId: 'trace-fantasy', entityId: 'jamis' }))]]),
+				}),
+				readFantasyRun: async () => fantasyRun(),
+			},
+		);
+		expect(stale).toMatchObject({
+			status: 'found',
+			evidenceGaps: ['trace_reference_stale', 'cause_unproven'],
+		});
+
+		const corrupted = await readIncident(
+			{ kind: 'application', component: 'fantasy-weekly-recap', humanDomainReference: 'week 1', window: { start, end } },
+			{
+				fantasyLeagueId: '111',
+				flush: async () => {},
+				getStore: async () => storeFixture(),
+				readFantasyRun: async () => fantasyRun({
+					latestAttemptTraceId: null,
+					failureStage: rawDiagnostic as never,
+					failureClassification: rawDiagnostic as never,
+				}),
+			},
+		);
+		expect(corrupted).toMatchObject({
+			status: 'found',
+			incident: { stage: 'unknown', classification: 'unknown' },
+			evidenceGaps: ['failure_stage_unknown', 'trace_reference_missing', 'cause_unproven'],
+		});
+		expect(JSON.stringify([missing, stale, corrupted])).not.toContain(rawDiagnostic);
 	});
 
 	test('includes fixed channel failures in broad bounded history', async () => {

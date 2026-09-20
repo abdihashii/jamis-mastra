@@ -6,7 +6,7 @@ import type { FantasyConfig } from './config';
 import type { SendClient } from './deliver';
 import type { ChatContextMessage, RecapShaping } from './generate';
 import type { RecapGenerationRecord } from './recaps';
-import type { RunsStore } from './runs';
+import type { RecapFailureClassification, RecapFailureStage, RunsStore } from './runs';
 import type { SleeperManager } from './sleeper';
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -92,6 +92,24 @@ async function preserveUnknownDelivery(week: number, claimToken: string, error: 
 	return { outcome: 'delivery_unknown', week, error };
 }
 
+async function failRun(
+	week: number,
+	claimToken: string,
+	error: string,
+	stage: RecapFailureStage,
+	classification: RecapFailureClassification,
+	alert: string,
+	deps: CoordinatorDeps,
+): Promise<CoordinatorResult> {
+	try {
+		if (!await deps.runs.markFailed(week, claimToken, error, stage, classification))
+			return { outcome: 'blocked-active-claim', week };
+	}
+	catch { /* the started lease will expire to a conservative interruption state */ }
+	await tryDm(deps.send, alert);
+	return { outcome: 'failed', week, error };
+}
+
 /** Sends `text` for the claimed week and records the outcome per ADR 0018. Text is persisted first. */
 async function deliverStoredText(
 	week: number,
@@ -101,20 +119,34 @@ async function deliverStoredText(
 	deps: CoordinatorDeps,
 ): Promise<CoordinatorResult> {
 	const { runs, send } = deps;
-	if (generation) {
-		const recorded = await deps.recaps.record({
-			leagueId: deps.leagueId,
-			fantasyWeek: week,
-			generatorVersion: FANTASY_GENERATOR_VERSION,
-			model: generation.model,
-			finalText: text,
-			facts: generation.facts,
-		}, claimToken);
-		if (!recorded)
+	try {
+		if (generation) {
+			const recorded = await deps.recaps.record({
+				leagueId: deps.leagueId,
+				fantasyWeek: week,
+				generatorVersion: FANTASY_GENERATOR_VERSION,
+				model: generation.model,
+				finalText: text,
+				facts: generation.facts,
+			}, claimToken);
+			if (!recorded)
+				return { outcome: 'blocked-active-claim', week };
+		}
+		if (!await runs.recordAttemptText(week, claimToken, text))
 			return { outcome: 'blocked-active-claim', week };
 	}
-	if (!await runs.recordAttemptText(week, claimToken, text))
-		return { outcome: 'blocked-active-claim', week };
+	catch (error) {
+		const message = error instanceof Error ? error.message.slice(0, 120) : 'unknown storage failure';
+		return failRun(
+			week,
+			claimToken,
+			message,
+			'application_storage',
+			'execution_failed',
+			`[fantasy-recap] week ${week} recap persistence failed (${message}). The daily run retries automatically.`,
+			deps,
+		);
+	}
 
 	const outcome = await send.sendToGroup(deps.groupId, text);
 	if (outcome.kind === 'sent') {
@@ -126,10 +158,15 @@ async function deliverStoredText(
 		return preserveUnknownDelivery(week, claimToken, 'delivery result could not be recorded', deps);
 	}
 	if (outcome.kind === 'failed') {
-		if (!await runs.markFailed(week, claimToken, outcome.error))
-			return { outcome: 'blocked-active-claim', week };
-		await tryDm(send, `[fantasy-recap] week ${week} recap failed before Sendblue accepted it (${outcome.error}). The daily run retries automatically.`);
-		return { outcome: 'failed', week, error: outcome.error };
+		return failRun(
+			week,
+			claimToken,
+			outcome.error,
+			'reply_delivery',
+			'delivery_failed',
+			`[fantasy-recap] week ${week} recap failed before Sendblue accepted it (${outcome.error}). The daily run retries automatically.`,
+			deps,
+		);
 	}
 	return preserveUnknownDelivery(week, claimToken, outcome.error, deps);
 }
@@ -138,10 +175,10 @@ export interface RunWeeklyArgs {
 	config: FantasyConfig;
 	/** null when no completed week exists (normal no-op, not an error). */
 	week: number | null;
-	/** Caller-built deterministic facts for that week. */
-	facts: WeekFacts | null;
-	managers: SleeperManager[];
+	/** Loaded only after the completed week is claimed. */
+	loadFacts: (() => Promise<{ facts: WeekFacts; managers: SleeperManager[] }>) | null;
 	model: string;
+	traceId?: string;
 	generate: (facts: WeekFacts, context: ChatContextMessage[]) => Promise<RecapShaping>;
 }
 
@@ -168,7 +205,7 @@ export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps)
 		return { outcome: 'blocked-delivery-unknown', week };
 
 	const claimToken = randomUUID();
-	const claim = await runs.claimRun(week, claimToken, new Date(deps.now().getTime() + LEASE_MS));
+	const claim = await runs.claimRun(week, claimToken, new Date(deps.now().getTime() + LEASE_MS), args.traceId ?? null);
 	if (!claim.claimed)
 		return { outcome: claim.run?.status === 'delivery_unknown' ? 'blocked-delivery-unknown' : 'blocked-active-claim', week };
 
@@ -176,13 +213,15 @@ export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps)
 	// (ADR 0018). A failed row from a pre-send error has no text and regenerates.
 	if (claim.run?.finalText)
 		return deliverStoredText(week, claimToken, claim.run.finalText, null, deps);
-	const facts = args.facts!;
 
+	let failureStage: RecapFailureStage = 'scheduled_job';
 	try {
+		const { facts, managers } = await args.loadFacts!();
+		failureStage = 'application_storage';
 		// Chat window: after the previous sent recap, or everything (bounded) for the first.
 		const since = (await runs.latestSentRunBefore(week))?.sentAt ?? undefined;
 		const rawMessages = await deps.readThreadMessages(since);
-		const context = toChatContext(rawMessages, args.config, args.managers);
+		const context = toChatContext(rawMessages, args.config, managers);
 		const unmapped = new Set<string>();
 		for (const message of rawMessages) {
 			const sender = (message.content.metadata as Record<string, unknown> | undefined)?.senderNumber;
@@ -191,6 +230,7 @@ export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps)
 		}
 		await alertUnmappedSenders([...unmapped], deps);
 
+		failureStage = 'model';
 		const shaping = await generateWithRepair(args.generate, facts, context);
 		validateShaping(shaping, context, facts);
 		const text = renderWeekRecap(facts, shaping, context);
@@ -202,15 +242,18 @@ export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps)
 		// tighter slice because error text can echo prompt content towards traces/DB/DM.
 		const bound = error instanceof ShapingValidationError ? 300 : 120;
 		const message = error instanceof Error ? error.message.slice(0, bound) : 'unknown failure';
-		try {
-			if (!await runs.markFailed(week, claimToken, message))
-				return { outcome: 'blocked-active-claim', week };
-		}
-		catch {
-			// store down: leave the claimed row; the lease sweep recovers it next run
-		}
-		await tryDm(send, `[fantasy-recap] week ${week} recap could not be generated: ${message}`);
-		return { outcome: 'failed', week, error: message };
+		const label = failureStage === 'scheduled_job'
+			? 'facts unavailable'
+			: failureStage === 'application_storage' ? 'supporting state unavailable' : 'could not be generated';
+		return failRun(
+			week,
+			claimToken,
+			message,
+			failureStage,
+			'execution_failed',
+			`[fantasy-recap] week ${week} recap ${label}: ${message}`,
+			deps,
+		);
 	}
 }
 
@@ -224,6 +267,7 @@ export type RetryResult
  */
 export async function retryWeek(week: number, operatorVerifiedAbsent: boolean, deps: CoordinatorDeps): Promise<RetryResult> {
 	const { runs } = deps;
+	await runs.ensureSchema();
 	const run = await runs.getRun(week);
 	if (!run || !run.finalText)
 		return { ok: false, reason: `week ${week} has no stored recap to resend` };
@@ -248,5 +292,6 @@ export async function retryWeek(week: number, operatorVerifiedAbsent: boolean, d
 }
 
 export async function confirmSent(week: number, deps: CoordinatorDeps): Promise<boolean> {
+	await deps.runs.ensureSchema();
 	return deps.runs.confirmSentByOperator(week);
 }

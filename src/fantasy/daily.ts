@@ -28,7 +28,7 @@ export async function runDailyRecap(
 	config: FantasyConfig | null,
 	mastra: Mastra,
 	/** Test/op-only seam: without this, the real Sendblue client is dynamically imported. */
-	overrides?: { send?: SendClient },
+	overrides?: { send?: SendClient; traceId?: string },
 ): Promise<DailyOutcome> {
 	if (!config)
 		return { outcome: 'skipped-unconfigured', week: null };
@@ -37,10 +37,9 @@ export async function runDailyRecap(
 	const sql = getFantasySql();
 	const runs = createRunsStore(config.sleeperLeagueId, sql);
 	try {
-		const [state, rawLeague, managers, bracket] = await Promise.all([
+		const [state, rawLeague, bracket] = await Promise.all([
 			getNflState(),
 			getLeague(config.sleeperLeagueId),
-			getManagers(config.sleeperLeagueId),
 			getWinnersBracket(config.sleeperLeagueId),
 		]);
 		const league = withBracketRounds(rawLeague, bracket);
@@ -73,22 +72,6 @@ export async function runDailyRecap(
 			now: () => new Date(),
 		};
 
-		let facts: WeekFacts | null = null;
-		if (week != null) {
-			try {
-				facts = await factsForWeek(config, league, managers, bracket, week);
-			}
-			catch (error) {
-				// Missing Sleeper facts block posting and alert the operator (one DM per trigger).
-				const message = error instanceof Error ? error.message.slice(0, 200) : 'unknown Sleeper failure';
-				try {
-					await send.directMessage(`[fantasy-recap] recap blocked: Sleeper facts unavailable (${message}).`);
-				}
-				catch { /* alerting must never mask the underlying failure */ }
-				return { outcome: 'error', week: null, error: message };
-			}
-		}
-
 		const model = DEFAULT_RECAP_MODEL;
 		const agent = mastra.getAgent('fantasy');
 		const generate = async (factsNow: WeekFacts, context: ChatContextMessage[]): Promise<RecapShaping> => {
@@ -102,10 +85,22 @@ export async function runDailyRecap(
 				throw new ShapingValidationError('the model returned no structured recap output');
 			return validateShaping(result.object, context, factsNow);
 		};
-		return await runWeeklyRecap({ config, week, facts, managers, model, generate }, deps);
+		return await runWeeklyRecap({
+			config,
+			week,
+			loadFacts: week == null
+				? null
+				: async () => {
+					const managers = await getManagers(config.sleeperLeagueId);
+					return { facts: await factsForWeek(config, league, managers, bracket, week), managers };
+				},
+			model,
+			traceId: overrides?.traceId,
+			generate,
+		}, deps);
 	}
 	catch (error) {
-		// Sleeper endpoints down or shape-starved: operator DM, no run row.
+		// The completed week could not be identified, so no authoritative run exists yet.
 		const message = error instanceof Error ? error.message.slice(0, 200) : 'unknown Sleeper failure';
 		try {
 			await send.directMessage(`[fantasy-recap] recap blocked: Sleeper facts unavailable (${message}).`);
