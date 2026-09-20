@@ -1,6 +1,6 @@
 # 016: Application incident triage
 
-Status: **Stages 1-3 complete on `abdirahmanhaji/jam-65-triage-specific-incident`; Stage 4 next.**
+Status: **Stages 1-4 complete on `abdirahmanhaji/jam-65-triage-specific-incident`; Stage 5 next.**
 
 Linear: [JAM-65](https://linear.app/abdirahman-haji/issue/JAM-65/let-jamis-triage-a-specific-application-incident).
 
@@ -142,6 +142,8 @@ No result field carries provider text, stored `last_error`, span input/output, m
 
 ## Stage 4: Correlate durable Fantasy recap incidents
 
+**Status:** Complete, commit `e64705f`.
+
 **Goal:** Make the existing Fantasy recap run authority expose exact, safe triage evidence for failures before generation, during persistence, and during group delivery.
 
 **Critical files:**
@@ -224,7 +226,7 @@ After all approved stage commits:
 
 ## Research basis
 
-- Installed `@mastra/core@1.61.0` documentation and types confirm per-message channel `RequestContext`, trace metadata extraction with `requestContextKeys`, exact metadata filters, lightweight trace structure, branch queries, and workflow/tool tracing context.
+- Installed `@mastra/core@1.61.0` documentation and types confirm per-message channel `RequestContext`, trace metadata extraction with `requestContextKeys`, exact metadata filters, lightweight trace structure, branch queries, and workflow-step trace access through `tracingContext.currentSpan.externalTraceId`.
 - [AWS monitoring versus observability](https://aws.amazon.com/compare/the-difference-between-monitoring-and-observability/) distinguishes known-health detection from why/how investigation.
 - [AWS Incident Detection and Response](https://docs.aws.amazon.com/IDR/latest/userguide/observe-idr.html) states that monitoring reports something is wrong while observability establishes what is wrong and why.
 - [PostHog Observability](https://posthog.com/handbook/growth/use-case-selling/observability) treats natural-language incident triage as narrowing error spikes, affected users, and relevant evidence.
@@ -232,5 +234,6 @@ After all approved stage commits:
 - [Netflix Incident Management](https://netflixtechblog.com/empowering-netflix-engineers-with-incident-management-ebb967871de4) emphasizes simple incident declaration, shared language, consistent metadata, impacted areas, mitigation, and learning.
 - [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html) recommends interaction identifiers, hashing identifiers instead of logging raw values, excluding sensitive data, and treating event data as untrusted.
 - [OpenTelemetry handling sensitive data](https://opentelemetry.io/docs/security/handling-sensitive-data/) recommends data minimization and allowlisting telemetry attributes that cross a trust boundary.
+- [OpenTelemetry log correlation](https://opentelemetry.io/docs/languages/dotnet/logs/correlation/) defines `TraceId` and `SpanId` as the fields that correlate application evidence with the corresponding trace span.
 
 Implement one stage at a time. After each stage, show the diff summary and proposed commit, wait for explicit approval, then commit. Pushing requires separate approval.
