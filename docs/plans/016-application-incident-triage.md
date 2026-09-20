@@ -1,6 +1,6 @@
 # 016: Application incident triage
 
-Status: **Stages 1-4 complete; Stage 5 implementation complete in `34747f0`; deployment smokes pending on `abdirahmanhaji/jam-65-triage-specific-incident`.**
+Status: **Complete. Production runs `89a09c0`; both Stage 5 deployment smokes passed on 2026-09-20 UTC.**
 
 Linear: [JAM-65](https://linear.app/abdirahman-haji/issue/JAM-65/let-jamis-triage-a-specific-application-incident).
 
@@ -183,7 +183,7 @@ No result field carries provider text, stored `last_error`, span input/output, m
 
 ## Stage 5: Expose `triageIncident` through Jamis
 
-**Status:** Implementation complete, commit `34747f0`; live iMessage and background-component deployment smokes pending.
+**Status:** Complete. Implementation commit `34747f0`; provider-placeholder fix `89a09c0`; live deployment smokes passed 2026-09-20 UTC.
 
 **Goal:** Register the tool, route incident questions correctly, and prove both protocol boundaries live.
 
@@ -216,6 +216,14 @@ No result field carries provider text, stored `last_error`, span input/output, m
 
 **Proposed commit:** `feat: let Jamis triage application incidents`
 
+**Production verification 2026-09-20 UTC.** Production deployed `89a09c0ebb8de46de8a0c884df2d93e33e801ec8` from `abdirahmanhaji/jam-65-triage-specific-incident`. Sendblue remained on its single signed Jamis webhook; no webhook change was required.
+
+The first live follow-up exposed a provider-contract mismatch: strict tool calling populated the optional application fields on a `preceding_request` call, while a runtime-only refinement rejected them. Commit `89a09c0` accepts safe provider placeholders and keeps `kind` as the sole target selector. Verification passed: 14 focused tests, 309 repository tests across 22 files, typecheck, lint, build, and `git diff --check`. The focused correctness and contract review had no surviving findings.
+
+The final iMessage smoke forced a model-auth request failure at `2026-09-20T19:02:05.085Z`, then restored authentication before the immediately following `What happened?`. Jamis trace `358279b84dd04aa62e95cc351c89ec6e`, tool span `3f5c0c333c965b66`, called `triageIncident` once with `kind: preceding_request`. It returned the exact failed Jamis trace `92e8911bd5cb6c41c19b11540c23320f`, root span `c0166ffaf504480b`, with component `jamis`, stage `agent`, classification `execution_failed`, single-request scope, and `cause_unproven`. The tool span contained only the bounded input and safe result contract.
+
+The background smoke snapshotted the completed week 1 Fantasy row, temporarily marked it `delivery_unknown`, and armed a five-minute automatic restore. That state blocks coordinator retries, and no group-send command ran. Jamis trace `d711572fa035797f93b14f76f32ed8aa`, tool span `17d979d93a7f56ff`, queried `fantasy-weekly-recap` plus `week 1`. It returned exactly one `reply_delivery` / `unknown` incident, no candidates, no unrelated run, no trace reference, and no claimed cause. The original week 1 row was restored immediately to `sent` with its original `2026-09-15T15:00:59.832865Z` update time, and the temporary backup was removed.
+
 ## Final gate
 
 After all approved stage commits:
@@ -225,6 +233,8 @@ After all approved stage commits:
 3. Run `ponytail:ponytail-review` for unnecessary abstractions and duplicated state.
 4. Fix only verified findings, rerun the focused checks, then rerun `rtk bun test`, `rtk bun run typecheck`, `rtk bun run lint`, `rtk bun run build`, and `rtk git diff --check`.
 5. Check every testable JAM-65 acceptance criterion and list the final commits. Pushing still requires separate approval.
+
+**Result:** Complete. Correctness, security, integration, contract, and Ponytail reviews have no surviving JAM-65 findings. All Linear acceptance criteria are checked. Final implementation commits: `2fbf751`, `0b27126`, `c7cf99a`, `e64705f`, `34747f0`, and `89a09c0`.
 
 ## Research basis
 
