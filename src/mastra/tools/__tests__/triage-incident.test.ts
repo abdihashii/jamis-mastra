@@ -7,6 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import { SpanType } from '@mastra/core/observability';
 import { RequestContext as MastraRequestContext } from '@mastra/core/request-context';
 import { TraceStatus } from '@mastra/core/storage';
+import { z } from 'zod';
 
 process.env.JAMIS_ALLOWED_NUMBER = '+15555550101';
 process.env.SENDBLUE_API_KEY = 'test-api-key';
@@ -25,7 +26,7 @@ const {
 	SENDBLUE_CHANNEL_SPAN_NAME,
 	SENDBLUE_CORRELATION_KEY,
 } = await import('../../channels/sendblue.js');
-const { readIncident } = await import('../triage-incident.js');
+const { readIncident, triageIncidentTool } = await import('../triage-incident.js');
 
 type IncidentStore = import('../triage-incident.js').IncidentStore;
 type IncidentResult = import('../triage-incident.js').IncidentResult;
@@ -134,10 +135,10 @@ const sql = (async (strings: TemplateStringsArray) => strings.join(' ').includes
 	? [{ applied: false, consumed_proposal: false, proposal_time_zone: null }]
 	: []) as SqlLike;
 
-async function withPrecedingCapability(
-	store: IncidentStore,
-	options: { historyError?: boolean; calls?: string[] } = {},
-): Promise<IncidentResult> {
+async function withLiveCapability<T>(
+	run: (requestContext: MastraRequestContext) => Promise<T>,
+	historyError = false,
+): Promise<T> {
 	const previous = message('provider-previous', '2030-01-01T00:00:00.000Z');
 	const current = message('provider-current', '2030-01-01T00:01:00.000Z');
 	const thread = {
@@ -146,7 +147,7 @@ async function withPrecedingCapability(
 		adapter: {
 			name: 'sendblue',
 			fetchMessages: async () => {
-				if (options.historyError)
+				if (historyError)
 					throw new Error(rawDiagnostic);
 				return { messages: [previous, current] };
 			},
@@ -155,24 +156,130 @@ async function withPrecedingCapability(
 	} as unknown as Thread;
 	const requestContext = new MastraRequestContext();
 	const context = { requestContext, signalMetadata: {} } as ChannelHandlerContext;
-	let result: IncidentResult | undefined;
+	let result: T | undefined;
 	await handleSendblueDirectMessage(thread, current, async () => {
-		result = await readIncident(
-			{ kind: 'preceding_request' },
-			{
-				requestContext,
-				flush: async () => { options.calls?.push('flush'); },
-				getStore: async () => {
-					options.calls?.push('getStore');
-					return store;
-				},
-			},
-		);
+		result = await run(requestContext);
 	}, context, sql);
 	return result!;
 }
 
+async function withPrecedingCapability(
+	store: IncidentStore,
+	options: { historyError?: boolean; calls?: string[] } = {},
+): Promise<IncidentResult> {
+	return await withLiveCapability(async requestContext => await readIncident(
+		{ kind: 'preceding_request' },
+		{
+			requestContext,
+			flush: async () => { options.calls?.push('flush'); },
+			getStore: async () => {
+				options.calls?.push('getStore');
+				return store;
+			},
+		},
+	), options.historyError);
+}
+
 describe('bounded incident reader', () => {
+	test('exposes only bounded safe target clues', async () => {
+		const schema = triageIncidentTool.inputSchema as z.ZodTypeAny;
+		const jsonSchema = z.toJSONSchema(schema);
+		expect(jsonSchema.type).toBe('object');
+		expect(jsonSchema.properties?.humanDomainReference).toMatchObject({
+			type: 'string',
+			pattern: '^week\\s+([1-9]|1[0-8])$',
+		});
+		expect(schema.parse({ kind: 'preceding_request' })).toEqual({ kind: 'preceding_request' });
+		expect(schema.parse({ kind: 'application', component: 'fantasy-weekly-recap', humanDomainReference: 'Week 1' })).toEqual({
+			kind: 'application',
+			component: 'fantasy-weekly-recap',
+			humanDomainReference: 'Week 1',
+		});
+		for (const input of [
+			{ kind: 'preceding_request', traceId: 'trace-1' },
+			{ kind: 'preceding_request', component: 'jamis' },
+			{ kind: 'application', component: 'unknown-component' },
+			{ kind: 'application', messageId: 'provider-message' },
+			{ kind: 'application', humanDomainReference: 'thread 123' },
+			{ kind: 'application', window: { start: 'trace-123Z', end: end.toISOString() } },
+		])
+			expect(schema.safeParse(input).success).toBe(false);
+
+		let flushed = 0;
+		const tooWide = await triageIncidentTool.execute!(
+			{
+				kind: 'application',
+				window: { start: '2030-01-01T00:00:00.000Z', end: '2030-01-09T00:00:00.001Z' },
+			},
+			{
+				mastra: { observability: { flush: async () => { flushed++; } } },
+				requestContext: new MastraRequestContext(),
+			} as never,
+		);
+		expect(tooWide).toEqual({
+			status: 'unavailable',
+			targetKind: 'application',
+			evidenceGaps: ['invalid_window'],
+		});
+		expect(flushed).toBe(0);
+	});
+
+	test('wires flushing and storage at the public tool boundary', async () => {
+		const calls: string[] = [];
+		const root = traceRow({ entityId: 'weather-agent', traceId: 'trace-weather', spanId: 'agent-weather' });
+		const result = await triageIncidentTool.execute!(
+			{
+				kind: 'application',
+				component: 'weather-agent',
+				window: { start: start.toISOString(), end: end.toISOString() },
+			},
+			{
+				requestContext: new MastraRequestContext(),
+				mastra: {
+					observability: { flush: async () => { calls.push('flush'); } },
+					getStorage: () => ({
+						getStore: async () => {
+							calls.push('store');
+							return storeFixture({
+								branches: [root],
+								structures: new Map([[root.traceId, structure(root)]]),
+							});
+						},
+					}),
+				},
+			} as never,
+		);
+		expect(calls).toEqual(['flush', 'store']);
+		expect(result).toMatchObject({
+			status: 'found',
+			incident: { component: 'weather-agent', stage: 'agent' },
+		});
+		expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
+	});
+
+	test('denies preceding-request capability to Studio and subagent tool calls', async () => {
+		let flushed = 0;
+		const execute = async (requestContext: MastraRequestContext, agentId?: string) => await triageIncidentTool.execute!(
+			{ kind: 'preceding_request' },
+			{
+				...(agentId ? { agent: { agentId } } : {}),
+				requestContext,
+				mastra: { observability: { flush: async () => { flushed++; } } },
+			} as never,
+		);
+
+		const studio = await execute(new MastraRequestContext());
+		const subagent = await withLiveCapability(requestContext => execute(requestContext, 'research-agent'));
+		for (const result of [studio, subagent]) {
+			expect(result).toEqual({
+				status: 'unavailable',
+				targetKind: 'preceding_request',
+				evidenceGaps: ['missing_channel_capability'],
+			});
+		}
+		expect(flushed).toBe(0);
+	});
+
 	test('resolves only the preceding authenticated request by exact digest and sanitizes the result', async () => {
 		const calls: string[] = [];
 		const root = traceRow();

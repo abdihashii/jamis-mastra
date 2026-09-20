@@ -4,9 +4,13 @@ import type { RecapRun } from '../../fantasy/runs';
 
 import { SpanType } from '@mastra/core/observability';
 import { extractBranchSpans, TraceStatus } from '@mastra/core/storage';
+import { createTool } from '@mastra/core/tools';
+import { z } from 'zod';
 import { getFantasyConfig } from '../../fantasy/config';
 import { getFantasySql } from '../../fantasy/recaps';
 import { getRun, latestActionableRun } from '../../fantasy/runs';
+import { resolveOperatorTimeZone } from '../../lib/operator-time-zone';
+import { dateTimeInstant } from '../../lib/time';
 
 import {
 	getSendblueChannelCapability,
@@ -15,11 +19,13 @@ import {
 	SENDBLUE_CHANNEL_SPAN_NAME,
 	SENDBLUE_CORRELATION_KEY,
 } from '../channels/sendblue';
+import { requireOperatorTimeZone } from '../env';
 
 const QUERY_LIMIT = 6;
 const RESULT_LIMIT = 5;
 const HISTORY_LIMIT = 50;
 const MAX_WINDOW_MS = 168 * 60 * 60 * 1000;
+const DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const incidentComponents = [
 	'sendblue-channel',
@@ -43,6 +49,27 @@ const incidentComponents = [
 	'send_group_message',
 ] as const;
 
+const incidentComponentSchema = z.enum(incidentComponents);
+const incidentDateTimeSchema = z.union([
+	z.iso.date(),
+	z.iso.datetime({ offset: true, local: true }),
+]);
+const incidentWindowInputSchema = z.object({
+	start: incidentDateTimeSchema,
+	end: incidentDateTimeSchema,
+}).strict();
+const triageIncidentInputSchema = z.object({
+	kind: z.enum(['preceding_request', 'application']),
+	component: incidentComponentSchema.optional(),
+	window: incidentWindowInputSchema.optional(),
+	humanDomainReference: z.string().trim().regex(/^week\s+([1-9]|1[0-8])$/i).optional(),
+}).strict().superRefine((input, context) => {
+	if (input.kind === 'preceding_request' && (input.component !== undefined || input.window !== undefined || input.humanDomainReference !== undefined))
+		context.addIssue({ code: 'custom', message: 'preceding_request accepts no application clues' });
+});
+
+type TriageIncidentInput = z.infer<typeof triageIncidentInputSchema>;
+
 export type IncidentComponent = typeof incidentComponents[number];
 export type IncidentFailureStage
 	= | 'channel_intake'
@@ -58,6 +85,7 @@ export type IncidentClassification = 'intake_failed' | 'execution_failed' | 'exe
 export type IncidentEvidenceGap
 	= | 'invalid_window'
 		| 'unsupported_component'
+		| 'operator_time_zone_unavailable'
 		| 'missing_channel_capability'
 		| 'message_history_unavailable'
 		| 'preceding_request_not_found'
@@ -117,6 +145,85 @@ export type IncidentResult
 		component?: IncidentComponent;
 		evidenceGaps: IncidentEvidenceGap[];
 	};
+
+const incidentFailureStageSchema = z.enum([
+	'channel_intake',
+	'agent',
+	'model',
+	'tool',
+	'workflow',
+	'scheduled_job',
+	'application_storage',
+	'reply_delivery',
+	'unknown',
+]);
+const incidentClassificationSchema = z.enum([
+	'intake_failed',
+	'execution_failed',
+	'execution_interrupted',
+	'delivery_failed',
+	'unknown',
+]);
+const incidentEvidenceGapSchema = z.enum([
+	'invalid_window',
+	'unsupported_component',
+	'operator_time_zone_unavailable',
+	'missing_channel_capability',
+	'message_history_unavailable',
+	'preceding_request_not_found',
+	'observability_flush_failed',
+	'observability_storage_unavailable',
+	'observability_query_failed',
+	'fantasy_configuration_unavailable',
+	'fantasy_storage_unavailable',
+	'unsupported_domain_reference',
+	'trace_structure_unavailable',
+	'trace_reference_missing',
+	'trace_reference_stale',
+	'failure_stage_unknown',
+	'trace_identity_not_exact',
+	'cause_unproven',
+	'no_matching_incident',
+	'multiple_matching_incidents',
+]);
+const incidentCandidateSchema = z.object({
+	component: z.union([incidentComponentSchema, z.literal('unknown')]),
+	occurrenceTimeUtc: z.string(),
+	stage: incidentFailureStageSchema,
+	humanDomainReference: z.string().optional(),
+}).strict();
+const incidentResultSchema = z.discriminatedUnion('status', [
+	z.object({
+		status: z.literal('found'),
+		targetKind: z.enum(['preceding_request', 'application']),
+		incident: incidentCandidateSchema.extend({
+			classification: incidentClassificationSchema,
+			scope: z.enum(['single_request', 'single_execution']),
+			impact: z.enum(['request_failed', 'execution_failed', 'execution_degraded', 'reply_not_delivered', 'delivery_unconfirmed']),
+			cause: z.literal('reply_delivery_failed').optional(),
+			traceReference: z.object({ traceId: z.string(), spanId: z.string() }).strict().optional(),
+		}).strict(),
+		evidenceGaps: z.array(incidentEvidenceGapSchema),
+	}).strict(),
+	z.object({
+		status: z.literal('ambiguous'),
+		targetKind: z.enum(['preceding_request', 'application']),
+		candidates: z.array(incidentCandidateSchema).max(RESULT_LIMIT),
+		evidenceGaps: z.tuple([z.literal('multiple_matching_incidents')]),
+	}).strict(),
+	z.object({
+		status: z.literal('not_found'),
+		targetKind: z.enum(['preceding_request', 'application']),
+		component: incidentComponentSchema.optional(),
+		evidenceGaps: z.array(incidentEvidenceGapSchema),
+	}).strict(),
+	z.object({
+		status: z.literal('unavailable'),
+		targetKind: z.enum(['preceding_request', 'application']),
+		component: incidentComponentSchema.optional(),
+		evidenceGaps: z.array(incidentEvidenceGapSchema),
+	}).strict(),
+]);
 
 export type IncidentStore = Pick<ObservabilityStorage, 'listTracesLight' | 'listBranches' | 'getStructure'>;
 
@@ -595,3 +702,56 @@ export async function readIncident(target: IncidentTarget, context: IncidentRead
 		return unavailable(target, 'observability_query_failed');
 	}
 }
+
+function needsOperatorTimeZone(input: TriageIncidentInput): boolean {
+	return input.kind === 'application'
+		&& !!input.window
+		&& [input.window.start, input.window.end].some(value => !/(?:Z|[+-]\d{2}:\d{2})$/i.test(value));
+}
+
+function targetFromInput(input: TriageIncidentInput, timeZone?: string, nowMs = Date.now()): IncidentTarget {
+	if (input.kind === 'preceding_request')
+		return { kind: 'preceding_request' };
+	const endMs = input.window ? dateTimeInstant(input.window.end, timeZone) : nowMs;
+	const startMs = input.window ? dateTimeInstant(input.window.start, timeZone) : endMs - DEFAULT_WINDOW_MS;
+	return {
+		...input,
+		window: { start: new Date(startMs), end: new Date(endMs) },
+	};
+}
+
+export const triageIncidentTool = createTool({
+	id: 'triage-incident',
+	description: 'Triage one bounded application incident from internal evidence. Use for a specific failed request or bounded historical application errors, not health, rates, duration, tokens, or trends.',
+	inputSchema: triageIncidentInputSchema,
+	outputSchema: incidentResultSchema,
+	execute: async (input, context) => {
+		let timeZone: string | undefined;
+		if (needsOperatorTimeZone(input)) {
+			try {
+				timeZone = (await resolveOperatorTimeZone(requireOperatorTimeZone())).timeZone;
+			}
+			catch {
+				const result: IncidentResult = {
+					status: 'unavailable',
+					targetKind: 'application',
+					...(input.kind === 'application' && input.component ? { component: input.component } : {}),
+					evidenceGaps: ['operator_time_zone_unavailable'],
+				};
+				return result;
+			}
+		}
+
+		return await readIncident(targetFromInput(input, timeZone), {
+			requestContext: input.kind === 'preceding_request' && context.agent?.agentId !== 'jamis'
+				? undefined
+				: context.requestContext,
+			flush: async () => {
+				if (!context.mastra)
+					throw new Error('Observability unavailable');
+				await context.mastra.observability.flush();
+			},
+			getStore: async () => await context.mastra?.getStorage()?.getStore('observability'),
+		});
+	},
+});
