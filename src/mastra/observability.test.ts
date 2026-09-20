@@ -1,10 +1,10 @@
 import type { AnyExportedSpan } from '@mastra/core/observability';
 
-import { RequestContext } from '@mastra/core/di';
+import { expect, test } from 'bun:test';
 
+import { RequestContext } from '@mastra/core/di';
 import { SpanType, TracingEventType } from '@mastra/core/observability';
 import { Observability } from '@mastra/observability';
-import { expect, test } from 'bun:test';
 
 import { redactChannelRenderContext } from './observability';
 
