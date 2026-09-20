@@ -12,6 +12,7 @@ import { PostgresStore } from '@mastra/pg';
 
 import { createFantasyAgent, DEFAULT_RECAP_MODEL } from '../fantasy/generate';
 import { jamis } from './agents/jamis';
+import { SENDBLUE_CORRELATION_KEY } from './channels/sendblue';
 import { requireEnv, requireOperatorTimeZone } from './env';
 import { openAICodexGateway } from './gateways/openai-codex-gateway.js';
 import { redactChannelRenderContext } from './observability';
@@ -51,6 +52,7 @@ export const mastra = new Mastra({
 		configs: {
 			default: {
 				serviceName: 'mastra',
+				requestContextKeys: [SENDBLUE_CORRELATION_KEY],
 				exporters: [
 					new MastraStorageExporter(),
 					// new MastraPlatformExporter(), // needs MASTRA_PLATFORM_ACCESS_TOKEN

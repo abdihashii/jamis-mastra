@@ -53,6 +53,38 @@ _Avoid_: app timezone (ambiguous), detected location
 A messaging platform the operator reaches an agent through, instead of Studio. iMessage over Sendblue is the first one.
 _Avoid_: integration, connector, bridge
 
+**Application incident**:
+A specific failed or degraded execution within the Jamis application boundary, such as an agent, workflow, scheduled job, application storage operation, or channel delivery. It excludes failures of the host and deployment infrastructure.
+_Avoid_: monitoring event, VPS incident, server incident
+
+**Observability**:
+The capability to infer Jamis's internal state and investigate why behavior occurred by correlating Telemetry across components.
+_Avoid_: telemetry, monitoring, incident triage
+
+**Telemetry**:
+The metrics, events, logs, traces, and other recorded signals produced by Jamis and its Deployment. Telemetry is evidence used by Monitoring, Observability, and Incident triage.
+_Avoid_: observability, monitoring data
+
+**Monitoring**:
+A continuous practice of evaluating known health signals to detect and report when Jamis or its Deployment is not operating as expected. Monitoring establishes what happened and when; it does not by itself explain why.
+_Avoid_: observability, incident triage
+
+**Incident triage**:
+The initial narrowing and classification of an incident: identify the affected component, scope, severity, relevant evidence, and next investigative path. Triage may report a cause only when the evidence proves it.
+_Avoid_: monitoring, root-cause analysis, remediation
+
+**Incident investigation**:
+The evidence-driven work after triage that explains why and how an incident occurred. It may establish a root cause when the available Observability supports one.
+_Avoid_: incident triage, monitoring
+
+**Deployment**:
+The complete environment running Jamis and its supporting services, independent of the current hosting provider or machine shape.
+_Avoid_: VPS (too implementation-specific), server
+
+**Deployment incident**:
+A specific failure anywhere within the Deployment, including the application, host, runtime services, data services, or network path.
+_Avoid_: Application incident
+
 **Codex credential**:
 The operator's ChatGPT/Codex subscription OAuth credential (access and refresh tokens, expiry, account id) stored in a 0600 JSON file and used by the `openai-codex` gateway. A missing credential is a hard failure until re-login; there is no API-key fallback. See [ADR 0014](adrs/0014-openai-codex-model-auth.md).
 _Avoid_: API key, ChatGPT login

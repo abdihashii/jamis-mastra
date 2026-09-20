@@ -14,6 +14,7 @@ The renderer needs this context while a channel run is live. Trace consumers do 
 
 - Add one internal span output processor ahead of `SensitiveDataFilter`. It removes the complete `__mastra_chat_channel_render` entry from the span's exported `requestContext` before `MastraStorageExporter` receives it.
 - Keep `SensitiveDataFilter` for its existing fields. Do not replace it with a custom secret-name list, disable observability, or remove all request context.
+- Export only an explicitly derived, non-sensitive correlation value for exact channel-request triage. Raw Sendblue message handles and channel payloads remain outside trace metadata and triage output.
 - Do not change `src/mastra/agents/jamis.ts`, Sendblue message behavior, the webhook, or the channel allowlist. The defect is export scope, not the agent's clarification policy.
 - Treat the exposed Sendblue API key, API secret, and webhook secret as compromised. The security recommendation is to rotate them after a controlled post-deployment scan proves the boundary works, then purge historical matching ClickHouse records only after inspecting exact targets and receiving explicit approval. This ADR does not assert that either operational action has occurred.
 
