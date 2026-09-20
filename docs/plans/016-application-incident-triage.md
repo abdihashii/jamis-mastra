@@ -1,6 +1,6 @@
 # 016: Application incident triage
 
-Status: **Stages 1-2 complete on `abdirahmanhaji/jam-65-triage-specific-incident`; Stage 3 next.**
+Status: **Stages 1-3 complete on `abdirahmanhaji/jam-65-triage-specific-incident`; Stage 4 next.**
 
 Linear: [JAM-65](https://linear.app/abdirahman-haji/issue/JAM-65/let-jamis-triage-a-specific-application-incident).
 
@@ -104,6 +104,8 @@ No result field carries provider text, stored `last_error`, span input/output, m
 **Proposed commit:** `feat: correlate Sendblue requests with traces`
 
 ## Stage 3: Add the bounded application incident reader
+
+**Status:** Complete, commit `c7cf99a`.
 
 **Goal:** Implement the deep read-only module that resolves trace-backed incidents and returns only the safe result contract, without exposing a Jamis tool yet.
 
@@ -229,9 +231,6 @@ After all approved stage commits:
 - [Grafana Incident Management](https://grafana.com/products/cloud/incident/) places context gathering, severity, prioritization, and response coordination around triage.
 - [Netflix Incident Management](https://netflixtechblog.com/empowering-netflix-engineers-with-incident-management-ebb967871de4) emphasizes simple incident declaration, shared language, consistent metadata, impacted areas, mitigation, and learning.
 - [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html) recommends interaction identifiers, hashing identifiers instead of logging raw values, excluding sensitive data, and treating event data as untrusted.
-
-## Estimate
-
-The current Linear estimate of 1 point is no longer credible. The plan has five independently verifiable stages across channel correlation, observability queries, durable Fantasy state, security boundaries, and live protocol smokes. Recommended estimate: **8 points**.
+- [OpenTelemetry handling sensitive data](https://opentelemetry.io/docs/security/handling-sensitive-data/) recommends data minimization and allowlisting telemetry attributes that cross a trust boundary.
 
 Implement one stage at a time. After each stage, show the diff summary and proposed commit, wait for explicit approval, then commit. Pushing requires separate approval.
