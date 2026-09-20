@@ -1,6 +1,6 @@
 # 016: Application incident triage
 
-Status: **Stages 1-4 complete on `abdirahmanhaji/jam-65-triage-specific-incident`; Stage 5 next.**
+Status: **Stages 1-4 complete; Stage 5 implementation complete in `34747f0`; deployment smokes pending on `abdirahmanhaji/jam-65-triage-specific-incident`.**
 
 Linear: [JAM-65](https://linear.app/abdirahman-haji/issue/JAM-65/let-jamis-triage-a-specific-application-incident).
 
@@ -182,6 +182,8 @@ No result field carries provider text, stored `last_error`, span input/output, m
 **Proposed commit:** `feat: correlate Fantasy recap incidents`
 
 ## Stage 5: Expose `triageIncident` through Jamis
+
+**Status:** Implementation complete, commit `34747f0`; live iMessage and background-component deployment smokes pending.
 
 **Goal:** Register the tool, route incident questions correctly, and prove both protocol boundaries live.
 
