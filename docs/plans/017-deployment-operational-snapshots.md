@@ -1,6 +1,6 @@
 # 017: Deployment operational snapshots
 
-Status: **Semantics approved; Stage 1 complete and awaiting commit approval; no implementation approved.**
+Status: **Stage 2 implementation complete; Stage 3 and live smoke await approval.**
 
 Linear: [JAM-66](https://linear.app/abdirahman-haji/issue/JAM-66/let-jamis-monitor-fantasy-weekly-recaps), [JAM-67](https://linear.app/abdirahman-haji/issue/JAM-67/make-the-full-jamis-deployment-observable), [JAM-68](https://linear.app/abdirahman-haji/issue/JAM-68/monitor-the-full-jamis-deployment), and [JAM-69](https://linear.app/abdirahman-haji/issue/JAM-69/triage-a-specific-jamis-deployment-incident).
 
@@ -76,6 +76,8 @@ The highest-risk later concern is the read-only host and container evidence boun
 **Demo:** Execute `check-monitoring` directly with the Fantasy scope and no week, then with one exact week. The result contains only the configured league's safe durable evidence and no Fantasy Agent metric.
 
 **Proposed commit:** `feat: add Fantasy scope to monitoring`
+
+**Implementation record (2026-09-21 UTC):** Commit `836d5cc` is pushed on `abdirahman/jam-66-let-jamis-monitor-fantasy-weekly-recaps`. The focused 12 tests and full 318 tests passed with typecheck, lint, build, and diff checks; three fresh correctness, contract, and Mastra reviews found no remaining issue. No deployment, direct-tool production smoke, iMessage smoke, or webhook change was performed. The direct-tool smoke remains the separately approved protocol boundary before Stage 3 routing smoke.
 
 ## Stage 3: Route Fantasy Monitoring through Jamis
 
