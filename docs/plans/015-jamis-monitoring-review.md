@@ -79,3 +79,9 @@ These are ordinary implementation and safety choices, not a new domain term or h
 Alerts, polling, remediation, Trace Intelligence, Mastra Platform, arbitrary SQL, raw-log search, full trace bodies, thresholds, trends, dashboards, retention changes, a monitoring subagent, and new dependencies remain outside JAM-59.
 
 Implement one stage at a time. After each stage, show the diff and proposed commit, wait for explicit approval, then commit. Pushing requires separate approval.
+
+## Successor direction (2026-09-21 UTC)
+
+This plan remains the historical record for the shipped Jamis-rooted monitoring reader. [ADR 0021](../adrs/0021-operational-snapshots-compose-owned-evidence.md) reuses `checkMonitoring` as the deep Monitoring facade instead of adding one model-facing tool per source. JAM-66 adds the Fantasy durable-outcome scope; JAM-68 later adds full-Deployment aggregation after JAM-67 supplies the missing evidence.
+
+The current `healthy`, `degraded`, `empty`, and `unavailable` application result remains in production until a separately approved implementation stage changes it. The successor contract does not use raw child error or warning counts as product health, does not create a Deployment-wide rollup, and keeps duration, token, and other numeric signals as supporting application evidence.

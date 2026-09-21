@@ -218,6 +218,12 @@ No result field carries provider text, stored `last_error`, span input/output, m
 
 **Production verification 2026-09-20 UTC.** Production deployed `89a09c0ebb8de46de8a0c884df2d93e33e801ec8` from `abdirahmanhaji/jam-65-triage-specific-incident`. Sendblue remained on its single signed Jamis webhook; no webhook change was required.
 
+## Successor direction (2026-09-21 UTC)
+
+This plan remains the historical record for shipped Application incident triage. [ADR 0021](../adrs/0021-operational-snapshots-compose-owned-evidence.md) keeps `triageIncident` as the one deep triage facade and extends its source coverage through JAM-69 after JAM-67 makes Deployment evidence available.
+
+Future operator routing sends broad discovery questions to Monitoring. Triage receives one trusted target from the preceding request, one unambiguous Monitoring finding, a named component, or an exact domain reference. Nearby evidence may be reported only as explicitly uncorrelated context. Triage continues to stop at identification, scope, impact, classification, and evidence gaps; Incident investigation and remediation remain separate work.
+
 The first live follow-up exposed a provider-contract mismatch: strict tool calling populated the optional application fields on a `preceding_request` call, while a runtime-only refinement rejected them. Commit `89a09c0` accepts safe provider placeholders and keeps `kind` as the sole target selector. Verification passed: 14 focused tests, 309 repository tests across 22 files, typecheck, lint, build, and `git diff --check`. The focused correctness and contract review had no surviving findings.
 
 The final iMessage smoke forced a model-auth request failure at `2026-09-20T19:02:05.085Z`, then restored authentication before the immediately following `What happened?`. Jamis trace `358279b84dd04aa62e95cc351c89ec6e`, tool span `3f5c0c333c965b66`, called `triageIncident` once with `kind: preceding_request`. It returned the exact failed Jamis trace `92e8911bd5cb6c41c19b11540c23320f`, root span `c0166ffaf504480b`, with component `jamis`, stage `agent`, classification `execution_failed`, single-request scope, and `cause_unproven`. The tool span contained only the bounded input and safe result contract.

@@ -65,8 +65,12 @@ _Avoid_: telemetry, monitoring, incident triage
 The metrics, events, logs, traces, and other recorded signals produced by Jamis and its Deployment. Telemetry is evidence used by Monitoring, Observability, and Incident triage.
 _Avoid_: observability, monitoring data
 
+**Operational snapshot**:
+An operator-requested, read-only account of what happened across Jamis and its Deployment, what remains unknown, and whether the evidence supports direct intervention. It preserves each source's factual outcome language and never acts on the Operator's behalf.
+_Avoid_: dashboard, alert
+
 **Monitoring**:
-A continuous practice of evaluating known health signals to detect and report when Jamis or its Deployment is not operating as expected. Monitoring establishes what happened and when; it does not by itself explain why.
+An operator-requested evaluation of service outcomes and known health signals that reports what is operating as expected, what is not, and what cannot be determined. Monitoring establishes what happened and when; it does not alert, act, or explain why.
 _Avoid_: observability, incident triage
 
 **Incident triage**:
