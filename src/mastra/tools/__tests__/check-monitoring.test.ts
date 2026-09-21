@@ -1,9 +1,12 @@
 import type { z } from 'zod';
+import type { SqlLike } from '../../../fantasy/recaps';
+import type { FantasyMonitoringRun } from '../../../fantasy/runs';
 import type { MonitoringStore } from '../check-monitoring';
 
 import { describe, expect, test } from 'bun:test';
 
-import { checkMonitoringTool, readMonitoring } from '../check-monitoring';
+import { listFantasyMonitoringRuns } from '../../../fantasy/runs';
+import { checkMonitoringTool, readFantasyMonitoring, readMonitoring } from '../check-monitoring';
 
 type MetricArgs = Parameters<MonitoringStore['getMetricAggregate']>[0];
 type LogArgs = Parameters<MonitoringStore['listLogs']>[0];
@@ -68,15 +71,52 @@ function log(message: string, overrides: Partial<LogRecord> = {}): LogRecord {
 	};
 }
 
+function fantasyRun(fantasyWeek: number, overrides: Partial<FantasyMonitoringRun> = {}): FantasyMonitoringRun {
+	return {
+		fantasyWeek,
+		status: 'started',
+		failureStage: null,
+		failureClassification: null,
+		leaseExpiresAt: null,
+		sendAttemptAt: null,
+		deliverySource: null,
+		sentAt: null,
+		updatedAt: new Date('2026-09-15T10:00:00.000Z'),
+		...overrides,
+	};
+}
+
 describe('check monitoring', () => {
-	test('defaults to 24 hours and rejects out-of-range inputs', () => {
+	test('preserves application defaults and exposes only the bounded Fantasy scope', () => {
 		const schema = checkMonitoringTool.inputSchema as z.ZodTypeAny;
-		expect(schema.parse({})).toEqual({ hours: 24 });
+		expect(schema.parse({})).toEqual({ scope: 'application' });
+		expect(schema.parse({ hours: 24 })).toEqual({ scope: 'application', hours: 24 });
 		expect(schema.safeParse({ hours: 1 }).success).toBe(true);
 		expect(schema.safeParse({ hours: 168 }).success).toBe(true);
 		expect(schema.safeParse({ hours: 0 }).success).toBe(false);
 		expect(schema.safeParse({ hours: 1.5 }).success).toBe(false);
 		expect(schema.safeParse({ hours: 169 }).success).toBe(false);
+		expect(schema.parse({ scope: 'fantasy' })).toEqual({ scope: 'fantasy' });
+		expect(schema.parse({ scope: 'fantasy', week: 18 })).toEqual({ scope: 'fantasy', week: 18 });
+		expect(schema.safeParse({ scope: 'fantasy', week: 0 }).success).toBe(false);
+		expect(schema.safeParse({ scope: 'fantasy', week: 19 }).success).toBe(false);
+		expect(schema.safeParse({ scope: 'fantasy', week: 1.5 }).success).toBe(false);
+		expect(schema.safeParse({ scope: 'fantasy', hours: 24 }).success).toBe(false);
+		expect(schema.safeParse({ scope: 'application', week: 1 }).success).toBe(false);
+		expect(schema.safeParse({ scope: 'fantasy', leagueId: 'other-league' }).success).toBe(false);
+		expect(schema.safeParse({ scope: 'fantasy', season: '2025' }).success).toBe(false);
+
+		const providerSchema = (checkMonitoringTool.inputSchema as unknown as {
+			'~standard': { jsonSchema: { input: () => Record<string, unknown> } };
+		})['~standard'].jsonSchema.input();
+		expect(providerSchema).toMatchObject({ type: 'object', additionalProperties: false });
+		expect(providerSchema).not.toHaveProperty('anyOf');
+		const serializedProviderSchema = JSON.stringify(providerSchema);
+		expect(serializedProviderSchema).toContain('"fantasy"');
+		expect(serializedProviderSchema).toContain('"application"');
+		expect(serializedProviderSchema).toContain('"maximum":18');
+		expect(serializedProviderSchema).not.toContain('leagueId');
+		expect(serializedProviderSchema).not.toContain('season');
 	});
 
 	test('returns a healthy summary with bounded Jamis-only queries', async () => {
@@ -228,7 +268,7 @@ describe('check monitoring', () => {
 
 		const calls: string[] = [];
 		const executed = await checkMonitoringTool.execute!(
-			{ hours: 24 },
+			undefined as never,
 			{
 				mastra: {
 					observability: { flush: async () => { calls.push('flush'); } },
@@ -245,9 +285,200 @@ describe('check monitoring', () => {
 		expect(calls).toEqual(['flush', 'store']);
 
 		const unavailable = await checkMonitoringTool.execute!(
-			{ hours: 24 },
+			{ scope: 'application', hours: 24 },
 			{ mastra: { observability: { flush: async () => { throw new Error('flush failed'); } } } } as never,
 		);
 		expect(unavailable).toMatchObject({ status: 'unavailable', unavailableQueries: ['storage'] });
+	});
+});
+
+describe('Fantasy monitoring', () => {
+	const nowMs = Date.parse('2026-09-15T12:00:00.000Z');
+	const runs = [
+		fantasyRun(3, {
+			status: 'delivery_unknown',
+			failureStage: 'reply_delivery',
+			failureClassification: 'unknown',
+			sendAttemptAt: new Date('2026-09-15T09:59:00.000Z'),
+			updatedAt: new Date('2026-09-15T10:00:00.000Z'),
+		}),
+		fantasyRun(1, {
+			status: 'sent',
+			deliverySource: 'api',
+			sentAt: new Date('2026-09-15T08:00:00.000Z'),
+		}),
+		fantasyRun(5, { leaseExpiresAt: new Date('2026-09-15T11:59:59.999Z') }),
+		fantasyRun(2, {
+			status: 'failed',
+			failureStage: 'scheduled_job',
+			failureClassification: 'execution_interrupted',
+			updatedAt: new Date('2026-09-15T09:00:00.000Z'),
+		}),
+		fantasyRun(4, { leaseExpiresAt: new Date('2026-09-15T12:00:00.000Z') }),
+	];
+
+	test('returns current-row season counts and the deterministic highest week from one clock', async () => {
+		const seen: Array<{ leagueId: string; week: number | undefined }> = [];
+		const result = await readFantasyMonitoring('configured-league', async (leagueId, week) => {
+			seen.push({ leagueId, week });
+			return runs;
+		}, undefined, nowMs);
+
+		expect(result).toEqual({
+			availability: 'available',
+			mode: 'season',
+			counts: {
+				sent: 1,
+				failed: 1,
+				delivery_unknown: 1,
+				active: 1,
+				expired_active: 1,
+			},
+			highestRecordedWeek: {
+				fantasyWeek: 5,
+				outcome: 'expired_active',
+				leaseExpiresAt: '2026-09-15T11:59:59.999Z',
+			},
+		});
+		expect(seen).toEqual([{ leagueId: 'configured-league', week: undefined }]);
+		expect((checkMonitoringTool.outputSchema as z.ZodTypeAny).safeParse(result).success).toBe(true);
+	});
+
+	test('returns every source-native run state with only its UTC timestamps and safe classifications', async () => {
+		const expected = [
+			{
+				fantasyWeek: 3,
+				outcome: 'delivery_unknown',
+				deliveryUnknownAt: '2026-09-15T10:00:00.000Z',
+				sendAttemptAt: '2026-09-15T09:59:00.000Z',
+				failureStage: 'reply_delivery',
+				failureClassification: 'unknown',
+			},
+			{
+				fantasyWeek: 1,
+				outcome: 'sent',
+				sentAt: '2026-09-15T08:00:00.000Z',
+				deliverySource: 'api',
+			},
+			{
+				fantasyWeek: 5,
+				outcome: 'expired_active',
+				leaseExpiresAt: '2026-09-15T11:59:59.999Z',
+			},
+			{
+				fantasyWeek: 2,
+				outcome: 'failed',
+				failedAt: '2026-09-15T09:00:00.000Z',
+				failureStage: 'scheduled_job',
+				failureClassification: 'execution_interrupted',
+			},
+			{
+				fantasyWeek: 4,
+				outcome: 'active',
+				leaseExpiresAt: '2026-09-15T12:00:00.000Z',
+			},
+		] as const;
+		for (const [index, run] of runs.entries()) {
+			const result = await readFantasyMonitoring('configured-league', async () => [run!], run!.fantasyWeek, nowMs);
+			expect(result).toEqual({ availability: 'available', mode: 'week', week: run!.fantasyWeek, run: expected[index] });
+		}
+	});
+
+	test('returns null for a missing exact week and zero counts for an empty season', async () => {
+		expect(await readFantasyMonitoring('configured-league', async () => [], 18, nowMs)).toEqual({
+			availability: 'available',
+			mode: 'week',
+			week: 18,
+			run: null,
+		});
+		expect(await readFantasyMonitoring('configured-league', async () => [], undefined, nowMs)).toEqual({
+			availability: 'available',
+			mode: 'season',
+			counts: { sent: 0, failed: 0, delivery_unknown: 0, active: 0, expired_active: 0 },
+			highestRecordedWeek: null,
+		});
+	});
+
+	test('distinguishes unavailable configuration from unavailable storage', async () => {
+		let reads = 0;
+		expect(await readFantasyMonitoring(undefined, async () => {
+			reads++;
+			return [];
+		}, undefined, nowMs)).toEqual({ availability: 'unavailable', mode: 'season', reason: 'configuration' });
+		expect(reads).toBe(0);
+
+		expect(await readFantasyMonitoring('configured-league', async () => {
+			throw new Error('postgres password and raw SQL');
+		}, 6, nowMs)).toEqual({ availability: 'unavailable', mode: 'week', week: 6, reason: 'storage' });
+	});
+
+	test('normalizes legacy classifications and excludes sensitive row fields', async () => {
+		const failed = fantasyRun(7, {
+			status: 'failed',
+			failureStage: 'raw-secret-stage',
+			failureClassification: null,
+		}) as FantasyMonitoringRun & Record<string, unknown>;
+		failed.finalText = 'private recap';
+		failed.lastError = 'sam@example.com +1 312 555 0182';
+		failed.claimToken = 'claim-secret';
+		failed.messageHandle = 'sendblue-secret';
+		failed.leagueId = 'configured-league';
+		const failedResult = await readFantasyMonitoring('configured-league', async () => [failed], 7, nowMs);
+		expect(failedResult).toMatchObject({
+			run: { failureStage: 'unknown', failureClassification: 'unknown' },
+		});
+
+		const sent = fantasyRun(8, { status: 'sent', deliverySource: 'legacy-provider' });
+		const sentResult = await readFantasyMonitoring('configured-league', async () => [sent], 8, nowMs);
+		expect(sentResult).toMatchObject({ run: { deliverySource: 'unknown' } });
+
+		const serialized = JSON.stringify([failedResult, sentResult]);
+		expect(serialized).not.toContain('private recap');
+		expect(serialized).not.toContain('sam@example.com');
+		expect(serialized).not.toContain('312');
+		expect(serialized).not.toContain('claim-secret');
+		expect(serialized).not.toContain('sendblue-secret');
+		expect(serialized).not.toContain('configured-league');
+		expect(serialized).not.toContain('raw-secret-stage');
+	});
+
+	test('uses configured-league-only bounded read-only queries over current run rows', async () => {
+		const calls: Array<{ text: string; values: unknown[] }> = [];
+		const sql: SqlLike = async (strings, ...values) => {
+			calls.push({ text: strings.join('?').replace(/\s+/g, ' ').trim(), values });
+			return [{
+				fantasy_week: 2,
+				status: 'failed',
+				failure_stage: 'model',
+				failure_classification: 'execution_failed',
+				lease_expires_at: null,
+				send_attempt_at: null,
+				delivery_source: null,
+				sent_at: null,
+				updated_at: new Date('2026-09-15T10:00:00.000Z'),
+				final_text: 'must never be selected',
+			}];
+		};
+
+		const season = await listFantasyMonitoringRuns('configured-league', undefined, sql);
+		await listFantasyMonitoringRuns('configured-league', 2, sql);
+
+		expect(season).toEqual([fantasyRun(2, {
+			status: 'failed',
+			failureStage: 'model',
+			failureClassification: 'execution_failed',
+		})]);
+		expect(calls).toHaveLength(2);
+		expect(calls[0]!.values).toEqual(['configured-league']);
+		expect(calls[0]!.text).toContain('FROM fantasy_recap_runs');
+		expect(calls[0]!.text).toContain('WHERE league_id = ? AND fantasy_week BETWEEN 1 AND 18');
+		expect(calls[0]!.text).toContain('ORDER BY fantasy_week DESC LIMIT 18');
+		expect(calls[1]!.values).toEqual(['configured-league', 2]);
+		expect(calls[1]!.text).toContain('WHERE league_id = ? AND fantasy_week = ? LIMIT 1');
+		for (const call of calls) {
+			expect(call.text).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|ALTER|CREATE)\b/i);
+			expect(call.text).not.toMatch(/final_text|last_error|message_handle|claim_token|latest_attempt_trace_id/i);
+			expect(call.text).not.toMatch(/metric|logs|traces|fantasy_recap_generations/i);
+		}
 	});
 });
