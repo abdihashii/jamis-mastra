@@ -4,6 +4,7 @@ import type { FantasyMonitoringRun } from '../../../fantasy/runs';
 import type { MonitoringStore } from '../check-monitoring';
 
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 
 import { listFantasyMonitoringRuns } from '../../../fantasy/runs';
 import { checkMonitoringTool, readFantasyMonitoring, readMonitoring } from '../check-monitoring';
@@ -87,6 +88,18 @@ function fantasyRun(fantasyWeek: number, overrides: Partial<FantasyMonitoringRun
 }
 
 describe('check monitoring', () => {
+	test('routes Fantasy state questions through the existing monitoring facade', () => {
+		const instructions = readFileSync(new URL('../../agents/jamis.ts', import.meta.url), 'utf8');
+		expect(instructions).toContain('"How is the Fantasy Companion doing?"');
+		expect(instructions).toContain('fantasy scope and no week');
+		expect(instructions).toContain('exact numeric fantasy week from 1 through 18');
+		expect(instructions).toContain('"last week" or uses another ambiguous week reference');
+		expect(instructions).toContain('ask which exact fantasy week');
+		expect(instructions).toContain('source-native durable outcome, unknowns, whether the evidence supports direct intervention, and every returned timestamp exactly in UTC');
+		expect(instructions).toContain('Never invent an overall status or suggest an intervention command');
+		expect(checkMonitoringTool.description).toContain('Fantasy Companion durable outcomes');
+	});
+
 	test('preserves application defaults and exposes only the bounded Fantasy scope', () => {
 		const schema = checkMonitoringTool.inputSchema as z.ZodTypeAny;
 		expect(schema.parse({})).toEqual({ scope: 'application' });
