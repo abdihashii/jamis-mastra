@@ -113,6 +113,65 @@ export async function getRun(leagueId: string, week: number, sql: SqlLike): Prom
 	return rows[0] ? toRun(rows[0]) : null;
 }
 
+export interface FantasyMonitoringRun {
+	fantasyWeek: number;
+	status: RunStatus;
+	failureStage: string | null;
+	failureClassification: string | null;
+	leaseExpiresAt: Date | null;
+	sendAttemptAt: Date | null;
+	deliverySource: string | null;
+	sentAt: Date | null;
+	updatedAt: Date;
+}
+
+interface FantasyMonitoringRunRow {
+	fantasy_week: number;
+	status: RunStatus;
+	failure_stage: string | null;
+	failure_classification: string | null;
+	lease_expires_at: Date | null;
+	send_attempt_at: Date | null;
+	delivery_source: string | null;
+	sent_at: Date | null;
+	updated_at: Date;
+}
+
+function toFantasyMonitoringRun(row: FantasyMonitoringRunRow): FantasyMonitoringRun {
+	return {
+		fantasyWeek: row.fantasy_week,
+		status: row.status,
+		failureStage: row.failure_stage,
+		failureClassification: row.failure_classification,
+		leaseExpiresAt: row.lease_expires_at,
+		sendAttemptAt: row.send_attempt_at,
+		deliverySource: row.delivery_source,
+		sentAt: row.sent_at,
+		updatedAt: row.updated_at,
+	};
+}
+
+/** Allowlisted current-row evidence for configured-league Monitoring. */
+export async function listFantasyMonitoringRuns(leagueId: string, week: number | undefined, sql: SqlLike): Promise<FantasyMonitoringRun[]> {
+	const rows = week === undefined
+		? await sql`
+			SELECT fantasy_week, status, failure_stage, failure_classification,
+				lease_expires_at, send_attempt_at, delivery_source, sent_at, updated_at
+			FROM fantasy_recap_runs
+			WHERE league_id = ${leagueId} AND fantasy_week BETWEEN 1 AND 18
+			ORDER BY fantasy_week DESC
+			LIMIT 18
+		`
+		: await sql`
+			SELECT fantasy_week, status, failure_stage, failure_classification,
+				lease_expires_at, send_attempt_at, delivery_source, sent_at, updated_at
+			FROM fantasy_recap_runs
+			WHERE league_id = ${leagueId} AND fantasy_week = ${week}
+			LIMIT 1
+		`;
+	return (rows as FantasyMonitoringRunRow[]).map(toFantasyMonitoringRun);
+}
+
 export interface ClaimResult {
 	claimed: boolean;
 	run: RecapRun | null;

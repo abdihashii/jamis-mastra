@@ -1,6 +1,6 @@
 # 017: Deployment operational snapshots
 
-Status: **Semantics approved; Stage 1 complete and awaiting commit approval; no implementation approved.**
+Status: **JAM-66 complete through production smoke; later ticket gates remain pending.**
 
 Linear: [JAM-66](https://linear.app/abdirahman-haji/issue/JAM-66/let-jamis-monitor-fantasy-weekly-recaps), [JAM-67](https://linear.app/abdirahman-haji/issue/JAM-67/make-the-full-jamis-deployment-observable), [JAM-68](https://linear.app/abdirahman-haji/issue/JAM-68/monitor-the-full-jamis-deployment), and [JAM-69](https://linear.app/abdirahman-haji/issue/JAM-69/triage-a-specific-jamis-deployment-incident).
 
@@ -63,7 +63,7 @@ The highest-risk later concern is the read-only host and container evidence boun
 **Contract:**
 
 - Accept the configured Fantasy scope with an optional exact week from 1 through 18. Jamis, not the tool, clarifies vague references such as “last week.”
-- With no week, return configured-season counts plus the highest recorded Fantasy week. With a week, return that row or `null`.
+- With no week, return configured-season counts plus the highest recorded Fantasy week. With a week, return that row or `null`; when no row exists, return `weekCompletion: complete | incomplete | unavailable` from the existing Sleeper completion semantics.
 - Return `availability: available | unavailable` separately from the run. A run outcome is `sent`, `failed`, `delivery_unknown`, `active`, or `expired_active`.
 - Count one current row per Fantasy week; attempts and retries do not inflate season counts.
 - Derive active versus expired-active from one injected UTC instant and `lease_expires_at` without sweeping or mutating.
@@ -77,12 +77,15 @@ The highest-risk later concern is the read-only host and container evidence boun
 
 **Proposed commit:** `feat: add Fantasy scope to monitoring`
 
+**Implementation record (2026-09-21 UTC):** Commit `836d5cc` is pushed on `abdirahman/jam-66-let-jamis-monitor-fantasy-weekly-recaps`. The focused 12 tests and full 318 tests passed with typecheck, lint, build, and diff checks; three fresh correctness, contract, and Mastra reviews found no remaining issue. No deployment, direct-tool production smoke, iMessage smoke, or webhook change was performed. The direct-tool smoke remains the separately approved protocol boundary before Stage 3 routing smoke.
+
 ## Stage 3: Route Fantasy Monitoring through Jamis
 
 **Goal:** Make natural-language Fantasy state questions use `checkMonitoring` without adding `checkFantasyMonitoring` or changing Fantasy group behavior.
 
 **Critical files:**
 
+- `src/fantasy/sleeper.ts`
 - `src/mastra/agents/jamis.ts`
 - `src/mastra/tools/check-monitoring.ts`
 - `src/mastra/tools/__tests__/check-monitoring.test.ts`
@@ -92,6 +95,7 @@ The highest-risk later concern is the read-only host and container evidence boun
 - Route “How is the Fantasy Companion doing?” to the general Fantasy scope.
 - Route an exact “week 2” question to that week.
 - Ask which fantasy week when the operator says “last week” or another ambiguous reference.
+- For an exact week without a durable run, report whether the week is complete, incomplete, or unavailable. Use a bounded read-only Sleeper check, degrade provider failure or timeout to unavailable, and preserve caller cancellation.
 - Report the source-native durable outcome, unknowns, and whether the evidence supports direct intervention. Do not invent an overall status or suggest an intervention command.
 - Keep Fantasy group messages passive and keep internal evidence away from the research agent.
 
@@ -100,6 +104,10 @@ The highest-risk later concern is the read-only host and container evidence boun
 **Demo:** Smoke the direct tool before Jamis. Then ask one general Fantasy question and one exact-week question through the operator's iMessage. Confirm the response matches the durable ledger, uses UTC timestamps, and includes no cross-league, raw, or observability data.
 
 **Proposed commit:** `feat: route Fantasy monitoring through Jamis`
+
+**Implementation record (2026-09-22 UTC):** Commits `e2c7735` (`feat: route Fantasy monitoring through Jamis`) and `4de654b` (`fix: explain missing Fantasy monitoring runs`) are pushed and deployed from `abdirahman/jam-66-let-jamis-monitor-fantasy-weekly-recaps`; production runs `4de654b51cf66bde235d35eeccf09d814034143c`. The final focused 37 tests and full 320 tests passed with typecheck, lint, build, and diff checks. Fresh correctness, contract, Mastra, and over-engineering reviews found no remaining issue after adding exact UTC reporting, a five-second Sleeper deadline, and correct parent-cancellation propagation.
+
+All ten JAM-66 acceptance criteria were re-read and verified. Focused tests cover every durable run outcome, missing and empty data, unavailable configuration and storage, current-row counting, retry exclusion, ordering, one injected clock, configured-league isolation, sanitization, read-only SQL, absence of observability queries, and a failure before Fantasy Agent generation. Production direct-tool smoke preceded Jamis smoke: season mode returned one sent run with week 1 as the deterministic highest recorded week, and exact week 2 returned `run: null` with `weekCompletion: incomplete`. iMessage smoke returned the same general snapshot, explained that week 2 has no run because it is incomplete, and answered “Which exact fantasy week do you mean?” for “last week.” No Fantasy Agent metric, cross-league data, raw or excluded field, intervention command, Sendblue webhook change, or new monitoring surface was introduced.
 
 ## Later ticket gates
 

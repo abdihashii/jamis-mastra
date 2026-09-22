@@ -14,6 +14,8 @@ export async function fetchJson(url: string, signal?: AbortSignal, headers?: Rec
 		return { ok: response.ok, status: response.status, json };
 	}
 	catch (error) {
+		if (signal?.aborted)
+			throw signal.reason ?? error;
 		if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
 			throw error;
 		}

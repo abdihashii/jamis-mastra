@@ -123,8 +123,9 @@ async function getJson<const S extends z.ZodType>(
 	path: string,
 	schema: S,
 	what: string,
+	signal?: AbortSignal,
 ): Promise<z.output<S>> {
-	const { ok, status, json } = await fetchJson(`${BASE}/${path}`);
+	const { ok, status, json } = await fetchJson(`${BASE}/${path}`, signal);
 	if (!ok)
 		throw new SleeperDataError(`Sleeper ${what} responded ${status}`);
 	const parsed = schema.safeParse(json);
@@ -134,13 +135,13 @@ async function getJson<const S extends z.ZodType>(
 	return parsed.data;
 }
 
-export async function getNflState(): Promise<SleeperState> {
-	const s = await getJson('state/nfl', stateSchema, 'NFL state');
+export async function getNflState(signal?: AbortSignal): Promise<SleeperState> {
+	const s = await getJson('state/nfl', stateSchema, 'NFL state', signal);
 	return { week: s.week, season: s.season, seasonType: s.season_type };
 }
 
-export async function getLeague(leagueId: string): Promise<SleeperLeague> {
-	const l = await getJson(`league/${leagueId}`, leagueSchema, 'league');
+export async function getLeague(leagueId: string, signal?: AbortSignal): Promise<SleeperLeague> {
+	const l = await getJson(`league/${leagueId}`, leagueSchema, 'league', signal);
 	if (l.settings.playoff_round_type !== 0) {
 		throw new SleeperDataError('Multi-week playoff rounds are not supported in V1');
 	}
@@ -227,8 +228,8 @@ export async function getPlayers(playerIds: Iterable<string>): Promise<SleeperPl
 	return ids.flatMap(id => byId.get(id) ?? []);
 }
 
-export async function getWinnersBracket(leagueId: string): Promise<BracketGame[]> {
-	const games = await getJson(`league/${leagueId}/winners_bracket`, z.array(bracketGameSchema), 'winners bracket');
+export async function getWinnersBracket(leagueId: string, signal?: AbortSignal): Promise<BracketGame[]> {
+	const games = await getJson(`league/${leagueId}/winners_bracket`, z.array(bracketGameSchema), 'winners bracket', signal);
 	if (games.length === 0)
 		throw new SleeperDataError('Sleeper returned an empty winners bracket');
 	return games.map(g => ({
@@ -314,7 +315,11 @@ export function isWeekComplete(
 	}
 	// If the NFL state has rolled into a newer season than the league's, every
 	// non-final week is behind us regardless of the fresh low week number.
-	return Number(state.season) > Number(league.season) || state.week > week;
+	const stateSeason = Number(state.season);
+	const leagueSeason = Number(league.season);
+	if (stateSeason !== leagueSeason)
+		return stateSeason > leagueSeason;
+	return state.week > week;
 }
 
 export function latestCompletedWeek(
@@ -326,9 +331,13 @@ export function latestCompletedWeek(
 	// The championship can resolve without state.week having advanced past it.
 	if (isWeekComplete(finalWeek, state, league, games))
 		return finalWeek;
+	const stateSeason = Number(state.season);
+	const leagueSeason = Number(league.season);
 	// Rolled into the next season: every non-final week is behind us.
-	if (Number(state.season) > Number(league.season))
+	if (stateSeason > leagueSeason)
 		return finalWeek - 1;
+	if (stateSeason < leagueSeason)
+		return null;
 	// Non-final completion is monotone: state.week > W rules in every W.
 	const newest = Math.min(state.week - 1, finalWeek - 1);
 	return newest >= 1 ? newest : null;
