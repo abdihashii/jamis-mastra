@@ -280,6 +280,12 @@ describe('week completion', () => {
 		expect(isWeekComplete(2, rolled, league, bracket)).toBe(true);
 		expect(latestCompletedWeek(rolled, league, bracket)).toBe(3);
 	});
+
+	it('does not compare week numbers across an older NFL season', () => {
+		const older = { week: 18, season: '2025', seasonType: 'post' };
+		expect(isWeekComplete(2, older, league, bracket)).toBe(false);
+		expect(latestCompletedWeek(older, league, bracket)).toBeNull();
+	});
 });
 
 describe('withBracketRounds', () => {

@@ -401,7 +401,7 @@ export const checkMonitoringTool = createTool({
 					}
 					catch (error) {
 						if (context.abortSignal?.aborted)
-							throw error;
+							throw context.abortSignal.reason ?? error;
 						return 'unavailable';
 					}
 				},

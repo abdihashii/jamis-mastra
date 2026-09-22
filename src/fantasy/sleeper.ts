@@ -315,7 +315,11 @@ export function isWeekComplete(
 	}
 	// If the NFL state has rolled into a newer season than the league's, every
 	// non-final week is behind us regardless of the fresh low week number.
-	return Number(state.season) > Number(league.season) || state.week > week;
+	const stateSeason = Number(state.season);
+	const leagueSeason = Number(league.season);
+	if (stateSeason !== leagueSeason)
+		return stateSeason > leagueSeason;
+	return state.week > week;
 }
 
 export function latestCompletedWeek(
@@ -327,9 +331,13 @@ export function latestCompletedWeek(
 	// The championship can resolve without state.week having advanced past it.
 	if (isWeekComplete(finalWeek, state, league, games))
 		return finalWeek;
+	const stateSeason = Number(state.season);
+	const leagueSeason = Number(league.season);
 	// Rolled into the next season: every non-final week is behind us.
-	if (Number(state.season) > Number(league.season))
+	if (stateSeason > leagueSeason)
 		return finalWeek - 1;
+	if (stateSeason < leagueSeason)
+		return null;
 	// Non-final completion is monotone: state.week > W rules in every W.
 	const newest = Math.min(state.week - 1, finalWeek - 1);
 	return newest >= 1 ? newest : null;

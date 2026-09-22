@@ -50,6 +50,13 @@ test('rethrows aborts instead of masking them', async () => {
 	}
 });
 
+test('preserves a caller-provided abort reason', async () => {
+	const controller = new AbortController();
+	const reason = new Error('cancelled');
+	controller.abort(reason);
+	await expect(fetchJson(`${base}/ok`, controller.signal)).rejects.toBe(reason);
+});
+
 test('wraps connection failures as a class, detail to the server log', async () => {
 	const { port } = server;
 	await server.stop(true);
