@@ -95,6 +95,9 @@ describe('check monitoring', () => {
 		expect(instructions).toContain('exact numeric fantasy week from 1 through 18');
 		expect(instructions).toContain('"last week" or uses another ambiguous week reference');
 		expect(instructions).toContain('ask which exact fantasy week');
+		expect(instructions).toContain('incomplete means no run is expected because the week is not complete');
+		expect(instructions).toContain('complete means no run is recorded but the reason is unknown');
+		expect(instructions).toContain('unavailable means completion could not be determined');
 		expect(instructions).toContain('source-native durable outcome, unknowns, whether the evidence supports direct intervention, and every returned timestamp exactly in UTC');
 		expect(instructions).toContain('Never invent an overall status or suggest an intervention command');
 		expect(checkMonitoringTool.description).toContain('Fantasy Companion durable outcomes');
@@ -393,17 +396,46 @@ describe('Fantasy monitoring', () => {
 		] as const;
 		for (const [index, run] of runs.entries()) {
 			const result = await readFantasyMonitoring('configured-league', async () => [run!], run!.fantasyWeek, nowMs);
-			expect(result).toEqual({ availability: 'available', mode: 'week', week: run!.fantasyWeek, run: expected[index] });
+			expect(result).toEqual({ availability: 'available', mode: 'week', week: run!.fantasyWeek, run: expected[index], weekCompletion: 'complete' });
 		}
 	});
 
-	test('returns null for a missing exact week and zero counts for an empty season', async () => {
-		expect(await readFantasyMonitoring('configured-league', async () => [], 18, nowMs)).toEqual({
+	test('explains a missing exact week from authoritative completion evidence', async () => {
+		const reads: Array<{ leagueId: string; week: number }> = [];
+		const completion = async (leagueId: string, week: number) => {
+			reads.push({ leagueId, week });
+			return 'incomplete' as const;
+		};
+		expect(await readFantasyMonitoring('configured-league', async () => [], 2, nowMs, completion)).toEqual({
 			availability: 'available',
 			mode: 'week',
-			week: 18,
+			week: 2,
 			run: null,
+			weekCompletion: 'incomplete',
 		});
+		expect(reads).toEqual([{ leagueId: 'configured-league', week: 2 }]);
+
+		expect(await readFantasyMonitoring('configured-league', async () => [], 3, nowMs, async () => 'complete')).toEqual({
+			availability: 'available',
+			mode: 'week',
+			week: 3,
+			run: null,
+			weekCompletion: 'complete',
+		});
+		expect(await readFantasyMonitoring('configured-league', async () => [], 4, nowMs, async () => 'unavailable')).toEqual({
+			availability: 'available',
+			mode: 'week',
+			week: 4,
+			run: null,
+			weekCompletion: 'unavailable',
+		});
+		const cancellation = new Error('cancelled');
+		await expect(readFantasyMonitoring('configured-league', async () => [], 5, nowMs, async () => {
+			throw cancellation;
+		})).rejects.toBe(cancellation);
+	});
+
+	test('returns zero counts for an empty season', async () => {
 		expect(await readFantasyMonitoring('configured-league', async () => [], undefined, nowMs)).toEqual({
 			availability: 'available',
 			mode: 'season',
