@@ -16,6 +16,7 @@ import { SENDBLUE_CORRELATION_KEY } from './channels/sendblue';
 import { requireEnv, requireOperatorTimeZone } from './env';
 import { openAICodexGateway } from './gateways/openai-codex-gateway.js';
 import { redactChannelRenderContext } from './observability';
+import { deploymentEvidenceTool } from './tools/deployment-evidence';
 import { fantasyWeeklyRecapWorkflow } from './workflows/fantasy-weekly-recap';
 
 requireOperatorTimeZone();
@@ -26,6 +27,7 @@ export const mastra = new Mastra({
 	agents: { jamis, fantasy: createFantasyAgent(DEFAULT_RECAP_MODEL) },
 	workflows: { fantasyWeeklyRecap: fantasyWeeklyRecapWorkflow },
 	gateways: { 'openai-codex': openAICodexGateway },
+	tools: { deploymentEvidence: deploymentEvidenceTool },
 	server: {
 		// One token, one operator. SimpleAuth checks Authorization and
 		// X-Playground-Access by default, so Studio authenticates with an

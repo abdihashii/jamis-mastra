@@ -1,0 +1,12 @@
+[Unit]
+Description=Jamis on-demand host evidence probe
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/libexec/jamis-host-evidence-probe
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes

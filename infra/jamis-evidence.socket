@@ -1,0 +1,11 @@
+[Unit]
+Description=Jamis on-demand host evidence socket
+
+[Socket]
+ListenStream=/run/jamis-evidence/probe.sock
+SocketMode=0660
+SocketGroup=jamis
+Accept=yes
+
+[Install]
+WantedBy=sockets.target

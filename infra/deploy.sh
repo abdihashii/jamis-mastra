@@ -48,6 +48,16 @@ if (!valid) {
 }
 '
 
+# Only the fixed probe can read the host and Docker daemon. The app receives
+# its group-readable Unix socket, never the Docker socket or a host shell.
+install -d -m 0755 /usr/local/libexec
+install -m 0755 infra/host_evidence_probe.py /usr/local/libexec/jamis-host-evidence-probe
+install -m 0644 infra/jamis-evidence.socket infra/jamis-evidence@.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now jamis-evidence.socket
+systemctl restart jamis-evidence.socket
+export JAMIS_SOCKET_GID="$(id -g jamis)"
+
 # No TAILSCALE_IP guard: the app binds 127.0.0.1 and tailscale serve publishes it
 # to the tailnet, so there is no variable left whose value could expose the box.
 docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --build
