@@ -20,11 +20,11 @@
 	"dependencies": {
 		"@ai-sdk/openai": "3.0.88",
 		"@date-fns/tz": "^1.5.0",
-		"@mastra/clickhouse": "1.15.2",
-		"@mastra/core": "1.61.0",
-		"@mastra/memory": "1.27.0",
-		"@mastra/observability": "1.17.1",
-		"@mastra/pg": "1.21.1",
+		"@mastra/clickhouse": "1.20.0",
+		"@mastra/core": "1.68.0",
+		"@mastra/memory": "1.31.0",
+		"@mastra/observability": "1.17.9",
+		"@mastra/pg": "1.26.0",
 		"chat-adapter-sendblue": "0.2.0",
 		"date-fns": "^4.4.0",
 		"firecrawl": "^4.32.2",
@@ -35,7 +35,7 @@
 		"@types/bun": "^1.3.14",
 		"@types/node": "^26.1.2",
 		"eslint": "^10.8.0",
-		"mastra": "1.25.0",
+		"mastra": "1.31.0",
 		"typescript": "^6.0.3"
 	}
 }

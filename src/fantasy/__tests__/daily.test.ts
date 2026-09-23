@@ -2,7 +2,7 @@ import type { Mastra } from '@mastra/core/mastra';
 
 import { describe, expect, it, spyOn } from 'bun:test';
 
-import { fantasyWeeklyRecapWorkflow } from '../../mastra/workflows/fantasy-weekly-recap';
+import { fantasyWeeklyRecapSchedule, fantasyWeeklyRecapWorkflow } from '../../mastra/workflows/fantasy-weekly-recap';
 import { parseFantasyConfig } from '../config';
 import { runDailyRecap } from '../daily';
 
@@ -49,6 +49,7 @@ describe('runDailyRecap', () => {
 describe('fantasyWeeklyRecapWorkflow', () => {
 	it('is the single daily step behind the 10:00 America/Chicago cron', () => {
 		expect(fantasyWeeklyRecapWorkflow.id).toBe('fantasy-weekly-recap');
+		expect(fantasyWeeklyRecapSchedule).toEqual({ cron: '0 10 * * *', timezone: 'America/Chicago', inputData: {} });
 		const schema = fantasyWeeklyRecapWorkflow.inputSchema as unknown as { safeParse: (v: unknown) => { success: boolean } };
 		expect(schema.safeParse({}).success).toBe(true);
 	});

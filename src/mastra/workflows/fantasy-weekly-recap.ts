@@ -33,6 +33,12 @@ const weeklyRecapStep = createStep({
 	},
 });
 
+export const fantasyWeeklyRecapSchedule = {
+	cron: '0 10 * * *',
+	timezone: getFantasyConfig()?.recapTimezone ?? 'America/Chicago',
+	inputData: {},
+};
+
 /**
  * 10:00 America/Chicago daily. The coordinator inside `runDailyRecap` translates
  * a fire into exactly one of the durable-state outcomes; days with no newly
@@ -42,9 +48,5 @@ export const fantasyWeeklyRecapWorkflow = createWorkflow({
 	id: 'fantasy-weekly-recap',
 	inputSchema: z.object({}),
 	outputSchema: outcomeSchema,
-	schedule: {
-		cron: '0 10 * * *',
-		timezone: getFantasyConfig()?.recapTimezone ?? 'America/Chicago',
-		inputData: {},
-	},
+	schedule: fantasyWeeklyRecapSchedule,
 }).then(weeklyRecapStep).commit();
