@@ -39,6 +39,39 @@ class HostEvidenceProbeTest(unittest.TestCase):
         self.assertNotIn("+15551234567", str(evidence))
         self.assertTrue(evidence["host"]["observedAt"].endswith("Z"))
 
+    def test_tunnel_diagnostics_are_categorical_and_local_only(self):
+        docker = {"availability": "available", "containers": [
+            {"component": "cloudflared", "state": "running"},
+        ]}
+        raw = "secret +15551234567\nRegistered tunnel connection\nfailed to connect token=secret\n"
+        with patch.object(probe.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, raw)):
+            result = probe._tunnel("2026-09-24T00:00:00Z", docker)
+        self.assertEqual(result["recentDiagnostic"], "local_error")
+        self.assertEqual(result["gaps"], ["external_reachability"])
+        self.assertNotIn("secret", str(result))
+        self.assertNotIn("+15551234567", str(result))
+        self.assertEqual(probe._tunnel("2026-09-24T00:00:00Z", {"availability": "unavailable"})["availability"], "unavailable")
+
+    def test_tailscale_selects_only_backend_and_service_state(self):
+        responses = [
+            subprocess.CompletedProcess([], 0, "active\n"),
+            subprocess.CompletedProcess([], 0, '{"BackendState":"Running","Self":{"HostName":"secret","TailscaleIPs":["100.1.2.3"]}}'),
+        ]
+        with patch.object(probe.subprocess, "run", side_effect=responses):
+            result = probe._tailscale("2026-09-24T00:00:00Z")
+        self.assertEqual(result["backendState"], "Running")
+        self.assertEqual(result["gaps"], ["operator_device_reachability"])
+        self.assertNotIn("secret", str(result))
+        self.assertNotIn("100.1.2.3", str(result))
+        with patch.object(probe.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "failed\n")):
+            self.assertEqual(probe._tailscale("2026-09-24T00:00:00Z")["serviceState"], "failed")
+        malformed = [
+            subprocess.CompletedProcess([], 0, "active\n"),
+            subprocess.CompletedProcess([], 0, '["secret +15551234567"]'),
+        ]
+        with patch.object(probe.subprocess, "run", side_effect=malformed):
+            self.assertEqual(probe._tailscale("2026-09-24T00:00:00Z")["backendState"], "unknown")
+
 
 if __name__ == "__main__":
     unittest.main()
