@@ -94,7 +94,7 @@ const clickhouseSchema = z.object({
 	component: z.literal('clickhouse'),
 	source: z.literal('mastra_observability'),
 	observedAt: utcTime,
-	scope: z.literal('recent_24h'),
+	scope: z.string().regex(/^recent_(?:[1-9]|[1-9]\d|1[0-5]\d|16[0-8])h$/),
 	availability: z.enum(['available', 'unavailable']),
 	freshness,
 	recentTraces: z.array(clickhouseTraceSchema).max(3),
@@ -325,12 +325,12 @@ async function readPostgres(sqlFactory: () => SqlLike, leagueId: string | undefi
 
 type TraceStore = Pick<ObservabilityStorage, 'listTracesLight'>;
 
-async function readClickHouse(getStore: () => Promise<TraceStore | undefined>, nowMs: number) {
+async function readClickHouse(getStore: () => Promise<TraceStore | undefined>, nowMs: number, hours: number) {
 	const unavailable: z.infer<typeof clickhouseSchema> = {
 		component: 'clickhouse',
 		source: 'mastra_observability',
 		observedAt: utcSeconds(new Date(nowMs)),
-		scope: 'recent_24h',
+		scope: `recent_${hours}h`,
 		availability: 'unavailable',
 		freshness: 'unavailable',
 		recentTraces: [],
@@ -341,7 +341,7 @@ async function readClickHouse(getStore: () => Promise<TraceStore | undefined>, n
 		if (!store)
 			return unavailable;
 		const response = await store.listTracesLight({
-			filters: { startedAt: { start: new Date(nowMs - 86_400_000), end: new Date(nowMs) } },
+			filters: { startedAt: { start: new Date(nowMs - hours * 3_600_000), end: new Date(nowMs) } },
 			pagination: { page: 0, perPage: 3 },
 			orderBy: { field: 'startedAt', direction: 'DESC' },
 		});
@@ -367,11 +367,12 @@ export async function readFullDeploymentEvidence(
 	leagueId = getFantasyConfig()?.sleeperLeagueId,
 	path = socketPath,
 	nowMs = Date.now(),
+	hours = 24,
 ) {
 	const [hostEvidence, postgres, clickhouse] = await Promise.all([
 		readDeploymentEvidence(path, 10_000, nowMs),
 		readPostgres(sqlFactory, leagueId, nowMs),
-		readClickHouse(getStore, nowMs),
+		readClickHouse(getStore, nowMs, hours),
 	]);
 	return {
 		...hostEvidence,

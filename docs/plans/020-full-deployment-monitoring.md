@@ -1,6 +1,6 @@
 # 020: Full-Deployment Monitoring
 
-Status: **Proposed. No JAM-68 runtime change has started.**
+Status: **Stage 1 implemented and awaiting commit sign-off. Stages 2 and 3 have not started.**
 
 Linear: [JAM-68](https://linear.app/abdirahman-haji/issue/JAM-68/monitor-the-full-jamis-deployment).
 
@@ -32,6 +32,18 @@ Extend `checkMonitoring` with an on-demand Deployment Operational snapshot. JAM-
 **Demo:** Execute `check-monitoring` directly with `{"scope":"deployment"}` and `{"scope":"deployment","hours":72}` against a running local server. Observe both outcomes first, seven fixed component assessments, explicit mixed time bounds and gaps, and no raw fields. The local host probe may correctly report unavailable. After separate push and deployment approvals, repeat the authenticated direct-tool smoke in production before any Jamis routing smoke.
 
 **Proposed commit:** `feat: compose Deployment monitoring snapshot`
+
+### Stage 1 result (2026-09-24 UTC)
+
+- `checkMonitoring` accepts `scope: 'deployment'`, optional 1 to 168 `hours`, and no `week`. Its application and Fantasy scopes retain their existing behavior.
+- The tool returns the five ordered sections, followed by a fixed-order assessment of Host, Docker runtime, `app`, Postgres, ClickHouse, Cloudflare Tunnel, and Tailscale. All model-facing values are categorical allowlists, UTC times, bounded counts, safe week/container references, and evidence gaps. There is no Deployment-wide verdict or recovery claim without source proof.
+- Operator evidence separates the current request's accepted intake and pending reply from completed historical reply acceptance, intake failure, and top-level Jamis execution. Sendblue reply acceptance leaves handset delivery unverified. Fantasy uses configured-season current rows; stored workflow `snapshot.result.output.outcome` supplies a verified no-op or a categorical pre-row execution error. An absent run does not establish that a recap was due.
+- History uses the requested 24-hour default or bounded `hours`; the local tunnel diagnostic boundary remains five minutes, and current host/runtime checks and configured-season Fantasy state keep their own boundaries. Failed or timed-out readers leave the other results visible.
+- Local direct-tool smoke against Postgres and ClickHouse returned HTTP 200 for `{"scope":"deployment"}` and `{"scope":"deployment","hours":72}`. Both led with the two service outcomes and assessed all seven components in fixed order. The local host, Docker, tunnel, and Tailscale probes were unavailable, while the current app, Postgres, and ClickHouse checks were available. Fantasy was unconfigured locally. The output contained no raw diagnostic fields. The local server used an explicit `OPERATOR_TIMEZONE=America/Chicago` setting for the smoke; no configuration file changed.
+- Gate: 336 Bun tests and 4 infra Python tests passed; typecheck, lint, build, and `git diff --check` passed. The direct-tool smoke preceded any Jamis routing work.
+- Reviews: `$review-code` verified the stored workflow result shape, failure occurrence times, child-span exclusion, and request count semantics; the findings were fixed and rechecked. `$security-audit` found no exploitable Stage 1 path or secret leak. Read-only `bun audit` reports a preexisting high `js-yaml@3.15.1` advisory via Mastra's `gray-matter`; this diff changes no dependency and exposes no YAML parsing path. `$ponytail:ponytail-review` found no further Stage 1 complexity to remove without losing source boundaries or the output allowlist.
+
+**Linear AC check:** Criteria 2 through 8 are checked in JAM-68. The direct tool proves fixed seven-component coverage and order, service outcomes first, distinct failures/no-ops/no activity/unknowns, partial-reader isolation, source-authority precedence, and the absence of a rollup, raw content, synthetic transaction, provider poll, generic numeric threshold, or intervention suggestion. The recovered section is empty because current sources do not prove a same-operation recovery. Criteria 1 and 9 remain open for Stage 3 routing and manual iMessage smoke. An authenticated production direct-tool smoke remains after separate push and deployment approvals, before the Stage 3 iMessage smoke.
 
 ## Stage 2: Remove the misleading application-only verdict
 
