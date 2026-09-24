@@ -29,8 +29,19 @@ _Avoid_: search result, unread source
 A retrieved paper abstract that supports only findings explicitly stated in that abstract. It is labeled abstract-only and does not establish that the paper's full text was read.
 _Avoid_: full-text evidence, paper read
 
+**Linear access**:
+Jamis's capability to inspect and change issues in the `jamis` Linear team at the Operator's request. Linear does not initiate Jamis conversations.
+
+**Linear app identity**:
+The distinct nonhuman Linear actor that represents Jamis when it changes an issue. Its actions are attributed to Jamis rather than the Operator's Linear account.
+_Avoid_: bot account, Operator account
+
+**Linear change proposal**:
+An exact change to a `jamis` team issue awaiting the Operator's confirmation before Jamis applies it.
+_Avoid_: check (asks for missing information rather than permission to act)
+
 **Personal-accounts agent**:
-The internal subagent that owns tool integrations with the operator's personal accounts (first: Gmail over the Google API; second: Calendar). Jamis delegates personal-account requests to it; its result is evidence for Jamis's final reply, not a channel reply itself. One delegation boundary for the whole personal-account class, not one subagent per account provider.
+The internal subagent that owns tool integrations with the Operator's personal accounts. Jamis delegates personal-account requests to it; its result is evidence for Jamis's final reply, not a channel reply itself. One delegation boundary for the whole personal-account class, not one subagent per account provider.
 _Avoid_: email agent, gmail subagent, google agent
 
 **Google credential**:

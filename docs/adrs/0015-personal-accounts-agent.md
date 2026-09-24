@@ -23,3 +23,7 @@ Jamis gains its first personal-account integration (read-only Gmail; Calendar pe
 
 - Gmail-scoped refresh tokens die if the operator changes their Google account password; also on revocation, 6-month disuse, or the 100-token-per-client limit. Recovery is always re-running `login:google`.
 - Email content persistence follows the no-TTL reality of the current storage configuration (ADR 0011 consequence), now for a higher sensitivity class, accepted here.
+
+## JAM-64 extension
+
+Linear access stays with `personal-accounts-agent` even though its app identity has separate credentials from Google. The shared boundary is Operator-controlled account data and one isolated delegation path, not one OAuth credential. Jamis still owns the Operator conversation; Linear issue writes follow [ADR 0022](0022-confirm-linear-issue-writes-in-text.md).
