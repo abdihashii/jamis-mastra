@@ -1,6 +1,6 @@
 # 019: Deployment observability
 
-Status: proposed for JAM-67. No implementation has started.
+Status: JAM-67 Stage 1 complete through production direct-tool smoke. Stages 2 and 3 have not started.
 
 Linear: [JAM-67](https://linear.app/abdirahman-haji/issue/JAM-67/make-the-full-jamis-deployment-observable).
 
@@ -48,6 +48,8 @@ An on-demand host probe serves one fixed, read-only request over a local Unix so
 **Demo:** A deployed direct call returns safe host and Docker evidence. A focused failure check shows that an unavailable Docker check does not erase host evidence.
 
 **Proposed commit:** `feat: expose safe host and Docker evidence`
+
+**Implementation record (2026-09-24 UTC):** Commit `b9a9a57` is pushed on `abdirahman/jam-67-make-the-full-jamis-deployment-observable` and deployed on the production box. The fixed socket probe, unprivileged app mount, and authenticated direct tool passed 325 Bun tests, 2 Python tests, typecheck, lint, build, Compose config, and diff checks before deployment. The deployed Git revision is `b9a9a57`; `jamis-evidence.socket` is active at `root:jamis 0660` and recorded one accepted connection. The `app` image runs as `bun` (UID 1000), mounts only `/app/data` and `/run/jamis-evidence`, and has no Docker socket. A direct tool call without the API token returned 401; the authenticated call returned 200 with fresh host and Docker evidence observed at `2026-09-24T00:26:59Z`. All four fixed Compose services reported `running`. The 667-byte result contained only the fixed source fields, UTC time, bounded measurements, and explicit gaps; no raw Docker output or extra keys appeared. JAM-68 routing, JAM-69 triage, and iMessage smoke remain out of scope.
 
 ## Stage 2: Preserve Codex auth failures and exact application correlation
 
