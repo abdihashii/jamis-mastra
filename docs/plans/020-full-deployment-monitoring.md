@@ -1,6 +1,6 @@
 # 020: Full-Deployment Monitoring
 
-Status: **Stage 1 implemented and awaiting commit sign-off. Stages 2 and 3 have not started.**
+Status: **Stages 1 and 2 implemented. Stage 2 awaits commit sign-off; Stage 3 has not started.**
 
 Linear: [JAM-68](https://linear.app/abdirahman-haji/issue/JAM-68/monitor-the-full-jamis-deployment).
 
@@ -56,6 +56,16 @@ Extend `checkMonitoring` with an on-demand Deployment Operational snapshot. JAM-
 **Demo:** A direct application-scope call with a warning fixture reports the warning as supporting evidence without `degraded`; a failed top-level run remains visible with its UTC window. Jamis describes only what that evidence proves.
 
 **Proposed commit:** `fix: remove application monitoring health verdict`
+
+### Stage 2 result (2026-09-24 UTC)
+
+- Application-only `checkMonitoring` now returns evidence `availability` (`available`, `partial`, or `unavailable`) and `recordedActivity` (`present`, `none`, or `unknown`) instead of a `healthy`, `degraded`, or `empty` verdict. `failedRuns` remains a top-level execution count within the exact UTC window. Warning and child-error logs remain redacted supporting evidence and never change those fields into product-health claims.
+- The seven bounded Jamis metric queries and 20-log cap are unchanged. A failed query names its specific gap in `unavailableQueries`, leaves its value unknown, and preserves successful counts, measurements, and logs. Missing storage leaves activity unknown. The Fantasy exact-week reader and Deployment snapshot are unchanged. Jamis's application-only instruction now reports the evidence and its limits.
+- Direct application-scope tool fixtures show a warning plus child error without a health verdict and a failed top-level execution with `failedRuns: 1`; the reader fixture verifies the latter's UTC window. Focused tests also cover no recorded runs, missing storage, a failed log query, and a failed execution-count query.
+- Gate: 336 Bun tests and 4 infra Python tests passed; typecheck, lint, build, and `git diff --check` passed. The Bun suite needed local Postgres and ClickHouse; both were stopped again afterward.
+- Reviews: `$review-code` found no verified correctness or contract issue after checking callers, partial results, and scope compatibility. `$security-audit` found no new exploitable path or leaked diagnostic data. Read-only `bun audit` still reports the preexisting high `js-yaml@3.15.1` advisory through Mastra's `gray-matter`; Stage 2 changes no dependency or YAML parsing path. `$ponytail:ponytail-review`: lean already, with no behavior-preserving cut identified.
+
+**Linear AC check:** JAM-68 criteria 2 through 8 remain checked. Stage 2 specifically rechecked source authority (criterion 6): warning and child error logs cannot become product failures, while a failed top-level execution remains an execution outcome. The application output still has no overall rollup or raw log message (criterion 7), and partial readers preserve successful evidence (criterion 5). Criteria 1 and 9 remain open for Stage 3 routing and iMessage smoke. Authenticated production direct-tool smoke still awaits separate push and deployment approvals.
 
 ## Stage 3: Route broad Deployment questions through Jamis
 

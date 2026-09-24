@@ -47,7 +47,8 @@ const monitoringLogSchema = z.object({
 });
 
 const applicationMonitoringOutputSchema = z.object({
-	status: z.enum(['healthy', 'degraded', 'empty', 'unavailable']),
+	availability: z.enum(['available', 'partial', 'unavailable']),
+	recordedActivity: z.enum(['present', 'none', 'unknown']),
 	window: z.object({
 		start: z.string(),
 		end: z.string(),
@@ -140,7 +141,8 @@ type FantasyRunSummary = z.infer<typeof fantasyRunSchema>;
 
 function unavailableSummary(start: Date, end: Date): MonitoringSummary {
 	return {
-		status: 'unavailable',
+		availability: 'unavailable',
+		recordedActivity: 'unknown',
 		window: { start: start.toISOString(), end: end.toISOString() },
 		completedRuns: null,
 		failedRuns: null,
@@ -261,19 +263,11 @@ export async function readMonitoring(
 			}))
 		: [];
 
-	let status: MonitoringSummary['status'] = 'healthy';
-	if (unavailableQueries.length > 0) {
-		status = 'unavailable';
-	}
-	else if ((failedRuns ?? 0) > 0 || logs.length > 0) {
-		status = 'degraded';
-	}
-	else if (completedRuns === 0) {
-		status = 'empty';
-	}
-
 	return {
-		status,
+		availability: unavailableQueries.length ? 'partial' : 'available',
+		recordedActivity: (completedRuns ?? 0) > 0 || (failedRuns ?? 0) > 0
+			? 'present'
+			: completedRuns === 0 && failedRuns === 0 ? 'none' : 'unknown',
 		window: { start: start.toISOString(), end: end.toISOString() },
 		completedRuns,
 		failedRuns,
