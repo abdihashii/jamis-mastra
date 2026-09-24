@@ -92,6 +92,26 @@ function fantasyRun(fantasyWeek: number, overrides: Partial<FantasyMonitoringRun
 }
 
 describe('check monitoring', () => {
+	test('keeps broad Deployment routing separate from application and Fantasy monitoring', () => {
+		const instructions = readFileSync(new URL('../../agents/jamis.ts', import.meta.url), 'utf8');
+		const deployment = instructions.indexOf('For broad questions about the server or full Deployment');
+		const application = instructions.indexOf('For requests about your own recent application health');
+		const fantasy = instructions.indexOf('For a general Fantasy Companion state question');
+		expect(deployment).toBeGreaterThan(-1);
+		expect(deployment).toBeLessThan(application);
+		expect(application).toBeLessThan(fantasy);
+		expect(instructions).toContain('"What\'s going on with the server?"');
+		expect(instructions).toContain('"How has everything been running for the past 72 hours?"');
+		expect(instructions).toContain('call checkMonitoring with the deployment scope');
+		expect(instructions).toContain('pass only whole hours from 1 through 168; ask for a supported window');
+		expect(instructions).toContain('operator conversation and Fantasy recap service outcomes, then needs attention, operating normally, recent recovered events, and unknowns in that order');
+		expect(instructions).toContain('Report narrow facts and gaps even when another reader fails');
+		expect(instructions).toContain('exact UTC history and tunnel windows');
+		expect(instructions).toContain('A historical failure alone does not prove a current outage');
+		expect(instructions).toContain('Reply acceptance does not prove handset delivery');
+		expect(instructions).toContain('or suggest an intervention or next check');
+	});
+
 	test('routes Fantasy state questions through the existing monitoring facade', () => {
 		const instructions = readFileSync(new URL('../../agents/jamis.ts', import.meta.url), 'utf8');
 		expect(instructions).toContain('"How is the Fantasy Companion doing?"');

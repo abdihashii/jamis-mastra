@@ -1,6 +1,6 @@
 # 020: Full-Deployment Monitoring
 
-Status: **Stages 1 and 2 committed and deployed. Stage 3 has not started.**
+Status: **Stages 1 and 2 committed and deployed. Stage 3 implemented locally, pending commit sign-off and production iMessage smoke.**
 
 Linear: [JAM-68](https://linear.app/abdirahman-haji/issue/JAM-68/monitor-the-full-jamis-deployment).
 
@@ -80,6 +80,16 @@ Extend `checkMonitoring` with an on-demand Deployment Operational snapshot. JAM-
 **Demo:** After the authenticated production direct-tool smoke, the Operator asks Jamis one broad Deployment question over iMessage. The reply leads with operator conversation and Fantasy outcomes, then findings, narrow positive evidence, proven recoveries, and unknowns. It does not claim handset delivery, infer a cause, disclose raw topology beyond the fixed allowlist, or suggest an action.
 
 **Proposed commit:** `feat: route Deployment monitoring through Jamis`
+
+### Stage 3 local result (2026-09-24 UTC)
+
+- Jamis now sends broad server and full-Deployment questions to `checkMonitoring` with `scope: 'deployment'`, using the default 24-hour history or a requested whole-hour window from 1 through 168. Specific application questions and general, exact-week, or ambiguous-week Fantasy questions retain their existing routes.
+- The Deployment reply instruction follows the tool's five-section order, gives the exact UTC history and tunnel windows, preserves narrow facts beside source gaps, and does not infer current outage, recovery, cause, handset delivery, or an intervention. The fixed component allowlist remains the only topology Jamis may name.
+- Focused routing assertions cover broad and 72-hour examples, scope precedence, the bounded window, section order, UTC boundaries, partial evidence, and reply limits. Existing Fantasy routing and Deployment output fixtures cover exact and ambiguous Fantasy weeks, the seven components, and source-owned evidence. These are prompt and direct-tool checks; live Jamis routing still requires the manual iMessage smoke after separate commit, push, and deployment approvals.
+- Gate: 337 Bun tests and 4 infra Python tests passed; typecheck, lint, build, and `git diff --check` passed. The Bun suite used local Postgres and ClickHouse, which were stopped afterward.
+- Reviews: `$review-code` found the unsupported subhour window and it was fixed; `$security-audit` found no new exploitable path or leaked diagnostics; `$ponytail:ponytail-review` trimmed duplicate prompt assertions. Read-only `bun audit` still reports the preexisting high `js-yaml@3.15.1` advisory through Mastra's `gray-matter`. This stage changes no dependency or YAML parsing path.
+
+**Linear AC check:** Criterion 1 has a local routing instruction and focused test, but remains unchecked until Jamis selects the Deployment scope in the manual iMessage smoke. Criterion 9 also awaits that smoke. Criteria 2 through 8 retain their Stage 1 and 2 evidence, including the authenticated production direct-tool smoke before Jamis routing.
 
 ## Research basis
 
