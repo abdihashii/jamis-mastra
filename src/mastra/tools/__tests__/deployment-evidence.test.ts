@@ -1,8 +1,9 @@
+import type { z } from 'zod';
 import { describe, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import { parseDeploymentEvidence, readDeploymentEvidence, readFullDeploymentEvidence } from '../deployment-evidence';
+import { deploymentEvidenceTool, parseDeploymentEvidence, readDeploymentEvidence, readFullDeploymentEvidence } from '../deployment-evidence';
 
 const now = Date.parse('2026-09-23T12:00:00Z');
 const valid = {
@@ -175,5 +176,18 @@ describe('deployment evidence boundary', () => {
 		const empty = await readFullDeploymentEvidence(async () => ({ listTracesLight: async () => ({ spans: [] }) }) as never, () => async () => [], undefined, '/tmp/jamis-evidence-missing.sock', now);
 		expect(empty.clickhouse.gaps).toContain('no_recent_traces');
 		expect(empty.postgres.gaps).toContain('fantasy_not_configured');
+	});
+
+	test('ClickHouse history follows the requested 1 to 168 hour window', async () => {
+		let filters: unknown;
+		const result = await readFullDeploymentEvidence(async () => ({
+			listTracesLight: async (args: any) => {
+				filters = args.filters;
+				return { spans: [] };
+			},
+		}) as never, () => async () => [{ connected: 1 }], undefined, '/tmp/jamis-evidence-missing.sock', now, 72);
+		expect(filters).toEqual({ startedAt: { start: new Date(now - 72 * 3_600_000), end: new Date(now) } });
+		expect(result.clickhouse.scope).toBe('recent_72h');
+		expect((deploymentEvidenceTool.outputSchema as unknown as z.ZodTypeAny).safeParse(result).success).toBe(true);
 	});
 });

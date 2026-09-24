@@ -1,6 +1,6 @@
 # 017: Deployment operational snapshots
 
-Status: **JAM-66 complete through production smoke; later ticket gates remain pending.**
+Status: **JAM-66 and JAM-67 complete; JAM-68 deployed and in review; JAM-69 gate pending.**
 
 Linear: [JAM-66](https://linear.app/abdirahman-haji/issue/JAM-66/let-jamis-monitor-fantasy-weekly-recaps), [JAM-67](https://linear.app/abdirahman-haji/issue/JAM-67/make-the-full-jamis-deployment-observable), [JAM-68](https://linear.app/abdirahman-haji/issue/JAM-68/monitor-the-full-jamis-deployment), and [JAM-69](https://linear.app/abdirahman-haji/issue/JAM-69/triage-a-specific-jamis-deployment-incident).
 
@@ -120,6 +120,8 @@ Before implementation, write and approve a staged plan that inventories the fixe
 ### JAM-68: Full-Deployment Monitoring
 
 Before implementation, write and approve a staged plan that composes JAM-66 and JAM-67 through the existing `checkMonitoring` facade. Lead with operator-conversation and Fantasy service outcomes, then component findings, recovered recent events, operating-normal evidence, and unknowns. Use safe read-only checks and source-relevant golden signals, but create V1 findings only from categorical rules.
+
+Proposed staged plan: [020: Full-Deployment Monitoring](020-full-deployment-monitoring.md).
 
 **Acceptance demo:** “What’s going on with the server?” returns a deterministic, partial-failure-safe snapshot of the fixed Deployment inventory with no overall status, raw evidence, synthetic product action, external provider poll, numeric threshold, or intervention suggestion.
 

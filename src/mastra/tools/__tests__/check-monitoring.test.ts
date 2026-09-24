@@ -23,6 +23,7 @@ interface FixtureOptions {
 	outputTokenRecords?: number;
 	logs?: LogRecord[];
 	failLogs?: boolean;
+	failFailedRuns?: boolean;
 }
 
 function fixture(options: FixtureOptions = {}) {
@@ -33,6 +34,9 @@ function fixture(options: FixtureOptions = {}) {
 			metricCalls.push(args);
 			const name = args.name[0];
 			if (name === 'mastra_agent_duration_ms') {
+				if (options.failFailedRuns && args.filters?.labels?.status === 'error') {
+					throw new Error('failed-run query failed');
+				}
 				if (args.aggregation === 'avg') {
 					return { value: options.averageDurationMs === undefined ? 1200 : options.averageDurationMs };
 				}
@@ -88,6 +92,26 @@ function fantasyRun(fantasyWeek: number, overrides: Partial<FantasyMonitoringRun
 }
 
 describe('check monitoring', () => {
+	test('keeps broad Deployment routing separate from application and Fantasy monitoring', () => {
+		const instructions = readFileSync(new URL('../../agents/jamis.ts', import.meta.url), 'utf8');
+		const deployment = instructions.indexOf('For broad questions about the server or full Deployment');
+		const application = instructions.indexOf('For requests about your own recent application health');
+		const fantasy = instructions.indexOf('For a general Fantasy Companion state question');
+		expect(deployment).toBeGreaterThan(-1);
+		expect(deployment).toBeLessThan(application);
+		expect(application).toBeLessThan(fantasy);
+		expect(instructions).toContain('"What\'s going on with the server?"');
+		expect(instructions).toContain('"How has everything been running for the past 72 hours?"');
+		expect(instructions).toContain('call checkMonitoring with the deployment scope');
+		expect(instructions).toContain('pass only whole hours from 1 through 168; ask for a supported window');
+		expect(instructions).toContain('operator conversation and Fantasy recap service outcomes, then needs attention, operating normally, recent recovered events, and unknowns in that order');
+		expect(instructions).toContain('Report narrow facts and gaps even when another reader fails');
+		expect(instructions).toContain('exact UTC history and tunnel windows');
+		expect(instructions).toContain('A historical failure alone does not prove a current outage');
+		expect(instructions).toContain('Reply acceptance does not prove handset delivery');
+		expect(instructions).toContain('or suggest an intervention or next check');
+	});
+
 	test('routes Fantasy state questions through the existing monitoring facade', () => {
 		const instructions = readFileSync(new URL('../../agents/jamis.ts', import.meta.url), 'utf8');
 		expect(instructions).toContain('"How is the Fantasy Companion doing?"');
@@ -100,6 +124,7 @@ describe('check monitoring', () => {
 		expect(instructions).toContain('unavailable means completion could not be determined');
 		expect(instructions).toContain('source-native durable outcome, unknowns, whether the evidence supports direct intervention, and every returned timestamp exactly in UTC');
 		expect(instructions).toContain('Never invent an overall status or suggest an intervention command');
+		expect(instructions).toContain('Do not turn warning logs or child errors into a product-health claim');
 		expect(checkMonitoringTool.description).toContain('Fantasy Companion durable outcomes');
 	});
 
@@ -135,12 +160,13 @@ describe('check monitoring', () => {
 		expect(serializedProviderSchema).not.toContain('season');
 	});
 
-	test('returns a healthy summary with bounded Jamis-only queries', async () => {
+	test('returns available application evidence with bounded Jamis-only queries', async () => {
 		const { store, metricCalls, logCalls } = fixture();
 		const result = await readMonitoring(async () => store, 24, Date.parse('2026-09-15T12:00:00.000Z'));
 
 		expect(result).toEqual({
-			status: 'healthy',
+			availability: 'available',
+			recordedActivity: 'present',
 			window: {
 				start: '2026-09-14T12:00:00.000Z',
 				end: '2026-09-15T12:00:00.000Z',
@@ -185,24 +211,37 @@ describe('check monitoring', () => {
 		}]);
 	});
 
-	test('degrades on failed runs or Jamis-rooted warnings, even without completed runs', async () => {
+	test('keeps failed top-level runs as execution outcomes and warnings as supporting evidence', async () => {
 		const failed = fixture({ completedRuns: 0, failedRuns: 1, averageDurationMs: null });
-		expect((await readMonitoring(async () => failed.store))).toMatchObject({
-			status: 'degraded',
+		expect((await readMonitoring(async () => failed.store, 24, Date.parse('2026-09-15T12:00:00.000Z')))).toMatchObject({
+			availability: 'available',
+			recordedActivity: 'present',
+			window: { start: '2026-09-14T12:00:00.000Z', end: '2026-09-15T12:00:00.000Z' },
 			completedRuns: 0,
 			failedRuns: 1,
 		});
+		const direct = await checkMonitoringTool.execute!(
+			{ scope: 'application' },
+			{ mastra: { observability: { flush: async () => {} }, getStorage: () => ({ getStore: async () => failed.store }) } } as never,
+		);
+		expect(direct).toMatchObject({ availability: 'available', recordedActivity: 'present', failedRuns: 1 });
+		expect(direct).not.toHaveProperty('status');
 
-		const warning = fixture({ completedRuns: 0, averageDurationMs: null, logs: [log('retry scheduled')] });
+		const warning = fixture({ completedRuns: 1, logs: [log('retry scheduled'), log('child span failed', { level: 'error' })] });
 		const result = await readMonitoring(async () => warning.store);
-		expect(result.status).toBe('degraded');
-		expect(result.completedRuns).toBe(0);
+		expect(result.availability).toBe('available');
+		expect(result.recordedActivity).toBe('present');
+		expect(result.completedRuns).toBe(1);
+		expect(result.failedRuns).toBe(0);
+		expect(result.logs.map(item => item.level)).toEqual(['warn', 'error']);
+		expect(result).not.toHaveProperty('status');
 	});
 
 	test('distinguishes empty telemetry and missing optional token metrics from reported zero', async () => {
 		const empty = fixture({ completedRuns: 0, averageDurationMs: null, inputTokens: 0, inputTokenRecords: 0, outputTokens: 0, outputTokenRecords: 0 });
 		expect((await readMonitoring(async () => empty.store))).toMatchObject({
-			status: 'empty',
+			availability: 'available',
+			recordedActivity: 'none',
 			completedRuns: 0,
 			averageDurationMs: null,
 			inputTokens: null,
@@ -212,7 +251,8 @@ describe('check monitoring', () => {
 
 		const noTokens = fixture({ inputTokens: 0, inputTokenRecords: 0, outputTokens: 0, outputTokenRecords: 0 });
 		expect((await readMonitoring(async () => noTokens.store))).toMatchObject({
-			status: 'healthy',
+			availability: 'available',
+			recordedActivity: 'present',
 			completedRuns: 4,
 			inputTokens: null,
 			outputTokens: null,
@@ -229,7 +269,8 @@ describe('check monitoring', () => {
 	test('returns unavailable without guessing and keeps successful partial evidence', async () => {
 		const missing = await readMonitoring(async () => undefined, 24, Date.parse('2026-09-15T12:00:00.000Z'));
 		expect(missing).toMatchObject({
-			status: 'unavailable',
+			availability: 'unavailable',
+			recordedActivity: 'unknown',
 			completedRuns: null,
 			logs: [],
 			unavailableQueries: ['storage'],
@@ -238,13 +279,23 @@ describe('check monitoring', () => {
 		const partial = fixture({ completedRuns: 12, averageDurationMs: 2100, failLogs: true });
 		const result = await readMonitoring(async () => partial.store);
 		expect(result).toMatchObject({
-			status: 'unavailable',
+			availability: 'partial',
+			recordedActivity: 'present',
 			completedRuns: 12,
 			averageDurationMs: 2100,
 			logs: [],
 			unavailableQueries: ['logs'],
 		});
 		expect(JSON.stringify(result)).not.toContain('password');
+
+		const missingCount = fixture({ completedRuns: 0, failFailedRuns: true });
+		expect(await readMonitoring(async () => missingCount.store)).toMatchObject({
+			availability: 'partial',
+			recordedActivity: 'unknown',
+			completedRuns: 0,
+			failedRuns: null,
+			unavailableQueries: ['failedRuns'],
+		});
 	});
 
 	test('redacts and caps log records before returning them', async () => {
@@ -264,7 +315,8 @@ describe('check monitoring', () => {
 		const { store } = fixture({ logs: records });
 		const result = await readMonitoring(async () => store);
 
-		expect(result.status).toBe('degraded');
+		expect(result.availability).toBe('available');
+		expect(result.recordedActivity).toBe('present');
 		expect(result.logs).toHaveLength(20);
 		expect(result.logs[0]).toEqual({
 			timestamp: '2026-09-15T11:00:00.000Z',
@@ -297,14 +349,16 @@ describe('check monitoring', () => {
 				},
 			} as never,
 		);
-		expect(executed).toMatchObject({ status: 'degraded' });
+		expect(executed).toMatchObject({ availability: 'available', recordedActivity: 'present' });
+		expect(executed).not.toHaveProperty('status');
+		expect((checkMonitoringTool.outputSchema as z.ZodTypeAny).safeParse(executed).success).toBe(true);
 		expect(calls).toEqual(['flush', 'store']);
 
 		const unavailable = await checkMonitoringTool.execute!(
 			{ scope: 'application', hours: 24 },
 			{ mastra: { observability: { flush: async () => { throw new Error('flush failed'); } } } } as never,
 		);
-		expect(unavailable).toMatchObject({ status: 'unavailable', unavailableQueries: ['storage'] });
+		expect(unavailable).toMatchObject({ availability: 'unavailable', recordedActivity: 'unknown', unavailableQueries: ['storage'] });
 	});
 });
 
