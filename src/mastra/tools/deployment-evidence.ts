@@ -24,7 +24,7 @@ function container<T extends 'app' | 'postgres' | 'clickhouse' | 'cloudflared'>(
 const hostSchema = z.object({
 	component: z.literal('host'),
 	source: z.literal('procfs'),
-	observedAt: utcTime.nullable(),
+	observedAt: utcTime,
 	scope: z.literal('current'),
 	availability: z.enum(['available', 'unavailable']),
 	memoryAvailableMiB: z.number().int().min(0).max(1_000_000).nullable(),
@@ -35,7 +35,7 @@ const hostSchema = z.object({
 const dockerSchema = z.object({
 	component: z.literal('docker'),
 	source: z.literal('docker_engine'),
-	observedAt: utcTime.nullable(),
+	observedAt: utcTime,
 	scope: z.literal('current'),
 	availability: z.enum(['available', 'unavailable']),
 	containers: z.union([z.tuple([]), z.tuple([
@@ -49,7 +49,7 @@ const dockerSchema = z.object({
 const tunnelSchema = z.object({
 	component: z.literal('cloudflare_tunnel'),
 	source: z.literal('local_cloudflared'),
-	observedAt: utcTime.nullable(),
+	observedAt: utcTime,
 	scope: z.literal('current_and_recent_5m'),
 	availability: z.enum(['available', 'unavailable']),
 	containerState: state,
@@ -59,7 +59,7 @@ const tunnelSchema = z.object({
 const tailscaleSchema = z.object({
 	component: z.literal('tailscale'),
 	source: z.literal('local_tailscale'),
-	observedAt: utcTime.nullable(),
+	observedAt: utcTime,
 	scope: z.literal('current'),
 	availability: z.enum(['available', 'unavailable']),
 	serviceState: z.enum(['active', 'inactive', 'failed', 'activating', 'deactivating', 'unknown']),
@@ -77,7 +77,7 @@ const fantasyRunSchema = z.object({
 const postgresSchema = z.object({
 	component: z.literal('postgres'),
 	source: z.literal('postgres_sql'),
-	observedAt: utcTime.nullable(),
+	observedAt: utcTime,
 	scope: z.literal('current_and_configured_fantasy_season'),
 	availability: z.enum(['available', 'unavailable']),
 	freshness,
@@ -93,7 +93,7 @@ const clickhouseTraceSchema = z.object({
 const clickhouseSchema = z.object({
 	component: z.literal('clickhouse'),
 	source: z.literal('mastra_observability'),
-	observedAt: utcTime.nullable(),
+	observedAt: utcTime,
 	scope: z.literal('recent_24h'),
 	availability: z.enum(['available', 'unavailable']),
 	freshness,
@@ -117,12 +117,13 @@ type DockerEvidence = z.infer<typeof dockerSchema> & ContextEvidence;
 type TunnelEvidence = z.infer<typeof tunnelSchema> & ContextEvidence;
 type TailscaleEvidence = z.infer<typeof tailscaleSchema> & ContextEvidence;
 
-function unavailable(): { host: HostEvidence; docker: DockerEvidence; cloudflareTunnel: TunnelEvidence; tailscale: TailscaleEvidence } {
+function unavailable(nowMs: number): { host: HostEvidence; docker: DockerEvidence; cloudflareTunnel: TunnelEvidence; tailscale: TailscaleEvidence } {
+	const observedAt = utcSeconds(new Date(nowMs));
 	return {
 		host: {
 			component: 'host',
 			source: 'procfs',
-			observedAt: null,
+			observedAt,
 			scope: 'current',
 			correlation: 'uncorrelated_context',
 			availability: 'unavailable',
@@ -135,7 +136,7 @@ function unavailable(): { host: HostEvidence; docker: DockerEvidence; cloudflare
 		docker: {
 			component: 'docker',
 			source: 'docker_engine',
-			observedAt: null,
+			observedAt,
 			scope: 'current',
 			correlation: 'uncorrelated_context',
 			availability: 'unavailable',
@@ -146,7 +147,7 @@ function unavailable(): { host: HostEvidence; docker: DockerEvidence; cloudflare
 		cloudflareTunnel: {
 			component: 'cloudflare_tunnel',
 			source: 'local_cloudflared',
-			observedAt: null,
+			observedAt,
 			scope: 'current_and_recent_5m',
 			correlation: 'uncorrelated_context',
 			availability: 'unavailable',
@@ -158,7 +159,7 @@ function unavailable(): { host: HostEvidence; docker: DockerEvidence; cloudflare
 		tailscale: {
 			component: 'tailscale',
 			source: 'local_tailscale',
-			observedAt: null,
+			observedAt,
 			scope: 'current',
 			correlation: 'uncorrelated_context',
 			availability: 'unavailable',
@@ -170,8 +171,8 @@ function unavailable(): { host: HostEvidence; docker: DockerEvidence; cloudflare
 	};
 }
 
-function sourceFreshness(observedAt: string | null, availability: 'available' | 'unavailable', nowMs: number) {
-	if (availability === 'unavailable' || !observedAt)
+function sourceFreshness(observedAt: string, availability: 'available' | 'unavailable', nowMs: number) {
+	if (availability === 'unavailable')
 		return 'unavailable' as const;
 	const age = nowMs - Date.parse(observedAt);
 	if (!Number.isFinite(age) || age < -5_000)
@@ -180,7 +181,7 @@ function sourceFreshness(observedAt: string | null, availability: 'available' | 
 }
 
 export function parseDeploymentEvidence(raw: string, nowMs = Date.now()) {
-	const fallback = unavailable();
+	const fallback = unavailable(nowMs);
 	let value: unknown;
 	try {
 		value = JSON.parse(raw);
@@ -195,14 +196,12 @@ export function parseDeploymentEvidence(raw: string, nowMs = Date.now()) {
 	const docker = dockerSchema.safeParse(record.docker);
 	const tunnel = tunnelSchema.safeParse(record.cloudflareTunnel);
 	const tailscale = tailscaleSchema.safeParse(record.tailscale);
-	const hostValid = host.success && (host.data.availability === 'unavailable'
+	const hostValid = host.success && sourceFreshness(host.data.observedAt, 'available', nowMs) !== 'unavailable' && (host.data.availability === 'unavailable'
 		? host.data.memoryAvailableMiB === null && host.data.load1 === null && host.data.uptimeSeconds === null
-		: host.data.memoryAvailableMiB !== null && host.data.load1 !== null && host.data.uptimeSeconds !== null
-			&& sourceFreshness(host.data.observedAt, host.data.availability, nowMs) !== 'unavailable');
-	const dockerValid = docker.success && (docker.data.availability === 'unavailable'
+		: host.data.memoryAvailableMiB !== null && host.data.load1 !== null && host.data.uptimeSeconds !== null);
+	const dockerValid = docker.success && sourceFreshness(docker.data.observedAt, 'available', nowMs) !== 'unavailable' && (docker.data.availability === 'unavailable'
 		? docker.data.containers.length === 0
-		: docker.data.containers.length === 4
-			&& sourceFreshness(docker.data.observedAt, docker.data.availability, nowMs) !== 'unavailable');
+		: docker.data.containers.length === 4);
 	return {
 		host: hostValid
 			? { ...host.data, correlation: 'uncorrelated_context' as const, freshness: sourceFreshness(host.data.observedAt, host.data.availability, nowMs) }
@@ -210,10 +209,10 @@ export function parseDeploymentEvidence(raw: string, nowMs = Date.now()) {
 		docker: dockerValid
 			? { ...docker.data, correlation: 'uncorrelated_context' as const, freshness: sourceFreshness(docker.data.observedAt, docker.data.availability, nowMs) }
 			: fallback.docker,
-		cloudflareTunnel: tunnel.success && sourceFreshness(tunnel.data.observedAt, tunnel.data.availability, nowMs) !== 'unavailable'
+		cloudflareTunnel: tunnel.success && sourceFreshness(tunnel.data.observedAt, 'available', nowMs) !== 'unavailable'
 			? { ...tunnel.data, correlation: 'uncorrelated_context' as const, freshness: sourceFreshness(tunnel.data.observedAt, tunnel.data.availability, nowMs) }
 			: fallback.cloudflareTunnel,
-		tailscale: tailscale.success && sourceFreshness(tailscale.data.observedAt, tailscale.data.availability, nowMs) !== 'unavailable'
+		tailscale: tailscale.success && sourceFreshness(tailscale.data.observedAt, 'available', nowMs) !== 'unavailable'
 			? { ...tailscale.data, correlation: 'uncorrelated_context' as const, freshness: sourceFreshness(tailscale.data.observedAt, tailscale.data.availability, nowMs) }
 			: fallback.tailscale,
 	};
@@ -221,7 +220,7 @@ export function parseDeploymentEvidence(raw: string, nowMs = Date.now()) {
 
 export async function readDeploymentEvidence(path = socketPath, timeoutMs = 10_000, nowMs = Date.now()) {
 	if (!existsSync(path))
-		return unavailable();
+		return unavailable(nowMs);
 	const raw = await new Promise<string | null>((resolve) => {
 		let socket: ReturnType<typeof connect>;
 		try {
@@ -253,7 +252,7 @@ export async function readDeploymentEvidence(path = socketPath, timeoutMs = 10_0
 		socket.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
 		socket.on('error', () => finish(null));
 	});
-	return raw === null ? unavailable() : parseDeploymentEvidence(raw, nowMs);
+	return raw === null ? unavailable(nowMs) : parseDeploymentEvidence(raw, nowMs);
 }
 
 function deadline<T>(read: () => Promise<T>, fallback: T): Promise<T> {
@@ -276,7 +275,7 @@ async function readPostgres(sqlFactory: () => SqlLike, leagueId: string | undefi
 	const unavailable: z.infer<typeof postgresSchema> = {
 		component: 'postgres',
 		source: 'postgres_sql',
-		observedAt: null,
+		observedAt: utcSeconds(new Date(nowMs)),
 		scope: 'current_and_configured_fantasy_season',
 		availability: 'unavailable',
 		freshness: 'unavailable',
@@ -288,7 +287,6 @@ async function readPostgres(sqlFactory: () => SqlLike, leagueId: string | undefi
 		await sql`SELECT 1 AS connected`;
 		const result: z.infer<typeof postgresSchema> = {
 			...unavailable,
-			observedAt: utcSeconds(new Date(nowMs)),
 			availability: 'available',
 			freshness: 'fresh',
 			gaps: leagueId ? ['no_fantasy_runs'] : ['fantasy_not_configured'],
@@ -331,7 +329,7 @@ async function readClickHouse(getStore: () => Promise<TraceStore | undefined>, n
 	const unavailable: z.infer<typeof clickhouseSchema> = {
 		component: 'clickhouse',
 		source: 'mastra_observability',
-		observedAt: null,
+		observedAt: utcSeconds(new Date(nowMs)),
 		scope: 'recent_24h',
 		availability: 'unavailable',
 		freshness: 'unavailable',
@@ -355,7 +353,6 @@ async function readClickHouse(getStore: () => Promise<TraceStore | undefined>, n
 		}));
 		return {
 			...unavailable,
-			observedAt: utcSeconds(new Date(nowMs)),
 			availability: 'available' as const,
 			freshness: 'fresh' as const,
 			recentTraces: recentTraces.filter(result => result.success).map(result => result.data),

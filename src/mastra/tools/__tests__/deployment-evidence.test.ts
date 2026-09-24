@@ -114,6 +114,24 @@ describe('deployment evidence boundary', () => {
 		expect((await socketResponse('{bad json')).docker.freshness).toBe('unavailable');
 	});
 
+	test('unavailable results retain the UTC check or probe time', async () => {
+		const checkedAt = `${new Date(now).toISOString().slice(0, 19)}Z`;
+		const failed = await readFullDeploymentEvidence(async () => undefined, () => {
+			throw new Error('down');
+		}, 'league-secret', '/tmp/jamis-evidence-missing.sock', now);
+		expect(Object.values(failed).every(item => item.observedAt === checkedAt)).toBe(true);
+
+		const probeTime = `${new Date(now - 5_000).toISOString().slice(0, 19)}Z`;
+		const partial = parseDeploymentEvidence(JSON.stringify({
+			...valid,
+			host: { ...valid.host, observedAt: probeTime, availability: 'unavailable', memoryAvailableMiB: null, load1: null, uptimeSeconds: null, gaps: ['host_probe_unavailable'] },
+			docker: { ...valid.docker, observedAt: probeTime, availability: 'unavailable', containers: [], gaps: ['docker_probe_unavailable'] },
+			cloudflareTunnel: { ...valid.cloudflareTunnel, observedAt: probeTime, availability: 'unavailable', containerState: 'unknown', recentDiagnostic: 'unknown', gaps: ['tunnel_probe_unavailable'] },
+			tailscale: { ...valid.tailscale, observedAt: probeTime, availability: 'unavailable', serviceState: 'unknown', backendState: 'unknown', gaps: ['tailscale_probe_unavailable'] },
+		}), now);
+		expect(Object.values(partial).every(item => item.observedAt === probeTime)).toBe(true);
+	});
+
 	test('source-native readers keep exact references and independent failures', async () => {
 		const sql = async (parts: TemplateStringsArray) => parts.join(' ').includes('SELECT 1')
 			? [{ connected: 1 }]
