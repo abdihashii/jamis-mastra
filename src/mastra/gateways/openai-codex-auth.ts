@@ -22,6 +22,16 @@ import process from 'node:process';
  */
 export const MODEL_AUTH_FAILURE = 'Model authentication failed. The error was logged.';
 
+export type CodexAuthFailureReason
+	= 'credential_missing' | 'refresh_before_safe_window' | 'refresh_rejected' | 'refresh_transport_failed'
+		| 'credential_write_failed' | 'unauthorized_after_retry';
+
+export class CodexAuthFailure extends Error {
+	constructor(readonly reason: CodexAuthFailureReason) {
+		super(MODEL_AUTH_FAILURE);
+	}
+}
+
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const ISSUER = 'https://auth.openai.com';
 const DEVICE_USER_CODE_URL = `${ISSUER}/api/accounts/deviceauth/usercode`;
@@ -255,7 +265,7 @@ export async function refreshCredential(
 		const refreshable = current ?? cred;
 		if (!isExpiring(refreshable)) {
 			console.error('[openai-codex] Credential refresh status=unavailable detail=before_safe_window.');
-			throw new Error(MODEL_AUTH_FAILURE);
+			throw new CodexAuthFailure('refresh_before_safe_window');
 		}
 
 		let result: TokenResult;
@@ -269,11 +279,11 @@ export async function refreshCredential(
 		}
 		catch {
 			console.error('[openai-codex] Credential refresh status=failed detail=token_request_failed. Re-login required.');
-			throw new Error(MODEL_AUTH_FAILURE);
+			throw new CodexAuthFailure('refresh_transport_failed');
 		}
 		if (!result.ok) {
-			console.error(`[openai-codex] Credential refresh status=${result.status} detail=${result.detail}. Re-login required.`);
-			throw new Error(MODEL_AUTH_FAILURE);
+			console.error(`[openai-codex] Credential refresh status=${result.status} detail=refresh_rejected. Re-login required.`);
+			throw new CodexAuthFailure('refresh_rejected');
 		}
 		const accountId = extractAccountId(result.idToken, result.access) ?? refreshable.accountId;
 		const next: CodexCredential = {
@@ -288,7 +298,7 @@ export async function refreshCredential(
 		}
 		catch {
 			console.error('[openai-codex] Credential refresh status=failed detail=credential_write_failed. Re-login required.');
-			throw new Error(MODEL_AUTH_FAILURE);
+			throw new CodexAuthFailure('credential_write_failed');
 		}
 		return next;
 	}).finally(() => {
@@ -304,7 +314,7 @@ export async function getUsableCredential(
 	const cred = await loadCredential(path);
 	if (!cred) {
 		console.error('[openai-codex] No Codex credential. Log in with `bun scripts/openai-codex-login.ts`.');
-		throw new Error(MODEL_AUTH_FAILURE);
+		throw new CodexAuthFailure('credential_missing');
 	}
 	if (isExpiring(cred)) {
 		return refreshCredential(cred, path);

@@ -27,21 +27,51 @@ import {
 	MastraModelGateway,
 
 } from '@mastra/core/llm';
+import { SpanType } from '@mastra/core/observability';
+import { getCurrentSpan } from '@mastra/core/observability/context-storage';
 
+import { CODEX_AUTH_FAILURE_EVENT } from '../observability.js';
 import {
 	applyCodexBodyRules,
 	buildCodexHeaders,
 	CODEX_API_ENDPOINT,
+	CodexAuthFailure,
 	defaultCredentialPath,
 	getUsableCredential,
 	isExpiring,
 	loadCredential,
-	MODEL_AUTH_FAILURE,
 	refreshCredential,
 } from './openai-codex-auth.js';
 
 /** `createOpenAI` takes a base URL and appends `/responses` itself. */
 const CODEX_BASE_URL = CODEX_API_ENDPOINT.replace(/\/responses$/, '');
+function recordAuthFailure(error: CodexAuthFailure): void {
+	const span = getCurrentSpan();
+	// Gateway auth is also probed for model metadata before inference; record the failed execution once.
+	if (!span?.externalTraceId || (span.type !== SpanType.MODEL_STEP && span.type !== SpanType.MODEL_INFERENCE))
+		return;
+	try {
+		span.createEventSpan({
+			name: CODEX_AUTH_FAILURE_EVENT,
+			type: SpanType.GENERIC,
+			metadata: { reasonCode: error.reason, occurredAtUtc: new Date().toISOString() },
+		});
+	}
+	catch {
+		console.error('[openai-codex] Auth failure observability unavailable.');
+	}
+}
+
+async function observeAuthFailure<T>(operation: () => Promise<T>): Promise<T> {
+	try {
+		return await operation();
+	}
+	catch (error) {
+		if (error instanceof CodexAuthFailure)
+			recordAuthFailure(error);
+		throw error;
+	}
+}
 
 /**
  * The backend always answers over SSE, even for what the SDK thinks is a
@@ -117,7 +147,7 @@ function debugFingerprint(url: string, response: Response): void {
  */
 export async function codexFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
 	const credentialPath = defaultCredentialPath();
-	const cred = await getUsableCredential(credentialPath);
+	const cred = await observeAuthFailure(() => getUsableCredential(credentialPath));
 	const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
 	let body = init?.body;
 	let wasStreaming = true;
@@ -150,17 +180,21 @@ export async function codexFetch(input: RequestInfo | URL, init?: RequestInit): 
 		const current = await loadCredential(credentialPath);
 		if (!current) {
 			console.error('[openai-codex] Generation status=401 detail=credential_missing. Re-login required.');
-			throw new Error(MODEL_AUTH_FAILURE);
+			const error = new CodexAuthFailure('credential_missing');
+			recordAuthFailure(error);
+			throw error;
 		}
 		const retryCredential = current.access !== cred.access || current.refresh !== cred.refresh
 			? current
-			: await refreshCredential(cred, credentialPath);
+			: await observeAuthFailure(() => refreshCredential(cred, credentialPath));
 		response = await send(retryCredential);
 		debugFingerprint(url, response);
 		if (response.status === 401) {
 			await response.body?.cancel().catch(() => undefined);
 			console.error('[openai-codex] Generation status=401 detail=unauthorized_after_retry. Re-login required.');
-			throw new Error(MODEL_AUTH_FAILURE);
+			const error = new CodexAuthFailure('unauthorized_after_retry');
+			recordAuthFailure(error);
+			throw error;
 		}
 	}
 	// The SDK's non-streaming call still gets an SSE stream; translate it.
@@ -197,7 +231,7 @@ export class OpenAICodexGateway extends MastraModelGateway {
 		const cred = await loadCredential();
 		if (!cred)
 			return undefined;
-		const usable = isExpiring(cred) ? await refreshCredential(cred) : cred;
+		const usable = isExpiring(cred) ? await observeAuthFailure(() => refreshCredential(cred)) : cred;
 		return {
 			bearerToken: usable.access,
 			headers: {
@@ -211,7 +245,9 @@ export class OpenAICodexGateway extends MastraModelGateway {
 	async getApiKey(_modelId: string): Promise<string> {
 		/* Thrown errors reach the operator's phone; keep specifics in logs. */
 		console.error('[openai-codex] No Codex credential. Log in with `bun scripts/openai-codex-login.ts`.');
-		throw new Error(MODEL_AUTH_FAILURE);
+		const error = new CodexAuthFailure('credential_missing');
+		recordAuthFailure(error);
+		throw error;
 	}
 
 	async resolveLanguageModel({ modelId, providerId }: {

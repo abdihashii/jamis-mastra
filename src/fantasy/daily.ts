@@ -1,5 +1,6 @@
 import type { Mastra } from '@mastra/core/mastra';
 import type { MastraDBMessage } from '@mastra/core/memory';
+import type { TracingContext } from '@mastra/core/observability';
 
 import type { WeekFacts } from './analysis';
 import type { FantasyConfig } from './config';
@@ -27,8 +28,8 @@ export type DailyOutcome
 export async function runDailyRecap(
 	config: FantasyConfig | null,
 	mastra: Mastra,
-	/** Test/op-only seam: without this, the real Sendblue client is dynamically imported. */
-	overrides?: { send?: SendClient; traceId?: string },
+	/** Optional send seam and exact trace handoff. */
+	overrides?: { send?: SendClient; traceId?: string; tracingContext?: TracingContext },
 ): Promise<DailyOutcome> {
 	if (!config)
 		return { outcome: 'skipped-unconfigured', week: null };
@@ -76,6 +77,7 @@ export async function runDailyRecap(
 		const agent = mastra.getAgent('fantasy');
 		const generate = async (factsNow: WeekFacts, context: ChatContextMessage[]): Promise<RecapShaping> => {
 			const result = await agent.generate(buildRecapPrompt(factsNow, context), {
+				...(overrides?.tracingContext ? { tracingContext: overrides.tracingContext } : {}),
 				structuredOutput: { schema: recapShapingSchema },
 				// The prompt carries raw group chat and the output carries recap prose;
 				// neither may reach ClickHouse (AC: traces without chat/phone/recap text).
