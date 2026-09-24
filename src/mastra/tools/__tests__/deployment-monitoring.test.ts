@@ -1,9 +1,10 @@
 import type { z } from 'zod';
+import type { SqlLike } from '../../../fantasy/recaps';
 import { describe, expect, test } from 'bun:test';
 import { SpanType } from '@mastra/core/observability';
 import { TraceStatus } from '@mastra/core/storage';
 import { checkMonitoringTool } from '../check-monitoring';
-import { readDeploymentMonitoring } from '../deployment-monitoring';
+import { listRecentWorkflowRuns, readDeploymentMonitoring } from '../deployment-monitoring';
 
 const now = Date.parse('2026-09-24T12:00:00.000Z');
 const observedAt = new Date(now).toISOString();
@@ -38,7 +39,7 @@ function sources(overrides: Record<string, unknown> = {}) {
 				return { spans: [], pagination: { hasMore: false } };
 			},
 		}) as never,
-		getWorkflowStore: async () => ({ listWorkflowRuns: async () => ({ runs: [] }) }) as never,
+		readWorkflowRuns: async () => [],
 		readFantasyRuns: async () => [],
 		readEvidence: async (...args: unknown[]) => {
 			calls.push(args);
@@ -118,14 +119,48 @@ describe('Deployment monitoring Stage 1', () => {
 		expect(JSON.stringify(result)).not.toMatch(/secret|15551234567|injected|inputPreview|finalText|lastError/);
 	});
 
+	test('keeps observed Jamis activity when channel history is unavailable', async () => {
+		const fixture = sources({
+			getStore: async () => ({ listTracesLight: async (args: any) => {
+				if (args.filters.spanType === SpanType.GENERIC)
+					throw new Error(raw);
+				return { spans: [{ spanType: SpanType.AGENT_RUN, entityId: 'jamis', status: TraceStatus.SUCCESS, startedAt: new Date(now - 1_000), metadata: { sendblue_message_digest: 'digest' } }], pagination: { hasMore: false } };
+			} }) as never,
+		});
+		const result = await readDeploymentMonitoring(fixture as never, 24, now);
+		expect(result.serviceOutcomes[0]).toMatchObject({ historicalActivity: 'requests_observed', topLevelExecutionSucceeded: 1, completedHistoricalRequests: null });
+		expect(result.unknowns).toContainEqual({ subject: 'operator_conversation', gap: 'channel_history_unavailable', boundary: 'recent_history' });
+		expect(result.unknowns).toContainEqual({ subject: 'operator_conversation', gap: 'reply_status_unverified', boundary: 'recent_history' });
+	});
+
+	test('selects recent workflow outcomes by completion time', async () => {
+		const start = new Date(now - 3_600_000);
+		const calls: { text: string; values: unknown[] }[] = [];
+		const sql: SqlLike = async (strings, ...values) => {
+			calls.push({ text: strings.join('?'), values });
+			return [{
+				createdAt: new Date(start.getTime() - 1_000),
+				updatedAt: new Date(start.getTime() + 1_000),
+				snapshot: { status: 'success', result: { status: 'success', output: { outcome: 'error', error: raw } } },
+			}];
+		};
+		const result = await readDeploymentMonitoring(sources({ readWorkflowRuns: (from: Date, to: Date) => listRecentWorkflowRuns(sql, from, to) }) as never, 1, now);
+		expect(calls[0]?.text).toContain('"updatedAt" >= ? AND "updatedAt" <= ?');
+		expect(calls[0]?.text).toContain('ORDER BY "updatedAt" DESC LIMIT 11');
+		expect(calls[0]?.text).not.toContain('"createdAt"');
+		expect(calls[0]?.values).toEqual([start, new Date(now)]);
+		expect(result.needsAttention).toContainEqual({ subject: 'fantasy_recaps', fact: 'recap_execution_failed', boundary: 'recent_history', at: new Date(start.getTime() + 1_000).toISOString() });
+		expect(JSON.stringify(result)).not.toContain(raw);
+	});
+
 	test('allows only a stored categorical no-op and preserves other sources when readers fail', async () => {
 		const fixture = sources({
 			getStore: async () => ({ listTracesLight: async () => { throw new Error(raw); } }) as never,
-			getWorkflowStore: async () => ({ listWorkflowRuns: async () => ({ runs: [
-				{ snapshot: '{malformed' },
-				{ snapshot: JSON.stringify({ status: 'success', result: { status: 'success', output: { outcome: 'noop-no-completed-week', error: raw } } }) },
+			readWorkflowRuns: async () => [
+				{ updatedAt: new Date(now), snapshot: '{malformed' },
+				{ updatedAt: new Date(now), snapshot: JSON.stringify({ status: 'success', result: { status: 'success', output: { outcome: 'noop-no-completed-week', error: raw } } }) },
 				{ updatedAt: new Date(now - 1_000), snapshot: { status: 'success', result: { status: 'success', output: { outcome: 'error', error: raw } } } },
-			] }) }) as never,
+			] as never,
 			readFantasyRuns: async () => [{ fantasyWeek: 1, status: 'sent', updatedAt: new Date(now), sentAt: new Date(now) }] as never,
 			readEvidence: async () => evidence({
 				host: { observedAt, availability: 'unavailable', freshness: 'unavailable' },

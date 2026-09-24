@@ -1,4 +1,5 @@
-import type { ObservabilityStorage, WorkflowsStorage } from '@mastra/core/storage';
+import type { ObservabilityStorage } from '@mastra/core/storage';
+import type { SqlLike } from '../../fantasy/recaps';
 import type { FantasyMonitoringRun } from '../../fantasy/runs';
 import type { readFullDeploymentEvidence } from './deployment-evidence';
 
@@ -118,17 +119,27 @@ type Item = DeploymentMonitoringSummary['needsAttention'][number];
 type Unknown = DeploymentMonitoringSummary['unknowns'][number];
 type Evidence = Awaited<ReturnType<typeof readFullDeploymentEvidence>>;
 type TraceStore = Pick<ObservabilityStorage, 'listTracesLight'>;
-type WorkflowStore = Pick<WorkflowsStorage, 'listWorkflowRuns'>;
+interface WorkflowRun { snapshot: unknown; updatedAt: Date }
 
 export interface DeploymentMonitoringSources {
 	getStore: () => Promise<TraceStore | undefined>;
-	getWorkflowStore: () => Promise<WorkflowStore | undefined>;
+	readWorkflowRuns: (start: Date, end: Date) => Promise<WorkflowRun[]>;
 	readFantasyRuns: () => Promise<FantasyMonitoringRun[] | null>;
 	readEvidence: (hours: number, nowMs: number) => Promise<Evidence>;
 	currentDigest?: string;
 }
 
 const componentOrder = ['host', 'docker', 'app', 'postgres', 'clickhouse', 'cloudflare_tunnel', 'tailscale'] as const;
+
+export async function listRecentWorkflowRuns(sql: SqlLike, start: Date, end: Date): Promise<WorkflowRun[]> {
+	// Mastra's listWorkflowRuns filters createdAt; the outcome boundary is updatedAt.
+	return await sql`
+		SELECT snapshot, "updatedAt" FROM mastra_workflow_snapshot
+		WHERE workflow_name = 'fantasy-weekly-recap'
+			AND "updatedAt" >= ${start} AND "updatedAt" <= ${end}
+		ORDER BY "updatedAt" DESC LIMIT 11
+	` as WorkflowRun[];
+}
 
 function limited<T>(read: () => Promise<T>): Promise<T> {
 	return new Promise((resolve, reject) => {
@@ -164,7 +175,7 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 	const [evidenceResult, fantasyResult, workflowResult, storeResult] = await Promise.allSettled([
 		sources.readEvidence(hours, nowMs),
 		limited(sources.readFantasyRuns),
-		limited(sources.getWorkflowStore),
+		limited(() => sources.readWorkflowRuns(start, end)),
 		limited(sources.getStore),
 	]);
 	const evidence = evidenceResult.status === 'fulfilled' ? evidenceResult.value : undefined;
@@ -217,7 +228,7 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 			const correlated = response.spans.filter(row => row.spanType === SpanType.AGENT_RUN && row.entityId === 'jamis'
 				&& row.metadata?.sendblue_message_digest !== sources.currentDigest
 				&& typeof row.metadata?.sendblue_message_digest === 'string');
-			if (correlated.length && historicalActivity === 'no_recent_activity') {
+			if (correlated.length && historicalActivity !== 'requests_observed') {
 				historicalActivity = 'requests_observed';
 				missing('operator_conversation', 'reply_status_unverified', 'recent_history');
 			}
@@ -275,15 +286,14 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 		missing('fantasy_recaps', fantasyRuns ? 'fantasy_row_invalid' : fantasyResult.status === 'fulfilled' ? 'fantasy_not_configured' : 'fantasy_runs_unavailable', 'configured_fantasy_season');
 	}
 
-	if (workflowResult.status === 'fulfilled' && workflowResult.value) {
+	if (workflowResult.status === 'fulfilled') {
 		try {
-			const workflowStore = workflowResult.value;
-			const { runs, total } = await limited(() => workflowStore.listWorkflowRuns({ workflowName: 'fantasy-weekly-recap', fromDate: start, toDate: end, perPage: 10, page: 0 }));
-			if (total > runs.length)
+			const runs = workflowResult.value;
+			if (runs.length > 10)
 				missing('fantasy_recaps', 'history_truncated', 'recent_history');
 			let noop = false;
 			let observed = false;
-			for (const run of runs) {
+			for (const run of runs.slice(0, 10)) {
 				try {
 					const snapshot: unknown = typeof run.snapshot === 'string' ? JSON.parse(run.snapshot) : run.snapshot;
 					const parsed = z.object({
