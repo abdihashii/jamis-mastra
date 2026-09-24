@@ -1,6 +1,6 @@
 # 020: Full-Deployment Monitoring
 
-Status: **Stages 1 and 2 implemented. Stage 2 awaits commit sign-off; Stage 3 has not started.**
+Status: **Stages 1 and 2 committed and deployed. Stage 3 has not started.**
 
 Linear: [JAM-68](https://linear.app/abdirahman-haji/issue/JAM-68/monitor-the-full-jamis-deployment).
 
@@ -64,8 +64,10 @@ Extend `checkMonitoring` with an on-demand Deployment Operational snapshot. JAM-
 - Direct application-scope tool fixtures show a warning plus child error without a health verdict and a failed top-level execution with `failedRuns: 1`; the reader fixture verifies the latter's UTC window. Focused tests also cover no recorded runs, missing storage, a failed log query, and a failed execution-count query.
 - Gate: 336 Bun tests and 4 infra Python tests passed; typecheck, lint, build, and `git diff --check` passed. The Bun suite needed local Postgres and ClickHouse; both were stopped again afterward.
 - Reviews: `$review-code` found no verified correctness or contract issue after checking callers, partial results, and scope compatibility. `$security-audit` found no new exploitable path or leaked diagnostic data. Read-only `bun audit` still reports the preexisting high `js-yaml@3.15.1` advisory through Mastra's `gray-matter`; Stage 2 changes no dependency or YAML parsing path. `$ponytail:ponytail-review`: lean already, with no behavior-preserving cut identified.
+- Commit `b37e1c0` was pushed and deployed on 2026-09-24 UTC. Production's authenticated application-scope direct-tool call returned HTTP 200, `availability: available`, `recordedActivity: none`, zero completed and failed runs in its exact 24-hour UTC window, no query gaps, and no `status` field. No logs were present; the redaction contract remains covered by the focused fixture.
+- Authenticated production Deployment direct-tool calls returned HTTP 200 for the default 24 hours and explicit 72 hours. Both led with the operator-conversation and Fantasy outcomes, assessed all seven fixed components in order, kept a five-minute tunnel window, and returned only allowlisted facts and gaps. The 72-hour window reported one historical `top_level_execution_failed` at `2026-09-22T16:20:03.363Z`, without claiming a current outage. Fantasy season counts were two sent and zero failed, unknown, active, or expired runs. These calls ran from inside the production app container against its loopback API with the configured bearer token; external reachability remains unverified by this smoke.
 
-**Linear AC check:** JAM-68 criteria 2 through 8 remain checked. Stage 2 specifically rechecked source authority (criterion 6): warning and child error logs cannot become product failures, while a failed top-level execution remains an execution outcome. The application output still has no overall rollup or raw log message (criterion 7), and partial readers preserve successful evidence (criterion 5). Criteria 1 and 9 remain open for Stage 3 routing and iMessage smoke. Authenticated production direct-tool smoke still awaits separate push and deployment approvals.
+**Linear AC check:** JAM-68 criteria 2 through 8 remain checked. Stage 2 specifically rechecked source authority (criterion 6): warning and child error logs cannot become product failures, while a failed top-level execution remains an execution outcome. The application output still has no overall rollup or raw log message (criterion 7), and partial readers preserve successful evidence (criterion 5). The authenticated production direct-tool smoke is complete (criterion 8). Criteria 1 and 9 remain open for Stage 3 routing and iMessage smoke.
 
 ## Stage 3: Route broad Deployment questions through Jamis
 
