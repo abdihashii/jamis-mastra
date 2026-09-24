@@ -1,12 +1,20 @@
 import type { GatewayLanguageModel } from '@mastra/core/llm';
+import type { AnyExportedSpan } from '@mastra/core/observability';
 import type { CodexCredential } from '../openai-codex-auth.js';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Mastra } from '@mastra/core';
+import { Agent } from '@mastra/core/agent';
+import { SpanType, TracingEventType } from '@mastra/core/observability';
+import { executeWithContext } from '@mastra/core/observability/context-storage';
+import { InMemoryStore } from '@mastra/core/storage';
+import { Observability } from '@mastra/observability';
 
-import { defaultCredentialPath, MODEL_AUTH_FAILURE, refreshCredential, runDeviceLogin } from '../openai-codex-auth.js';
+import { allowlistCodexAuthFailure, CODEX_AUTH_FAILURE_EVENT } from '../../observability.js';
+import { CodexAuthFailure, defaultCredentialPath, MODEL_AUTH_FAILURE, refreshCredential, runDeviceLogin } from '../openai-codex-auth.js';
 import { codexFetch, forcingStoreFalse, openAICodexGateway } from '../openai-codex-gateway.js';
 
 /** The credential path is cwd-relative, so each test runs in a temp dir. */
@@ -646,7 +654,7 @@ describe('401 credential recovery', () => {
 
 		expect(fetchCalls.filter(call => call.url.includes('/oauth/token')).length).toBe(1);
 		expect(fetchCalls.filter(call => call.url.includes('/codex/responses')).length).toBe(1);
-		expect(errors.join('\n')).toContain('status=401 detail=refresh_token_invalidated');
+		expect(errors.join('\n')).toContain('status=401 detail=refresh_rejected');
 		expect(errors.join('\n')).not.toMatch(/raw-provider-message|test-access-token|test-refresh-token|test-account-id/);
 	});
 
@@ -715,6 +723,157 @@ describe('missing credential at fetch time', () => {
 		});
 		expect(model).toBeDefined();
 	});
+});
+
+function captureAuthSpans(spans: AnyExportedSpan[]): Observability {
+	return new Observability({
+		configs: {
+			default: {
+				serviceName: 'test',
+				spanOutputProcessors: [allowlistCodexAuthFailure],
+				exporters: [{
+					name: 'capture',
+					onTracingEvent(event) {
+						if (event.type === TracingEventType.SPAN_ENDED)
+							spans.push(event.exportedSpan);
+					},
+					exportTracingEvent: async () => {},
+					flush: async () => {},
+					shutdown: async () => {},
+				}],
+			},
+		},
+	});
+}
+
+test('Codex auth failures export fixed reasons on their exact execution traces', async () => {
+	const spans: AnyExportedSpan[] = [];
+	const observability = captureAuthSpans(spans);
+	const instance = observability.getDefaultInstance()!;
+	const expected: Array<{ reason: string; traceId: string }> = [];
+	const run = async (reason: CodexAuthFailure['reason'], action: () => Promise<unknown>) => {
+		const root = instance.startSpan({ name: 'inference', type: SpanType.MODEL_INFERENCE, metadata: { planted: 'raw-provider-message' } });
+		try {
+			const error = await executeWithContext({ span: root, fn: () => captureError(action) });
+			expect(error).toBeInstanceOf(CodexAuthFailure);
+			expect((error as CodexAuthFailure).reason).toBe(reason);
+			expect(error.message).toBe(MODEL_AUTH_FAILURE);
+			expected.push({ reason, traceId: root.externalTraceId! });
+		}
+		finally {
+			root.end();
+		}
+	};
+	const stale = () => makeCredential({ expiresAt: Date.now() + 30_000, earliestRefreshAt: Date.now() - 60_000 });
+
+	try {
+		await run('credential_missing', () => performCodexFetch({ input: [] }));
+
+		await writeCredential(makeCredential({ expiresAt: Date.now() - 1, earliestRefreshAt: Date.now() + 60_000 }));
+		mockFetch({ generation: () => new Response('raw-provider-message', { status: 401 }) });
+		await run('refresh_before_safe_window', () => performCodexFetch({ input: [] }));
+
+		await writeCredential(stale());
+		mockFetch({ tokenEndpoint: () => new Response(JSON.stringify({ error: { code: 'provider-secret', message: 'raw-provider-message' } }), { status: 401 }) });
+		await run('refresh_rejected', () => performCodexFetch({ input: [] }));
+
+		mockFetch({ tokenEndpoint: () => {
+			throw new Error('raw-provider-message');
+		} });
+		await run('refresh_transport_failed', () => performCodexFetch({ input: [] }));
+
+		mockFetch({ tokenEndpoint: async () => {
+			await rm(join(tempDir, 'data', 'openai-codex-auth.json'));
+			await mkdir(join(tempDir, 'data', 'openai-codex-auth.json'));
+			return refreshedTokenResponse();
+		} });
+		await run('credential_write_failed', () => performCodexFetch({ input: [] }));
+
+		await rm(join(tempDir, 'data', 'openai-codex-auth.json'), { recursive: true });
+		const now = originalDateNow();
+		Date.now = () => now;
+		await writeCredential(makeCredential({ expiresAt: now + 86_400_000, earliestRefreshAt: now - 59_999 }));
+		mockFetch({
+			tokenEndpoint: refreshedTokenResponse,
+			generation: () => {
+				Date.now = () => now + 1;
+				return new Response('raw-provider-message', { status: 401 });
+			},
+		});
+		await run('unauthorized_after_retry', () => performCodexFetch({ input: [] }));
+
+		await observability.flush();
+		const events = spans.filter(span => span.name === CODEX_AUTH_FAILURE_EVENT);
+		expect(events.map(event => ({ reason: event.metadata?.reasonCode, traceId: event.traceId }))).toEqual(expected);
+		for (const event of events) {
+			expect(Object.keys(event.metadata ?? {}).sort()).toEqual(['occurredAtUtc', 'reasonCode']);
+			expect(event.metadata?.occurredAtUtc).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+		}
+		expect(JSON.stringify(events)).not.toMatch(/provider-secret|raw-provider-message|test-access-token|test-refresh-token|test-account-id/);
+		const broken = instance.startSpan({ name: 'broken-export', type: SpanType.MODEL_STEP });
+		broken.createEventSpan = () => {
+			throw new Error('sink-secret');
+		};
+		try {
+			const error = await executeWithContext({ span: broken, fn: () => captureError(() => openAICodexGateway.getApiKey('openai-codex/gpt-5.6-terra')) });
+			expect(error.message).toBe(MODEL_AUTH_FAILURE);
+		}
+		finally {
+			broken.end();
+		}
+	}
+	finally {
+		await observability.shutdown();
+	}
+});
+
+test('a failed agent generation exports one auth event on its direct or scheduled trace', async () => {
+	const spans: AnyExportedSpan[] = [];
+	const observability = captureAuthSpans(spans);
+	const mastra = new Mastra({
+		agents: { probe: new Agent({ id: 'probe', name: 'probe', instructions: 'Reply briefly.', model: 'openai-codex/gpt-5.6-terra' }) },
+		gateways: { 'openai-codex': openAICodexGateway },
+		observability,
+		storage: new InMemoryStore(),
+	});
+	try {
+		const error = await captureError(() => mastra.getAgent('probe').generate('hello', { tracingOptions: { hideInput: true, hideOutput: true } }));
+		expect(error.message).toBe(MODEL_AUTH_FAILURE);
+		const attempt = observability.getDefaultInstance()!.startSpan({ name: 'scheduled-attempt', type: SpanType.WORKFLOW_RUN });
+		try {
+			const scheduledError = await captureError(() => mastra.getAgent('probe').generate('hello', {
+				tracingContext: { currentSpan: attempt },
+				tracingOptions: { hideInput: true, hideOutput: true },
+			}));
+			expect(scheduledError.message).toBe(MODEL_AUTH_FAILURE);
+		}
+		finally {
+			attempt.end();
+		}
+		const now = originalDateNow();
+		Date.now = () => now;
+		await writeCredential(makeCredential({ expiresAt: now + 86_400_000, earliestRefreshAt: now - 59_999 }));
+		mockFetch({
+			tokenEndpoint: refreshedTokenResponse,
+			generation: () => {
+				Date.now = () => now + 1;
+				return new Response('raw-provider-message', { status: 401 });
+			},
+		});
+		const retryError = await captureError(() => mastra.getAgent('probe').generate('hello', { tracingOptions: { hideInput: true, hideOutput: true } }));
+		expect(retryError.message).toBe(MODEL_AUTH_FAILURE);
+		await observability.flush();
+		const root = spans.find(span => span.type === SpanType.AGENT_RUN);
+		const events = spans.filter(span => span.name === CODEX_AUTH_FAILURE_EVENT);
+		expect(events).toHaveLength(3);
+		expect(root).toBeDefined();
+		expect(events[0]?.traceId).toBe(root!.traceId);
+		expect(events[1]?.traceId).toBe(attempt.traceId);
+		expect(events.map(event => event.metadata?.reasonCode)).toEqual(['credential_missing', 'credential_missing', 'unauthorized_after_retry']);
+	}
+	finally {
+		await observability.shutdown();
+	}
 });
 
 describe('store:false forcing on the resolved language model', () => {

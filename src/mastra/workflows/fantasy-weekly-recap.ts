@@ -1,3 +1,4 @@
+import { SpanType } from '@mastra/core/observability';
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 
 import { z } from 'zod';
@@ -20,9 +21,23 @@ const weeklyRecapStep = createStep({
 	outputSchema: outcomeSchema,
 	execute: async ({ mastra, tracingContext }) => {
 		const started = Date.now();
-		const outcome = await runDailyRecap(getFantasyConfig(), mastra!, {
-			traceId: tracingContext?.currentSpan?.externalTraceId,
+		const currentSpan = tracingContext?.currentSpan;
+		const attemptSpan = currentSpan ?? mastra?.observability.getDefaultInstance()?.startSpan({
+			name: 'fantasy-weekly-recap-attempt',
+			type: SpanType.WORKFLOW_RUN,
+			entityId: 'fantasy-weekly-recap',
 		});
+		let outcome: Awaited<ReturnType<typeof runDailyRecap>>;
+		try {
+			outcome = await runDailyRecap(getFantasyConfig(), mastra!, {
+				traceId: attemptSpan?.externalTraceId,
+				tracingContext: attemptSpan ? { currentSpan: attemptSpan } : undefined,
+			});
+		}
+		finally {
+			if (!currentSpan)
+				attemptSpan?.end();
+		}
 		// Structured, content-free: league/week/status/duration make traces; never text or numbers of people.
 		mastra?.getLogger()?.info('[fantasy-recap] daily run', {
 			outcome: outcome.outcome,

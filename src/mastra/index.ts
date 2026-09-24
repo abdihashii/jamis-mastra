@@ -15,7 +15,7 @@ import { jamis } from './agents/jamis';
 import { SENDBLUE_CORRELATION_KEY } from './channels/sendblue';
 import { requireEnv, requireOperatorTimeZone } from './env';
 import { openAICodexGateway } from './gateways/openai-codex-gateway.js';
-import { redactChannelRenderContext } from './observability';
+import { allowlistCodexAuthFailure, redactChannelRenderContext } from './observability';
 import { deploymentEvidenceTool } from './tools/deployment-evidence';
 import { fantasyWeeklyRecapWorkflow } from './workflows/fantasy-weekly-recap';
 
@@ -61,6 +61,7 @@ export const mastra = new Mastra({
 				],
 				spanOutputProcessors: [
 					redactChannelRenderContext,
+					allowlistCodexAuthFailure,
 					new SensitiveDataFilter(),
 				],
 			},
