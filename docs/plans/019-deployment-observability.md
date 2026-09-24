@@ -1,6 +1,6 @@
 # 019: Deployment observability
 
-Status: JAM-67 Stage 1 complete through production direct-tool smoke. Stages 2 and 3 have not started.
+Status: JAM-67 Stages 1 and 2 deployed and verified. Stage 3 has not started.
 
 Linear: [JAM-67](https://linear.app/abdirahman-haji/issue/JAM-67/make-the-full-jamis-deployment-observable).
 
@@ -17,7 +17,7 @@ JAM-67 supplies bounded, read-only evidence behind the existing Monitoring and I
 | ClickHouse | Existing Mastra observability store and native read-only queries | Check current store availability and query bounded traces, logs, or metrics through its existing API. |
 | Cloudflare Tunnel | Fixed `cloudflared` container state and locally retained tunnel diagnostics | Select only categorical local evidence. A running container alone does not prove the Cloudflare edge or public route works. |
 | Tailscale private access | Host `tailscaled` state and local Tailscale status | Select only local connection state. It does not prove the Operator's device can reach the box. |
-| Application traces and durable outcomes | ClickHouse traces with the existing safe Sendblue digest; Postgres Fantasy recap runs | Keep exact identifiers inside the application boundary. The scheduled recap can persist a null trace ID, and Codex auth detail currently exists only in container stdout. |
+| Application traces and durable outcomes | ClickHouse traces with the existing safe Sendblue digest and allowlisted Codex auth events; Postgres Fantasy recap runs | New scheduled attempts persist their exact trace ID when available. Historical or untraced runs can still have a null trace ID and must expose that gap. |
 
 Each fixed result identifies its component and source, uses a UTC observation time, names its source-owned scope, distinguishes fresh, stale, and unavailable evidence, and lists explicit gaps. Results contain only fixed classifications, bounded counts or measurements, UTC times, and safe exact references. Nearby events remain explicitly uncorrelated unless an existing identifier proves identity. No result infers cause from time proximity.
 
@@ -64,6 +64,8 @@ An on-demand host probe serves one fixed, read-only request over a local Unix so
 **Demo:** A controlled failed model execution yields its safe reason and exact trace from ClickHouse after the emitting process is replaced; the Fantasy attempt links to the same trace when that failure occurred in its scheduled execution.
 
 **Proposed commit:** `feat: retain correlated Codex auth failures`
+
+**Implementation record (2026-09-24 UTC):** Commit `2a157f0` is pushed and deployed. Codex auth failures emit one Mastra event on the actual model execution trace with a fixed reason code and UTC occurrence time. The export processor retains only those two metadata fields; the trace ID remains in Mastra's trace fields. The scheduled Fantasy step creates an attempt trace when the scheduler supplies none, passes its tracing context into model generation, and persists that exact trace ID through the existing run claim. Without tracing, the run retains a null trace ID for the existing explicit evidence gap. Focused tests cover all six reason codes, hostile provider text, event export, direct and scheduled model correlation, and generic channel errors when event recording fails. The repository gate passed 328 Bun tests, 2 Python tests, typecheck, lint, build, and diff checks. A controlled failed model execution was read from local ClickHouse in a fresh process after its emitter exited. A separate controlled scheduled attempt wrote a Postgres run whose trace ID matched its ClickHouse attempt span and Codex auth event, without a live provider transaction. The production checkout and rebuilt app run `2a157f0`; the app container was `running` with zero restarts, and `/api/agents` returned 401 without a token and 200 with the app token. No production provider transaction was made for this smoke.
 
 ## Stage 3: Complete the fixed Deployment reader set
 
