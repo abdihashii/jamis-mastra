@@ -53,8 +53,16 @@ _Avoid_: app timezone (ambiguous), detected location
 A messaging platform the operator reaches an agent through, instead of Studio. iMessage over Sendblue is the first one.
 _Avoid_: integration, connector, bridge
 
+**Request intake**:
+The Channel's acceptance of an Operator message for Jamis. It does not imply a completed reply.
+_Avoid_: successful conversation
+
+**Reply acceptance**:
+Sendblue's acceptance of a reply sent by Jamis. It does not prove delivery to the Operator's handset.
+_Avoid_: reply delivery, delivered reply
+
 **Application incident**:
-A specific failed or degraded execution within the Jamis application boundary, such as an agent, workflow, scheduled job, application storage operation, or channel delivery. It excludes failures of the host and deployment infrastructure.
+A specific failed or degraded execution within the Jamis application boundary, such as an agent, workflow, scheduled job, application storage operation, Channel intake, or Reply acceptance. It excludes failures of the host and deployment infrastructure.
 _Avoid_: monitoring event, VPS incident, server incident
 
 **Observability**:
@@ -66,12 +74,20 @@ The metrics, events, logs, traces, and other recorded signals produced by Jamis 
 _Avoid_: observability, monitoring data
 
 **Operational snapshot**:
-An operator-requested, read-only account of what happened across Jamis and its Deployment, what remains unknown, and whether the evidence supports direct intervention. It preserves each source's factual outcome language and never acts on the Operator's behalf.
+An operator-requested, read-only account of what happened across Jamis and its Deployment and what remains unknown. It preserves narrow source-specific claims, including confirmed operation and gaps for the same component, without suggesting or taking an intervention.
 _Avoid_: dashboard, alert
 
 **Monitoring**:
-An operator-requested evaluation of service outcomes and known health signals that reports what is operating as expected, what is not, and what cannot be determined. Monitoring establishes what happened and when; it does not alert, act, or explain why.
+The collection, processing, aggregation, and presentation of system data used to judge service behavior. An Operational snapshot is Jamis's on-demand view of that evidence.
 _Avoid_: observability, incident triage
+
+**Monitoring finding**:
+A source-proven condition or recent failed outcome that needs the Operator's attention. A past failed outcome does not by itself establish a current outage.
+_Avoid_: outage, alert
+
+**Recovered event**:
+A recent failure whose owning source proves that the same operation or state later reached a successful outcome. A separate later success does not prove recovery.
+_Avoid_: later success, assumed recovery
 
 **Incident triage**:
 The initial narrowing and classification of an incident: identify the affected component, scope, severity, relevant evidence, and next investigative path. Triage may report a cause only when the evidence proves it.
