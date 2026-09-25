@@ -98,6 +98,11 @@ Extend `checkMonitoring` with an on-demand Deployment Operational snapshot. JAM-
 
 **Linear AC check:** Criteria 1 through 9 are satisfied. The manual iMessage reply and tool-call trace verify the broad Deployment route and the concise fixed-inventory snapshot. The authenticated production direct-tool smoke preceded this Jamis smoke.
 
+### Post-merge production iMessage smoke (2026-09-25 UTC)
+
+- After squash merge `21330a7` was deployed from `main`, the Operator repeated “What's going on with the server?” over iMessage and received a Deployment snapshot. Lightweight trace metadata recorded a successful Jamis run at `2026-09-25T01:40:43.089Z` and a `checkMonitoring` call at `2026-09-25T01:40:48.801Z`; no message or tool payload was read from the trace.
+- The reply led with operator conversation and Fantasy recap outcomes, then needs attention, operating normally, recent recovered events, and unknowns. It assessed all seven fixed components, showed a 24-hour UTC history window and a separate five-minute tunnel window, and made no unsupported delivery, outage, cause, extra-topology, or intervention claim.
+
 ## Research basis
 
 - [Google SRE, Monitoring Distributed Systems](https://sre.google/sre-book/monitoring-distributed-systems/) defines monitoring broadly, distinguishes symptoms from causes, and names latency, traffic, errors, and saturation as the four golden signals. Its guidance favors simple, comprehensible rules and warns against inferred causality.

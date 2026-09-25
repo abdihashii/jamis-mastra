@@ -1,6 +1,6 @@
 # 017: Deployment operational snapshots
 
-Status: **JAM-66 and JAM-67 complete; JAM-68 deployed and in review; JAM-69 gate pending.**
+Status: **JAM-66 through JAM-68 complete; JAM-69 gate pending.**
 
 Linear: [JAM-66](https://linear.app/abdirahman-haji/issue/JAM-66/let-jamis-monitor-fantasy-weekly-recaps), [JAM-67](https://linear.app/abdirahman-haji/issue/JAM-67/make-the-full-jamis-deployment-observable), [JAM-68](https://linear.app/abdirahman-haji/issue/JAM-68/monitor-the-full-jamis-deployment), and [JAM-69](https://linear.app/abdirahman-haji/issue/JAM-69/triage-a-specific-jamis-deployment-incident).
 
