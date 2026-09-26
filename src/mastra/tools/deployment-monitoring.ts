@@ -32,7 +32,7 @@ const fact = z.enum([
 	'tunnel_local_error',
 	'tailscale_not_running',
 ]);
-const gap = z.enum([
+export const deploymentMonitoringGapSchema = z.enum([
 	'channel_history_unavailable',
 	'application_history_unavailable',
 	'history_truncated',
@@ -68,7 +68,8 @@ const item = z.object({
 	week: z.number().int().min(1).max(18).optional(),
 	container: z.enum(['app', 'postgres', 'clickhouse', 'cloudflared']).optional(),
 }).strict();
-const unknown = z.object({ subject, gap, boundary, container: z.enum(['app', 'postgres', 'clickhouse', 'cloudflared']).optional() }).strict();
+const unknown = z.object({ subject, gap: deploymentMonitoringGapSchema, boundary, container: z.enum(['app', 'postgres', 'clickhouse', 'cloudflared']).optional() }).strict();
+export const deploymentFindingSelectorSchema = item.pick({ subject: true, fact: true, at: true, week: true, container: true }).partial().strict();
 const counts = z.object({
 	sent: z.number().int().min(0).max(18),
 	failed: z.number().int().min(0).max(18),
@@ -110,13 +111,79 @@ export const deploymentMonitoringOutputSchema = z.object({
 		component: z.enum(['host', 'docker', 'app', 'postgres', 'clickhouse', 'cloudflare_tunnel', 'tailscale']),
 		assessment: z.enum(['needs_attention', 'operating_normally', 'unknown']),
 		boundary,
-		gaps: z.array(gap),
+		gaps: z.array(deploymentMonitoringGapSchema),
 	}).strict()).length(7),
 }).strict();
 
 export type DeploymentMonitoringSummary = z.infer<typeof deploymentMonitoringOutputSchema>;
 type Item = DeploymentMonitoringSummary['needsAttention'][number];
 type Unknown = DeploymentMonitoringSummary['unknowns'][number];
+const snapshotFantasyStage = z.enum(['scheduled_job', 'model', 'application_storage', 'reply_delivery']);
+const snapshotFantasyClassification = z.enum(['execution_failed', 'execution_interrupted', 'delivery_failed']);
+export interface DeploymentSnapshotFinding {
+	item: Item;
+	traceReference?: { traceId: string; spanId: string };
+	fantasyStage?: 'scheduled_job' | 'model' | 'application_storage' | 'reply_delivery' | 'unknown';
+	fantasyClassification?: 'execution_failed' | 'execution_interrupted' | 'delivery_failed' | 'unknown';
+}
+interface DeploymentSnapshot {
+	summary: DeploymentMonitoringSummary;
+	findings: DeploymentSnapshotFinding[];
+	precedingMessageId: string;
+	pendingMessageId: string | null;
+	clarificationUsed: boolean;
+	failedReply: boolean;
+}
+// ponytail: process-local follow-ups expire on restart; add shared storage only if multi-process routing is needed.
+const deploymentSnapshots = new Map<string, DeploymentSnapshot>();
+
+export function stageDeploymentSnapshot(threadId: string, messageId: string, summary: DeploymentMonitoringSummary, findings: DeploymentSnapshotFinding[]): void {
+	deploymentSnapshots.set(threadId, { summary, findings: findings.slice(0, 250), precedingMessageId: messageId, pendingMessageId: messageId, clarificationUsed: false, failedReply: false });
+}
+
+export function settleDeploymentSnapshotReply(threadId: string, messageId: string, accepted: boolean): void {
+	const snapshot = deploymentSnapshots.get(threadId);
+	if (!snapshot || (snapshot.pendingMessageId !== messageId && (accepted || snapshot.precedingMessageId !== messageId)))
+		return;
+	if (!accepted) {
+		snapshot.precedingMessageId = messageId;
+		snapshot.pendingMessageId = null;
+		snapshot.failedReply = true;
+		snapshot.findings = [];
+	}
+	else {
+		snapshot.precedingMessageId = messageId;
+		snapshot.pendingMessageId = null;
+	}
+}
+
+export function getDeploymentSnapshot(threadId: string, precedingMessageId: string): DeploymentSnapshot | undefined {
+	const snapshot = deploymentSnapshots.get(threadId);
+	return snapshot && !snapshot.failedReply && snapshot.pendingMessageId === null && snapshot.precedingMessageId === precedingMessageId ? snapshot : undefined;
+}
+
+export function consumeFailedDeploymentSnapshotReply(threadId: string, precedingMessageId: string): boolean {
+	const snapshot = deploymentSnapshots.get(threadId);
+	if (!snapshot?.failedReply || snapshot.precedingMessageId !== precedingMessageId)
+		return false;
+	deploymentSnapshots.delete(threadId);
+	return true;
+}
+
+export function awaitDeploymentClarification(threadId: string, precedingMessageId: string, currentMessageId: string): void {
+	const snapshot = getDeploymentSnapshot(threadId, precedingMessageId);
+	if (snapshot?.clarificationUsed) {
+		deploymentSnapshots.delete(threadId);
+	}
+	else if (snapshot) {
+		snapshot.clarificationUsed = true;
+		snapshot.pendingMessageId = currentMessageId;
+	}
+}
+
+export function clearDeploymentSnapshot(threadId: string): void {
+	deploymentSnapshots.delete(threadId);
+}
 type Evidence = Awaited<ReturnType<typeof readFullDeploymentEvidence>>;
 type TraceStore = Pick<ObservabilityStorage, 'listTracesLight'>;
 interface WorkflowRun { snapshot: unknown; updatedAt: Date }
@@ -127,9 +194,16 @@ export interface DeploymentMonitoringSources {
 	readFantasyRuns: () => Promise<FantasyMonitoringRun[] | null>;
 	readEvidence: (hours: number, nowMs: number) => Promise<Evidence>;
 	currentDigest?: string;
+	onSnapshot?: (summary: DeploymentMonitoringSummary, findings: DeploymentSnapshotFinding[]) => void;
 }
 
 const componentOrder = ['host', 'docker', 'app', 'postgres', 'clickhouse', 'cloudflare_tunnel', 'tailscale'] as const;
+
+function exactTraceReference(row: { traceId?: unknown; spanId?: unknown }): Pick<DeploymentSnapshotFinding, 'traceReference'> {
+	return typeof row.traceId === 'string' && row.traceId.length > 0 && typeof row.spanId === 'string' && row.spanId.length > 0
+		? { traceReference: { traceId: row.traceId, spanId: row.spanId } }
+		: {};
+}
 
 export async function listRecentWorkflowRuns(sql: SqlLike, start: Date, end: Date): Promise<WorkflowRun[]> {
 	// Mastra's listWorkflowRuns filters createdAt; the outcome boundary is updatedAt.
@@ -161,11 +235,15 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 	const start = new Date(nowMs - hours * 3_600_000);
 	const end = new Date(nowMs);
 	const needsAttention: Item[] = [];
+	const snapshotFindings: DeploymentSnapshotFinding[] = [];
 	const operatingNormally: Item[] = [];
 	const unknowns: Unknown[] = [];
-	const add = (target: Item[], subject: Item['subject'], fact: Item['fact'], boundary: Item['boundary'], at?: Date | string, week?: number, container?: Item['container']) => {
+	const add = (target: Item[], subject: Item['subject'], fact: Item['fact'], boundary: Item['boundary'], at?: Date | string, week?: number, container?: Item['container'], detail: Omit<DeploymentSnapshotFinding, 'item'> = {}) => {
 		const timestamp = at instanceof Date ? at : at ? new Date(at) : undefined;
-		target.push({ subject, fact, boundary, ...(timestamp && Number.isFinite(timestamp.getTime()) ? { at: timestamp.toISOString() } : {}), ...(week ? { week } : {}), ...(container ? { container } : {}) });
+		const item: Item = { subject, fact, boundary, ...(timestamp && Number.isFinite(timestamp.getTime()) ? { at: timestamp.toISOString() } : {}), ...(week ? { week } : {}), ...(container ? { container } : {}) };
+		target.push(item);
+		if (target === needsAttention)
+			snapshotFindings.push({ item, ...detail });
 	};
 	const missing = (subject: Unknown['subject'], gap: Unknown['gap'], boundary: Unknown['boundary'], container?: Unknown['container']) => {
 		if (!unknowns.some(item => item.subject === subject && item.gap === gap && item.boundary === boundary && item.container === container))
@@ -209,10 +287,10 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 			intakeFailed = intakeFailures.length;
 			for (const row of completed) {
 				if (row.metadata?.stage === 'reply_delivery' && row.metadata.classification === 'failed')
-					add(needsAttention, 'operator_conversation', 'reply_acceptance_failed', 'recent_history', row.endedAt ?? row.startedAt);
+					add(needsAttention, 'operator_conversation', 'reply_acceptance_failed', 'recent_history', row.endedAt ?? row.startedAt, undefined, undefined, exactTraceReference(row));
 			}
 			for (const row of intakeFailures)
-				add(needsAttention, 'operator_conversation', 'intake_failed', 'recent_history', row.endedAt ?? row.startedAt);
+				add(needsAttention, 'operator_conversation', 'intake_failed', 'recent_history', row.endedAt ?? row.startedAt, undefined, undefined, exactTraceReference(row));
 			if (replyAccepted > 0)
 				add(operatingNormally, 'operator_conversation', 'reply_accepted', 'recent_history');
 			if (rows.some(row => row.metadata?.stage === 'channel_intake' && row.metadata.classification === 'accepted'))
@@ -236,7 +314,7 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 			topLevelExecutionFailed = failed.length;
 			topLevelExecutionSucceeded = correlated.filter(row => row.status === TraceStatus.SUCCESS).length;
 			for (const row of failed)
-				add(needsAttention, 'operator_conversation', 'top_level_execution_failed', 'recent_history', row.endedAt ?? row.startedAt);
+				add(needsAttention, 'operator_conversation', 'top_level_execution_failed', 'recent_history', row.endedAt ?? row.startedAt, undefined, undefined, exactTraceReference(row));
 			if (response.pagination?.hasMore || (!response.pagination && response.spans.length === 100))
 				missing('operator_conversation', 'history_truncated', 'recent_history');
 		}
@@ -265,11 +343,17 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 			}
 			else if (run.status === 'failed') {
 				fantasyCounts.failed++;
-				add(needsAttention, 'fantasy_recaps', 'recap_failed', 'configured_fantasy_season', run.updatedAt, run.fantasyWeek);
+				add(needsAttention, 'fantasy_recaps', 'recap_failed', 'configured_fantasy_season', run.updatedAt, run.fantasyWeek, undefined, {
+					fantasyStage: snapshotFantasyStage.safeParse(run.failureStage).data ?? 'unknown',
+					fantasyClassification: snapshotFantasyClassification.safeParse(run.failureClassification).data ?? 'unknown',
+				});
 			}
 			else if (run.status === 'delivery_unknown') {
 				fantasyCounts.deliveryUnknown++;
-				add(needsAttention, 'fantasy_recaps', 'recap_delivery_unknown', 'configured_fantasy_season', run.updatedAt, run.fantasyWeek);
+				add(needsAttention, 'fantasy_recaps', 'recap_delivery_unknown', 'configured_fantasy_season', run.updatedAt, run.fantasyWeek, undefined, {
+					fantasyStage: snapshotFantasyStage.safeParse(run.failureStage).data ?? 'unknown',
+					fantasyClassification: snapshotFantasyClassification.safeParse(run.failureClassification).data ?? 'unknown',
+				});
 			}
 			else if (run.status === 'started' && run.leaseExpiresAt instanceof Date && run.leaseExpiresAt.getTime() < nowMs) {
 				fantasyCounts.expiredActive++;
@@ -395,7 +479,7 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 		}
 	}
 
-	return deploymentMonitoringOutputSchema.parse({
+	const summary = deploymentMonitoringOutputSchema.parse({
 		scope: 'deployment',
 		observedAt: end.toISOString(),
 		historyWindow: { start: start.toISOString(), end: end.toISOString() },
@@ -419,4 +503,6 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 			};
 		}),
 	});
+	sources.onSnapshot?.(summary, snapshotFindings);
+	return summary;
 }

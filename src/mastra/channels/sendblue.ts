@@ -16,6 +16,7 @@ import { clearPendingOperatorTimeZoneNotification, consumePendingOperatorTimeZon
 import { isIanaTimeZone } from '../../lib/time';
 import { requireEnv, requireOperatorTimeZone } from '../env';
 import { DEVICE_LOGIN_TIMEOUT_ERROR, MODEL_AUTH_FAILURE, runDeviceLogin } from '../gateways/openai-codex-auth';
+import { settleDeploymentSnapshotReply } from '../tools/deployment-monitoring';
 
 export const CODEX_AUTH_CHANNEL_ERROR = 'JAMIS lost access to ChatGPT and did not complete your request. Re-authentication is required.';
 export const GENERIC_CHANNEL_ERROR = 'JAMIS could not complete that request. The error was logged.';
@@ -245,27 +246,28 @@ export async function handleSendblueDirectMessage(
 			metadata: { stage: 'channel_intake', classification: 'accepted' },
 		});
 		const boundarySpan = span;
-		observedThread = boundarySpan
-			? new Proxy(thread, {
-					get(target, property, receiver) {
-						if (property !== 'post')
-							return Reflect.get(target, property, receiver);
-						return async (postable: unknown) => {
-							try {
-								const result = await Reflect.apply(target.post, target, [postable]);
-								if (!deliveryFailed)
-									boundarySpan.update({ metadata: { stage: 'reply_delivery', classification: 'delivered' } });
-								return result;
-							}
-							catch (error) {
-								deliveryFailed = true;
-								boundarySpan.update({ metadata: { stage: 'reply_delivery', classification: 'failed' } });
-								throw error;
-							}
-						};
-					},
-				})
-			: thread;
+		observedThread = new Proxy(thread, {
+			get(target, property, receiver) {
+				if (property !== 'post')
+					return Reflect.get(target, property, receiver);
+				return async (postable: unknown) => {
+					try {
+						const result = await Reflect.apply(target.post, target, [postable]);
+						if (!deliveryFailed) {
+							boundarySpan?.update({ metadata: { stage: 'reply_delivery', classification: 'delivered' } });
+							settleDeploymentSnapshotReply(thread.id, message.id, postable !== GENERIC_CHANNEL_ERROR && postable !== CODEX_AUTH_CHANNEL_ERROR);
+						}
+						return result;
+					}
+					catch (error) {
+						deliveryFailed = true;
+						boundarySpan?.update({ metadata: { stage: 'reply_delivery', classification: 'failed' } });
+						settleDeploymentSnapshotReply(thread.id, message.id, false);
+						throw error;
+					}
+				};
+			},
+		});
 		const capability: SendblueChannelCapabilityInternal = {
 			message,
 			messageId: message.id,

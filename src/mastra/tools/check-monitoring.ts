@@ -8,7 +8,7 @@ import { getFantasySql } from '../../fantasy/recaps';
 import { listFantasyMonitoringRuns } from '../../fantasy/runs';
 import { getLeague, getNflState, getWinnersBracket, isWeekComplete, withBracketRounds } from '../../fantasy/sleeper';
 import { readFullDeploymentEvidence } from './deployment-evidence';
-import { deploymentMonitoringOutputSchema, listRecentWorkflowRuns, readDeploymentMonitoring } from './deployment-monitoring';
+import { deploymentMonitoringOutputSchema, listRecentWorkflowRuns, readDeploymentMonitoring, stageDeploymentSnapshot } from './deployment-monitoring';
 
 const durationMetric = 'mastra_agent_duration_ms';
 const inputTokenMetric = 'mastra_model_total_input_tokens';
@@ -389,6 +389,7 @@ export const checkMonitoringTool = createTool({
 				readFantasyRuns: async () => leagueId ? await listFantasyMonitoringRuns(leagueId, undefined, getFantasySql()) : null,
 				readEvidence: (hours, nowMs) => readFullDeploymentEvidence(getStore, getFantasySql, leagueId, undefined, nowMs, hours),
 				currentDigest: capability ? hashSendblueMessageHandle(capability.message.id) : undefined,
+				onSnapshot: capability ? (summary, findings) => stageDeploymentSnapshot(capability.thread.id, capability.message.id, summary, findings) : undefined,
 			}, input.hours);
 		}
 		if (input.scope === 'fantasy') {

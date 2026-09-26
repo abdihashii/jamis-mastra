@@ -2,6 +2,7 @@ import type { RequestContext } from '@mastra/core/request-context';
 import type { GetStructureResponse, ObservabilityStorage } from '@mastra/core/storage';
 import type { RecapRun } from '../../fantasy/runs';
 
+import type { DeploymentSnapshotFinding } from './deployment-monitoring';
 import { SpanType } from '@mastra/core/observability';
 import { extractBranchSpans, TraceStatus } from '@mastra/core/storage';
 import { createTool } from '@mastra/core/tools';
@@ -10,8 +11,8 @@ import { getFantasyConfig } from '../../fantasy/config';
 import { getFantasySql } from '../../fantasy/recaps';
 import { getRun, listActionableRuns } from '../../fantasy/runs';
 import { resolveOperatorTimeZone } from '../../lib/operator-time-zone';
-import { dateTimeInstant } from '../../lib/time';
 
+import { dateTimeInstant } from '../../lib/time';
 import {
 	getSendblueChannelCapability,
 	hashSendblueMessageHandle,
@@ -22,6 +23,14 @@ import {
 import { requireOperatorTimeZone } from '../env';
 import { CODEX_AUTH_FAILURE_EVENT } from '../observability';
 import { readFullDeploymentEvidence } from './deployment-evidence';
+import {
+	awaitDeploymentClarification,
+	clearDeploymentSnapshot,
+	consumeFailedDeploymentSnapshotReply,
+	deploymentFindingSelectorSchema,
+	deploymentMonitoringGapSchema,
+	getDeploymentSnapshot,
+} from './deployment-monitoring';
 
 const QUERY_LIMIT = 6;
 const RESULT_LIMIT = 5;
@@ -73,12 +82,18 @@ const incidentWindowInputSchema = z.object({
 	end: incidentDateTimeSchema,
 }).strict();
 const triageIncidentInputSchema = z.object({
-	kind: z.enum(['preceding_request', 'application']),
+	kind: z.enum(['preceding_request', 'application', 'monitoring_finding']),
 	component: incidentComponentSchema.nullish(),
 	container: z.enum(dockerContainers).nullish(),
 	window: incidentWindowInputSchema.nullish(),
 	humanDomainReference: z.string().trim().regex(/^week\s+([1-9]|1[0-8])$/i).nullish(),
-}).strict();
+	finding: deploymentFindingSelectorSchema.nullish(),
+}).strict().superRefine((input, context) => {
+	if (input.kind === 'monitoring_finding' && (input.component || input.container || input.window || input.humanDomainReference))
+		context.addIssue({ code: 'custom', path: ['kind'], message: 'Monitoring findings accept only safe finding clues' });
+	if (input.kind !== 'monitoring_finding' && input.finding)
+		context.addIssue({ code: 'custom', path: ['finding'], message: 'Finding clues require a Monitoring follow-up' });
+});
 
 type TriageIncidentInput = z.infer<typeof triageIncidentInputSchema>;
 
@@ -156,10 +171,14 @@ export type IncidentEvidenceGap
 		| 'product_outcomes_unchecked'
 		| 'no_recent_traces'
 		| 'no_matching_incident'
-		| 'multiple_matching_incidents';
+		| 'multiple_matching_incidents'
+		| 'monitoring_snapshot_unavailable'
+		| 'monitoring_finding_not_found'
+		| z.infer<typeof deploymentMonitoringGapSchema>;
 
 export type IncidentTarget
 	= | { kind: 'preceding_request' }
+		| { kind: 'monitoring_finding'; finding?: z.infer<typeof deploymentFindingSelectorSchema> }
 		| {
 			kind: 'application';
 			component?: IncidentComponent;
@@ -287,7 +306,9 @@ const incidentEvidenceGapSchema = z.enum([
 	'no_recent_traces',
 	'no_matching_incident',
 	'multiple_matching_incidents',
-]);
+	'monitoring_snapshot_unavailable',
+	'monitoring_finding_not_found',
+]).or(deploymentMonitoringGapSchema);
 const incidentCandidateBaseSchema = z.object({
 	component: z.union([incidentComponentSchema, z.literal('unknown')]),
 	stage: incidentFailureStageSchema,
@@ -312,25 +333,25 @@ const foundIncidentSchema = z.union([
 const incidentResultSchema = z.discriminatedUnion('status', [
 	z.object({
 		status: z.literal('found'),
-		targetKind: z.enum(['preceding_request', 'application']),
+		targetKind: z.enum(['preceding_request', 'application', 'monitoring_finding']),
 		incident: foundIncidentSchema,
 		evidenceGaps: z.array(incidentEvidenceGapSchema),
 	}).strict(),
 	z.object({
 		status: z.literal('ambiguous'),
-		targetKind: z.enum(['preceding_request', 'application']),
+		targetKind: z.enum(['preceding_request', 'application', 'monitoring_finding']),
 		candidates: z.array(incidentCandidateSchema).max(RESULT_LIMIT),
 		evidenceGaps: z.array(incidentEvidenceGapSchema),
 	}).strict(),
 	z.object({
 		status: z.literal('not_found'),
-		targetKind: z.enum(['preceding_request', 'application']),
+		targetKind: z.enum(['preceding_request', 'application', 'monitoring_finding']),
 		component: incidentComponentSchema.optional(),
 		evidenceGaps: z.array(incidentEvidenceGapSchema),
 	}).strict(),
 	z.object({
 		status: z.literal('unavailable'),
-		targetKind: z.enum(['preceding_request', 'application']),
+		targetKind: z.enum(['preceding_request', 'application', 'monitoring_finding']),
 		component: incidentComponentSchema.optional(),
 		evidenceGaps: z.array(incidentEvidenceGapSchema),
 	}).strict(),
@@ -673,6 +694,120 @@ async function readDeploymentIncident(
 	return notFound(target, sourceGaps);
 }
 
+function snapshotCandidate(finding: DeploymentSnapshotFinding, observedAtUtc: string): IncidentCandidate {
+	const { item } = finding;
+	const component: IncidentCandidate['component'] = item.subject === 'operator_conversation'
+		? item.fact === 'top_level_execution_failed' ? 'jamis' : 'sendblue-channel'
+		: item.subject === 'fantasy_recaps' ? 'fantasy-weekly-recap' : item.subject;
+	const stage: IncidentFailureStage = item.fact === 'reply_acceptance_failed'
+		? 'reply_delivery'
+		: item.fact === 'intake_failed'
+			? 'channel_intake'
+			: item.fact === 'top_level_execution_failed'
+				? 'agent'
+				: item.fact === 'recap_failed' || item.fact === 'recap_delivery_unknown'
+					? finding.fantasyStage ?? 'unknown'
+					: item.fact === 'recap_execution_failed' || item.fact === 'recap_expired_active'
+						? 'scheduled_job'
+						: item.fact === 'tunnel_local_error'
+							? 'tunnel_diagnostic'
+							: item.fact === 'container_not_running' && item.container
+								? dockerStages[item.container]
+								: 'unknown';
+	const base = { component, stage, ...(item.week ? { humanDomainReference: `week ${item.week}` } : {}) };
+	return item.boundary === 'current' || item.boundary === 'current_instance' || item.boundary === 'current_and_recent_5m' || !item.at
+		? { ...base, observedAtUtc: item.at ?? observedAtUtc }
+		: { ...base, occurrenceTimeUtc: item.at };
+}
+
+async function readMonitoringFinding(
+	target: Extract<IncidentTarget, { kind: 'monitoring_finding' }>,
+	context: IncidentReaderContext,
+): Promise<IncidentResult> {
+	const capability = context.requestContext && getSendblueChannelCapability(context.requestContext);
+	if (!capability)
+		return unavailable(target, 'missing_channel_capability');
+	let precedingMessageId: string | undefined;
+	try {
+		const { messages } = await capability.thread.adapter.fetchMessages(capability.thread.id, { limit: HISTORY_LIMIT });
+		const operatorMessages = messages.filter(message => message.threadId === capability.thread.id && isOperator(message));
+		const currentIndex = operatorMessages.findIndex(message => message.id === capability.message.id);
+		precedingMessageId = currentIndex > 0 ? operatorMessages[currentIndex - 1]?.id : undefined;
+	}
+	catch {
+		return unavailable(target, 'message_history_unavailable');
+	}
+	if (!precedingMessageId)
+		return unavailable(target, 'monitoring_snapshot_unavailable');
+	const snapshot = getDeploymentSnapshot(capability.thread.id, precedingMessageId);
+	if (!snapshot && consumeFailedDeploymentSnapshotReply(capability.thread.id, precedingMessageId))
+		return readIncident({ kind: 'preceding_request' }, context);
+	if (!snapshot)
+		return unavailable(target, 'monitoring_snapshot_unavailable');
+	const clues = target.finding ?? {};
+	const matches = snapshot.findings.filter(({ item }) => Object.entries(clues).every(([key, value]) => item[key as keyof typeof item] === value));
+	if (matches.length === 0)
+		return notFound(target, ['monitoring_finding_not_found']);
+	if (matches.length > 1) {
+		awaitDeploymentClarification(capability.thread.id, precedingMessageId, capability.message.id);
+		return ambiguous(target, matches.map(finding => snapshotCandidate(finding, snapshot.summary.observedAt)));
+	}
+	clearDeploymentSnapshot(capability.thread.id);
+	const finding = matches[0]!;
+	const { item } = finding;
+	const candidate = snapshotCandidate(finding, snapshot.summary.observedAt);
+	const classification: IncidentClassification = item.fact === 'reply_acceptance_failed'
+		? 'delivery_failed'
+		: item.fact === 'intake_failed'
+			? 'intake_failed'
+			: item.fact === 'recap_failed' || item.fact === 'recap_delivery_unknown'
+				? finding.fantasyClassification ?? 'unknown'
+				: item.fact === 'recap_expired_active'
+					? 'unknown'
+					: item.fact === 'top_level_execution_failed' || item.fact === 'recap_execution_failed'
+						? 'execution_failed'
+						: item.fact === 'tunnel_local_error' ? 'component_error' : 'component_not_running';
+	const provenFantasyDeliveryFailure = item.fact === 'recap_failed' && finding.fantasyStage === 'reply_delivery' && finding.fantasyClassification === 'delivery_failed';
+	const impact: Extract<IncidentResult, { status: 'found' }>['incident']['impact'] = item.fact === 'reply_acceptance_failed' || provenFantasyDeliveryFailure
+		? 'reply_not_delivered'
+		: item.fact === 'intake_failed'
+			? 'request_failed'
+			: item.fact === 'recap_delivery_unknown'
+				? 'delivery_unconfirmed'
+				: item.fact === 'top_level_execution_failed' || item.fact === 'recap_failed' || item.fact === 'recap_execution_failed'
+					? 'execution_failed'
+					: item.fact === 'recap_expired_active'
+						? 'execution_degraded'
+						: item.fact === 'tunnel_local_error' ? 'component_degraded' : 'component_unavailable';
+	const gaps: IncidentEvidenceGap[] = snapshot.summary.unknowns
+		.filter(unknown => unknown.subject === item.subject && (!unknown.container || unknown.container === item.container))
+		.map(unknown => unknown.gap);
+	if ('observedAtUtc' in candidate)
+		gaps.push('occurrence_time_unknown');
+	if (candidate.stage === 'unknown')
+		gaps.push('failure_stage_unknown');
+	const cause = (item.fact === 'reply_acceptance_failed' && finding.traceReference) || provenFantasyDeliveryFailure ? 'reply_delivery_failed' as const : undefined;
+	if (!cause)
+		gaps.push('cause_unproven');
+	return {
+		status: 'found',
+		targetKind: 'monitoring_finding',
+		incident: {
+			...candidate,
+			classification,
+			scope: item.boundary === 'current_and_recent_5m'
+				? 'current_and_recent_5m'
+				: 'observedAtUtc' in candidate
+					? 'current'
+					: item.subject === 'operator_conversation' ? 'single_request' : 'single_execution',
+			impact,
+			...(cause ? { cause } : {}),
+			...(finding.traceReference ? { traceReference: finding.traceReference } : {}),
+		},
+		evidenceGaps: [...new Set(gaps)],
+	};
+}
+
 function hasMore(response: { pagination?: { hasMore: boolean; total: number } }, returned: number): boolean {
 	return !!response.pagination?.hasMore || (response.pagination?.total ?? returned) > returned;
 }
@@ -943,6 +1078,8 @@ async function readFantasyIncident(
 }
 
 export async function readIncident(target: IncidentTarget, context: IncidentReaderContext): Promise<IncidentResult> {
+	if (target.kind === 'monitoring_finding')
+		return readMonitoringFinding(target, context);
 	let fantasyRuns: RecapRun[] = [];
 	if (target.kind === 'application') {
 		const startMs = target.window.start.getTime();
@@ -1018,6 +1155,8 @@ function needsOperatorTimeZone(input: TriageIncidentInput): boolean {
 function targetFromInput(input: TriageIncidentInput, timeZone?: string, nowMs = Date.now()): IncidentTarget {
 	if (input.kind === 'preceding_request')
 		return { kind: 'preceding_request' };
+	if (input.kind === 'monitoring_finding')
+		return { kind: 'monitoring_finding', ...(input.finding ? { finding: input.finding } : {}) };
 	const endMs = input.window ? dateTimeInstant(input.window.end, timeZone) : nowMs;
 	const startMs = input.window ? dateTimeInstant(input.window.start, timeZone) : endMs - DEFAULT_WINDOW_MS;
 	return {
@@ -1032,7 +1171,7 @@ function targetFromInput(input: TriageIncidentInput, timeZone?: string, nowMs = 
 
 export const triageIncidentTool = createTool({
 	id: 'triage-incident',
-	description: 'Triage one bounded application incident from internal evidence. Use for a specific failed request or bounded historical application errors, not health, rates, duration, tokens, or trends.',
+	description: 'Triage one bounded incident from internal evidence: the preceding request, one finding in the accepted Deployment Monitoring reply, or a named component. Broad health, rates, and trends belong to Monitoring.',
 	inputSchema: triageIncidentInputSchema,
 	outputSchema: incidentResultSchema,
 	execute: async (input, context) => {
@@ -1053,7 +1192,7 @@ export const triageIncidentTool = createTool({
 		}
 
 		return await readIncident(targetFromInput(input, timeZone), {
-			requestContext: input.kind === 'preceding_request' && context.agent?.agentId !== 'jamis'
+			requestContext: input.kind !== 'application' && context.agent?.agentId !== 'jamis'
 				? undefined
 				: context.requestContext,
 			flush: async () => {

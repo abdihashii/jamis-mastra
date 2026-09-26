@@ -1,6 +1,6 @@
 # 021: Deployment incident triage
 
-Status: **Stage 1 implemented and locally verified. Stages 2 and 3 pending.**
+Status: **Stages 1 and 2 implemented and locally verified. Stage 3 pending.**
 
 Linear: [JAM-69](https://linear.app/abdirahman-haji/issue/JAM-69/triage-a-specific-jamis-deployment-incident).
 
@@ -58,6 +58,8 @@ If choosing only between GPT-6 Luna and GPT-5.6 Terra, use Terra High for Stage 
 **Demo:** A simulated authenticated snapshot followed by “what happened with that?” resolves its sole finding; two findings produce a clarification request. A forged or stale follow-up does not select the latest system-wide incident.
 
 **Proposed commit:** `feat: bind triage to a Monitoring finding`
+
+**Stage 2 result (2026-09-26 UTC):** An authenticated Sendblue message captured the safe Deployment snapshot; after its reply was accepted, a direct triage call selected the sole stopped Postgres container from that snapshot even after current evidence changed. Two same-time findings returned a clarification request, and the next accepted reply selected only the channel failure with its exact trace reference. Failed and generic-error replies targeted the preceding request; forged clues, intervening messages, other threads, and lost process state did not select a snapshot. The repository gate passed: 350 Bun tests, 4 Python tests, typecheck, lint, build, and `git diff --check`.
 
 ## Stage 3: Route Jamis and smoke both boundaries
 
