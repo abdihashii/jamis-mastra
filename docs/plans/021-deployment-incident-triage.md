@@ -1,6 +1,6 @@
 # 021: Deployment incident triage
 
-Status: **Proposed. No runtime work started.**
+Status: **Stage 1 implemented and locally verified. Stages 2 and 3 pending.**
 
 Linear: [JAM-69](https://linear.app/abdirahman-haji/issue/JAM-69/triage-a-specific-jamis-deployment-incident).
 
@@ -42,6 +42,8 @@ If choosing only between GPT-6 Luna and GPT-5.6 Terra, use Terra High for Stage 
 **Demo:** A direct `triage-incident` call naming a non-running fixed container returns only its proven state and UTC observation time. A call naming a different component cannot return that incident. An exact Fantasy week reads its configured-league row outside the ordinary trace window.
 
 **Proposed commit:** `feat: triage fixed Deployment components`
+
+**Stage 1 result (2026-09-26 UTC):** A direct `triageIncident` call selecting the fixed Postgres container returned its non-running state, UTC observation time, and source gaps from a sanitized evidence fixture. Component isolation, an exact Fantasy week outside the trace window, ambiguity, stale and unavailable evidence, Codex reason correlation, and hostile-field exclusion passed focused checks. The repository gate passed: 344 Bun tests, 4 Python tests, typecheck, lint, build, and `git diff --check`. The local host probe is not mounted, so a call against live local evidence reports `docker_probe_unavailable`; the authenticated production smoke remains in Stage 3.
 
 ## Stage 2: Bind a Monitoring follow-up to its finding
 

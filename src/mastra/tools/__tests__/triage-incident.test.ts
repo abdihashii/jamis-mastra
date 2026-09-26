@@ -26,6 +26,7 @@ const {
 	SENDBLUE_CHANNEL_SPAN_NAME,
 	SENDBLUE_CORRELATION_KEY,
 } = await import('../../channels/sendblue.js');
+const { CODEX_AUTH_FAILURE_EVENT } = await import('../../observability.js');
 const { readIncident, triageIncidentTool } = await import('../triage-incident.js');
 
 type IncidentStore = import('../triage-incident.js').IncidentStore;
@@ -85,6 +86,61 @@ function fantasyRun(overrides: Partial<RecapRun> = {}): RecapRun {
 		updatedAt: new Date('2026-01-01T00:01:00.000Z'),
 		...overrides,
 	};
+}
+
+function deploymentEvidenceFixture() {
+	const observedAt = '2030-01-01T00:00:00Z';
+	return {
+		host: { availability: 'available', freshness: 'fresh', observedAt, gaps: ['external_reachability', 'recent_host_events'] as const },
+		docker: {
+			availability: 'available',
+			freshness: 'fresh',
+			observedAt,
+			gaps: ['service_functionality', 'external_reachability'] as const,
+			containers: [
+				{ component: 'app', state: 'running' },
+				{ component: 'postgres', state: 'running' },
+				{ component: 'clickhouse', state: 'running' },
+				{ component: 'cloudflared', state: 'running' },
+			],
+		},
+		app: { availability: 'available', freshness: 'fresh', observedAt, gaps: ['external_reachability', 'product_outcomes_unchecked'] as const },
+		postgres: { availability: 'available', freshness: 'fresh', observedAt, gaps: ['no_fantasy_runs'] as const },
+		clickhouse: { availability: 'available', freshness: 'fresh', observedAt, gaps: ['no_recent_traces'] as const },
+		cloudflareTunnel: {
+			availability: 'available',
+			freshness: 'fresh',
+			observedAt,
+			gaps: ['external_reachability'] as const,
+			containerState: 'running',
+			recentDiagnostic: 'none_observed',
+		},
+		tailscale: {
+			availability: 'available',
+			freshness: 'fresh',
+			observedAt,
+			gaps: ['operator_device_reachability'] as const,
+			serviceState: 'active',
+			backendState: 'Running',
+		},
+	};
+}
+
+type DeploymentComponent = 'host' | 'docker' | 'app' | 'postgres' | 'clickhouse' | 'cloudflare_tunnel' | 'tailscale';
+
+async function triageDeployment(
+	component: DeploymentComponent,
+	evidence: unknown,
+	options: { container?: 'app' | 'postgres' | 'clickhouse' | 'cloudflared'; explicitWindow?: boolean; window?: { start: Date; end: Date } } = {},
+) {
+	return await readIncident(
+		{ kind: 'application', component, ...options, window: options.window ?? { start, end } },
+		{
+			flush: async () => {},
+			getStore: async () => storeFixture(),
+			readDeploymentEvidence: async () => evidence as never,
+		},
+	);
 }
 
 function storeFixture(options: {
@@ -205,9 +261,12 @@ describe('bounded incident reader', () => {
 			component: 'fantasy-weekly-recap',
 			humanDomainReference: 'Week 1',
 		});
+		expect(schema.parse({ kind: 'application', component: 'docker' })).toEqual({ kind: 'application', component: 'docker' });
+		expect(schema.parse({ kind: 'application', component: 'docker', container: 'postgres' })).toEqual({ kind: 'application', component: 'docker', container: 'postgres' });
 		for (const input of [
 			{ kind: 'preceding_request', traceId: 'trace-1' },
 			{ kind: 'application', component: 'unknown-component' },
+			{ kind: 'application', component: 'docker', container: 'secret-container' },
 			{ kind: 'application', messageId: 'provider-message' },
 			{ kind: 'application', humanDomainReference: 'thread 123' },
 			{ kind: 'application', window: { start: 'trace-123Z', end: end.toISOString() } },
@@ -264,6 +323,142 @@ describe('bounded incident reader', () => {
 			incident: { component: 'weather-agent', stage: 'agent' },
 		});
 		expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
+	});
+
+	test('directly triages a fixed Deployment component from current evidence', async () => {
+		const evidence = deploymentEvidenceFixture();
+		const result = await triageDeployment('docker', {
+			...evidence,
+			docker: {
+				...evidence.docker,
+				containers: evidence.docker.containers.map(container => container.component === 'postgres'
+					? { ...container, state: 'exited', rawDiagnostic }
+					: container),
+			},
+		});
+		expect(result).toEqual({
+			status: 'found',
+			targetKind: 'application',
+			incident: {
+				component: 'docker',
+				observedAtUtc: '2030-01-01T00:00:00Z',
+				stage: 'postgres_container',
+				classification: 'component_not_running',
+				scope: 'current',
+				impact: 'component_unavailable',
+			},
+			evidenceGaps: ['service_functionality', 'external_reachability', 'occurrence_time_unknown', 'cause_unproven'],
+		});
+		expect((triageIncidentTool.outputSchema as z.ZodTypeAny).safeParse(result).success).toBe(true);
+		expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
+
+		for (const component of ['host', 'docker', 'app', 'postgres', 'clickhouse', 'cloudflare_tunnel', 'tailscale'] as const) {
+			const source = component === 'cloudflare_tunnel' ? evidence.cloudflareTunnel : evidence[component];
+			expect(await triageDeployment(component, evidence)).toEqual({
+				status: 'not_found',
+				targetKind: 'application',
+				component,
+				evidenceGaps: ['no_matching_incident', ...source.gaps],
+			});
+		}
+	});
+
+	test('keeps multiple, stale, and unavailable Deployment evidence distinct', async () => {
+		const evidence = deploymentEvidenceFixture();
+		const ambiguous = await triageDeployment('docker', {
+			...evidence,
+			docker: {
+				...evidence.docker,
+				containers: evidence.docker.containers.map(container => container.component === 'app' || container.component === 'postgres'
+					? { ...container, state: 'exited' }
+					: container),
+			},
+		});
+		expect(ambiguous).toEqual({
+			status: 'ambiguous',
+			targetKind: 'application',
+			candidates: [
+				{ component: 'docker', observedAtUtc: '2030-01-01T00:00:00Z', stage: 'app_container' },
+				{ component: 'docker', observedAtUtc: '2030-01-01T00:00:00Z', stage: 'postgres_container' },
+			],
+			evidenceGaps: ['multiple_matching_incidents', 'service_functionality', 'external_reachability'],
+		});
+		const selectedEvidence = {
+			...evidence,
+			docker: {
+				...evidence.docker,
+				containers: evidence.docker.containers.map(container => container.component === 'app' || container.component === 'postgres'
+					? { ...container, state: 'exited' }
+					: container),
+			},
+		};
+		expect(await triageDeployment('docker', selectedEvidence, { container: 'postgres' })).toMatchObject({
+			status: 'found',
+			incident: { stage: 'postgres_container' },
+		});
+		expect(await triageDeployment('docker', selectedEvidence, { container: 'clickhouse' })).toEqual({
+			status: 'not_found',
+			targetKind: 'application',
+			component: 'docker',
+			evidenceGaps: ['no_matching_incident', 'service_functionality', 'external_reachability'],
+		});
+		expect(await triageDeployment('tailscale', selectedEvidence, { container: 'postgres' })).toEqual({
+			status: 'unavailable',
+			targetKind: 'application',
+			component: 'tailscale',
+			evidenceGaps: ['unsupported_component'],
+		});
+		expect(await triageDeployment('docker', selectedEvidence, {
+			container: 'postgres',
+			explicitWindow: true,
+			window: { start: new Date('2020-01-01T00:00:00Z'), end: new Date('2020-01-02T00:00:00Z') },
+		})).toEqual({
+			status: 'unavailable',
+			targetKind: 'application',
+			component: 'docker',
+			evidenceGaps: ['invalid_window'],
+		});
+
+		expect(await triageDeployment('docker', { ...evidence, docker: { ...evidence.docker, freshness: 'stale' } })).toEqual({
+			status: 'unavailable',
+			targetKind: 'application',
+			component: 'docker',
+			evidenceGaps: ['stale_evidence'],
+		});
+
+		expect(await triageDeployment('docker', { ...evidence, docker: { ...evidence.docker, availability: 'unavailable', freshness: 'unavailable' } })).toEqual({
+			status: 'unavailable',
+			targetKind: 'application',
+			component: 'docker',
+			evidenceGaps: ['docker_probe_unavailable'],
+		});
+	});
+
+	test('classifies the fixed Tunnel and Tailscale failure signals', async () => {
+		const evidence = deploymentEvidenceFixture();
+		expect(await triageDeployment('cloudflare_tunnel', {
+			...evidence,
+			cloudflareTunnel: { ...evidence.cloudflareTunnel, recentDiagnostic: 'local_error' },
+		})).toEqual({
+			status: 'found',
+			targetKind: 'application',
+			incident: {
+				component: 'cloudflare_tunnel',
+				observedAtUtc: '2030-01-01T00:00:00Z',
+				stage: 'tunnel_diagnostic',
+				classification: 'component_error',
+				scope: 'current_and_recent_5m',
+				impact: 'component_degraded',
+			},
+			evidenceGaps: ['external_reachability', 'occurrence_time_unknown', 'cause_unproven'],
+		});
+		expect(await triageDeployment('tailscale', {
+			...evidence,
+			tailscale: { ...evidence.tailscale, backendState: 'Stopped' },
+		})).toMatchObject({
+			status: 'found',
+			incident: { component: 'tailscale', stage: 'tailscale_backend', classification: 'component_not_running' },
+		});
 	});
 
 	test('denies preceding-request capability to Studio and subagent tool calls', async () => {
@@ -330,6 +525,84 @@ describe('bounded incident reader', () => {
 			evidenceGaps: ['cause_unproven'],
 		});
 		expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
+	});
+
+	test('reports an allowlisted Codex authentication reason only from the selected trace', async () => {
+		const root = traceRow();
+		const model = traceRow({
+			name: rawDiagnostic,
+			spanType: SpanType.MODEL_INFERENCE,
+			parentSpanId: root.spanId,
+			status: undefined,
+			traceId: root.traceId,
+			spanId: 'model-auth',
+		});
+		const auth = traceRow({
+			name: CODEX_AUTH_FAILURE_EVENT,
+			spanType: SpanType.GENERIC,
+			parentSpanId: model.spanId,
+			status: TraceStatus.SUCCESS,
+			error: undefined,
+			traceId: root.traceId,
+			spanId: 'codex-auth',
+			metadata: {
+				reasonCode: 'credential_missing',
+				occurredAtUtc: '2030-01-01T00:00:30.000Z',
+				planted: rawDiagnostic,
+			},
+		});
+		const result = await withPrecedingCapability(storeFixture({
+			roots: [root],
+			structures: new Map([[root.traceId, structure(root, model, auth)]]),
+		}));
+
+		expect(result).toEqual({
+			status: 'found',
+			targetKind: 'preceding_request',
+			incident: {
+				component: 'jamis',
+				occurrenceTimeUtc: '2030-01-01T00:00:30.000Z',
+				stage: 'model',
+				classification: 'execution_failed',
+				scope: 'single_request',
+				impact: 'request_failed',
+				cause: 'codex_auth_failure',
+				codexAuthReason: 'credential_missing',
+				traceReference: { traceId: root.traceId, spanId: root.spanId },
+			},
+			evidenceGaps: [],
+		});
+		expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
+	});
+
+	test('does not replace a nonexact application incident time with a Codex event time', async () => {
+		const root = traceRow({ entityId: 'weather-agent', traceId: 'trace-weather-auth' });
+		const auth = traceRow({
+			name: CODEX_AUTH_FAILURE_EVENT,
+			spanType: SpanType.GENERIC,
+			parentSpanId: root.spanId,
+			status: TraceStatus.SUCCESS,
+			error: undefined,
+			traceId: root.traceId,
+			spanId: 'codex-auth',
+			metadata: { reasonCode: 'credential_missing', occurredAtUtc: '2030-01-05T00:00:00.000Z' },
+		});
+		const result = await readIncident(
+			{ kind: 'application', component: 'weather-agent', window: { start, end } },
+			{
+				flush: async () => {},
+				getStore: async () => storeFixture({
+					branches: [root],
+					structures: new Map([[root.traceId, structure(root, auth)]]),
+				}),
+			},
+		);
+		expect(result).toMatchObject({
+			status: 'found',
+			incident: { component: 'weather-agent', occurrenceTimeUtc: start.toISOString() },
+			evidenceGaps: ['trace_identity_not_exact', 'cause_unproven'],
+		});
+		expect(JSON.stringify(result)).not.toContain('credential_missing');
 	});
 
 	test('reports a failed child under a successful request as degraded', async () => {
