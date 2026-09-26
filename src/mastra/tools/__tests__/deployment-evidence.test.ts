@@ -78,7 +78,8 @@ describe('deployment evidence boundary', () => {
 		const fresh = parseDeploymentEvidence(JSON.stringify(valid), now);
 		expect(fresh.host.freshness).toBe('fresh');
 		expect(fresh.docker.containers).toHaveLength(4);
-		expect(fresh.cloudflareTunnel.correlation).toBe('uncorrelated_context');
+		expect([fresh.host, fresh.docker, fresh.cloudflareTunnel, fresh.tailscale].map(item => item.correlation))
+			.toEqual(['uncorrelated_context', 'uncorrelated_context', 'uncorrelated_context', 'uncorrelated_context']);
 		expect(fresh.tailscale.backendState).toBe('Running');
 		expect(parseDeploymentEvidence(JSON.stringify(valid), now + 31_000).host.freshness).toBe('stale');
 		expect(parseDeploymentEvidence(JSON.stringify(valid), now + 31_000).tailscale.freshness).toBe('stale');
