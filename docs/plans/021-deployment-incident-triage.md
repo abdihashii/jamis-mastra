@@ -19,6 +19,16 @@ Extend the existing `triageIncident` facade to classify one selected Deployment 
 
 Concrete checks: a reply failure and a stopped Postgres container in one snapshot remain two targets even if their times match; “the reply one” selects only the channel evidence. A failed Fantasy week outside 168 hours still resolves from its configured-league row. A current Tunnel error has a UTC observation time, with its onset and external impact unknown.
 
+## Execution model recommendations
+
+| Stage | Model and effort | Reason |
+| --- | --- | --- |
+| 1 | GPT-5.6 Terra, High | Implement several source and time boundaries carefully. |
+| 2 | GPT-6 Sol, Extra High | Handle authenticated thread binding, stale state, and forged selectors. |
+| 3 | GPT-6 Luna, High | Follow the explicit routing contract and checks. |
+
+If choosing only between GPT-6 Luna and GPT-5.6 Terra, use Terra High for Stage 1, Terra Extra High for Stage 2, and Luna High for Stage 3. These are execution suggestions, not delivery gates. See [Codex model guidance](https://developers.openai.com/codex/models) and [reasoning effort guidance](https://developers.openai.com/api/docs/guides/reasoning).
+
 ## Stage 1: Triage a named fixed component
 
 **Goal:** Make one named Deployment component resolvable directly through `triageIncident`, with honest source scope and time semantics. This is the first code slice because it tests the federated reader and output boundary before conversational routing depends on it.
