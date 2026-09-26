@@ -129,6 +129,8 @@ Proposed staged plan: [020: Full-Deployment Monitoring](020-full-deployment-moni
 
 Before implementation, write and approve a staged plan that extends the existing `triageIncident` facade with Deployment component readers. Accept only one trusted target from the preceding request, one unambiguous Monitoring finding, a named component, or an exact domain reference. Preserve `found`, `ambiguous`, `not_found`, and `unavailable`; show nearby evidence only as explicitly uncorrelated context; report a cause only when exact evidence already proves it.
 
+Proposed staged plan: [021: Deployment incident triage](021-deployment-incident-triage.md).
+
 **Acceptance demo:** A follow-up to one Monitoring finding resolves that component without selecting the newest system-wide incident, exposing raw evidence, guessing from timing, performing root-cause investigation, or changing the Deployment.
 
 ## Research basis
