@@ -27,7 +27,7 @@
 		"@mastra/pg": "1.26.0",
 		"chat-adapter-sendblue": "0.2.0",
 		"date-fns": "^4.4.0",
-		"firecrawl": "^4.32.2",
+		"firecrawl": "4.41.0",
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {

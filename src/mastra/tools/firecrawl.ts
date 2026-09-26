@@ -50,6 +50,7 @@ export const firecrawlScrape = createTool({
 	execute: async ({ url }) => {
 		const response = await firecrawl.scrape(url, {
 			formats: ['markdown'],
+			autoResume: false,
 			onlyMainContent: true,
 			maxAge: 0,
 			storeInCache: false,
