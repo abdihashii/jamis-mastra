@@ -6,6 +6,7 @@ import type { SqlLike } from '../../../lib/operator-time-zone';
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { SpanType } from '@mastra/core/observability';
 import { RequestContext } from '@mastra/core/request-context';
+import { makeCoreTool } from '@mastra/core/utils';
 
 process.env.JAMIS_ALLOWED_NUMBER = '+15555550101';
 process.env.SENDBLUE_API_KEY = 'test-api-key';
@@ -178,6 +179,43 @@ describe('authenticated Deployment Monitoring follow-up', () => {
 		const selected = await dispatch(conversation.value, third, async context => await followup(context, { subject: 'operator_conversation', fact: 'reply_acceptance_failed' }));
 		expect(selected).toMatchObject({ status: 'found', incident: { component: 'sendblue-channel', stage: 'reply_delivery', cause: 'reply_delivery_failed', traceReference: { traceId: 'trace-reply', spanId: 'span-reply' } } });
 		expect(JSON.stringify(selected)).not.toMatch(/secret-token|thread-a|request-1/);
+	});
+
+	test('matches finding clues after OpenAI strict-schema conversion', async () => {
+		const conversation = thread('thread-a');
+		await dispatch(conversation.value, operatorMessage('thread-a', 'request-1', 'Status?'), async (context, observed) => {
+			await snapshot(context, observed, { stopped: ['postgres'] });
+			await observed.post('Snapshot');
+		});
+		const result = await dispatch(conversation.value, operatorMessage('thread-a', 'request-2', 'The Postgres one'), async (requestContext) => {
+			const tool = makeCoreTool(triageIncidentTool, {
+				name: 'triageIncident',
+				agentId: 'jamis',
+				requestContext,
+				model: { provider: 'openai-codex.responses', modelId: 'gpt-5.6-terra' } as never,
+			});
+			return await tool.execute!({
+				kind: 'monitoring_finding',
+				component: null,
+				container: null,
+				window: null,
+				humanDomainReference: null,
+				finding: { subject: 'docker', container: 'postgres', fact: null, at: null, week: null },
+			}, { toolCallId: 'test-call', messages: [] });
+		});
+		expect(result).toMatchObject({ status: 'found', incident: { component: 'docker', stage: 'postgres_container' } });
+	});
+
+	test('matches timestamp clues by instant and rejects different instants', async () => {
+		const conversation = thread('thread-a');
+		for (const selectorAt of ['2030-01-01T12:00:00Z', '2030-01-01T12:00:00+00:00', '2030-01-01T13:00:00+01:00', '2030-01-01T12:00:01Z']) {
+			await dispatch(conversation.value, operatorMessage('thread-a', `snapshot-${selectorAt}`, 'Status?'), async (context, observed) => {
+				await snapshot(context, observed, { stopped: ['postgres'] });
+				await observed.post('Snapshot');
+			});
+			const result = await dispatch(conversation.value, operatorMessage('thread-a', `followup-${selectorAt}`, 'What happened then?'), async context => await followup(context, { at: selectorAt }));
+			expect(result).toMatchObject({ status: Date.parse(selectorAt) === now ? 'found' : 'not_found' });
+		}
 	});
 
 	test('rejects failed replies, forged clues, intervening messages, and lost process state', async () => {

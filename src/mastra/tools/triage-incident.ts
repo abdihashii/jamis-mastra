@@ -744,8 +744,10 @@ async function readMonitoringFinding(
 		return readIncident({ kind: 'preceding_request' }, context);
 	if (!snapshot)
 		return unavailable(target, 'monitoring_snapshot_unavailable');
-	const clues = target.finding ?? {};
-	const matches = snapshot.findings.filter(({ item }) => Object.entries(clues).every(([key, value]) => item[key as keyof typeof item] === value));
+	const clues = Object.entries(target.finding ?? {})
+		.filter(([, value]) => value != null)
+		.map(([key, value]) => [key, key === 'at' ? new Date(value as string).toISOString() : value] as const);
+	const matches = snapshot.findings.filter(({ item }) => clues.every(([key, value]) => item[key as keyof typeof item] === value));
 	if (matches.length === 0)
 		return notFound(target, ['monitoring_finding_not_found']);
 	if (matches.length > 1) {

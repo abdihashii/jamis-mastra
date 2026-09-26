@@ -145,15 +145,11 @@ export function settleDeploymentSnapshotReply(threadId: string, messageId: strin
 	const snapshot = deploymentSnapshots.get(threadId);
 	if (!snapshot || (snapshot.pendingMessageId !== messageId && (accepted || snapshot.precedingMessageId !== messageId)))
 		return;
+	snapshot.precedingMessageId = messageId;
+	snapshot.pendingMessageId = null;
 	if (!accepted) {
-		snapshot.precedingMessageId = messageId;
-		snapshot.pendingMessageId = null;
 		snapshot.failedReply = true;
 		snapshot.findings = [];
-	}
-	else {
-		snapshot.precedingMessageId = messageId;
-		snapshot.pendingMessageId = null;
 	}
 }
 
