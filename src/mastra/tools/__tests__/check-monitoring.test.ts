@@ -98,6 +98,9 @@ describe('check monitoring', () => {
 		expect(instructions).toContain('call triageIncident with the preceding_request target');
 		expect(instructions).toContain('call triageIncident with the monitoring_finding target');
 		expect(instructions).toContain('call triageIncident with the application target and the named component');
+		expect(instructions).toContain('including a current-state question such as "Is Postgres running?"');
+		expect(instructions).toContain('A triageIncident not_found result means no incident was proven; it does not prove that a component is running');
+		expect(instructions).toContain('never call a component unsupported when it is in triageIncident\'s fixed component list');
 		expect(instructions).toContain('component fantasy-weekly-recap and its exact humanDomainReference such as "week 2"');
 		expect(instructions).toContain('general Fantasy state remains a checkMonitoring request');
 	});

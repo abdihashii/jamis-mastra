@@ -1,6 +1,6 @@
 # 021: Deployment incident triage
 
-Status: **Stages 1 through 3 implemented and locally verified. Stage 3 awaits commit sign-off.**
+Status: **Stages 1 through 3 implemented and locally verified. The named-component routing correction awaits commit sign-off and a production smoke.**
 
 Linear: [JAM-69](https://linear.app/abdirahman-haji/issue/JAM-69/triage-a-specific-jamis-deployment-incident).
 
@@ -75,7 +75,11 @@ If choosing only between GPT-6 Luna and GPT-5.6 Terra, use Terra High for Stage 
 
 **Proposed commit:** `feat: route Deployment incident triage through Jamis`
 
-**Stage 3 result (2026-09-26 UTC):** Jamis now routes broad Deployment questions to `checkMonitoring`, accepted-snapshot follow-ups to `triageIncident` with the `monitoring_finding` target, named components to the `application` target, and specific Fantasy recap incidents by exact week. Multiple possible findings prompt clarification; replies preserve unknown times, gaps, classifications, impact, and exact safe references without inferring cause or intervention. The focused routing checks passed: 17 tests. A direct `mastra api` call for Postgres ran before Jamis and returned a safe `not_found`; Jamis then routed a named Postgres question to `triageIncident`, and a broad server question to Deployment Monitoring. The repository gate passed: 352 Bun tests, 4 Python tests, typecheck, lint, build, and `git diff --check`. Correctness, security, and Ponytail reviews found no issues. Linear has 9 of 10 acceptance criteria checked; nearby-evidence correlation remains open. The production direct-tool and iMessage smoke remain after separate push and deployment approvals.
+**Stage 3 result (2026-09-26 UTC):** Jamis routes broad Deployment questions to `checkMonitoring`, accepted-snapshot follow-ups to `triageIncident` with the `monitoring_finding` target, named components to the `application` target, and specific Fantasy recap incidents by exact week. Multiple possible findings prompt clarification; replies preserve unknown times, gaps, classifications, impact, and exact safe references without inferring cause or intervention. The focused routing checks passed: 17 tests. The initial full gate passed: 352 Bun tests, 4 Python tests, typecheck, lint, build, and `git diff --check`. Correctness, security, and Ponytail reviews found no issues. Linear has 9 of 10 acceptance criteria checked; nearby-evidence correlation remains open.
+
+**Production smoke and correction (2026-09-26 UTC):** Commit `2a7e25a` was pushed and deployed; the app is running with zero restarts. The authenticated direct `triageIncident` call for Postgres returned HTTP 200 and a safe `not_found` result. Production Monitoring had zero `needsAttention` findings. An authenticated iMessage asking "Is Postgres running?" did not call `triageIncident`; the trace had no triage span, and Jamis incorrectly described Postgres as unsupported. The local correction now explicitly routes current-state questions for named Deployment components through `triageIncident` and explains that `not_found` does not prove a component is running. The exact local Jamis API smoke now calls the tool with `{ kind: 'application', component: 'postgres' }` and reports unknown state without claiming the component is unsupported. The full gate passed again: 352 Bun tests, 4 Python tests, typecheck, lint, build, and `git diff --check`. Commit and production redeployment of this correction await sign-off; the production iMessage smoke must then be repeated. Do not invent a Monitoring finding while none is present.
+
+**Proposed correction commit:** `fix: route named Deployment status through triage`
 
 ## Delivery gate
 
