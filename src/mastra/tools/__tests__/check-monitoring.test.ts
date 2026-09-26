@@ -92,6 +92,25 @@ function fantasyRun(fantasyWeek: number, overrides: Partial<FantasyMonitoringRun
 }
 
 describe('check monitoring', () => {
+	test('routes specific Deployment incidents to triage and keeps broad questions on Monitoring', () => {
+		const instructions = readFileSync(new URL('../../agents/jamis.ts', import.meta.url), 'utf8');
+		expect(instructions).toContain('Keep broad Deployment health, history, and trend questions on checkMonitoring');
+		expect(instructions).toContain('call triageIncident with the preceding_request target');
+		expect(instructions).toContain('call triageIncident with the monitoring_finding target');
+		expect(instructions).toContain('call triageIncident with the application target and the named component');
+		expect(instructions).toContain('component fantasy-weekly-recap and its exact humanDomainReference such as "week 2"');
+		expect(instructions).toContain('general Fantasy state remains a checkMonitoring request');
+	});
+
+	test('asks for clarification and reports only supported triage evidence', () => {
+		const instructions = readFileSync(new URL('../../agents/jamis.ts', import.meta.url), 'utf8');
+		expect(instructions).toContain('If triageIncident returns multiple candidates or more than one plausible conversational target, ask which finding');
+		expect(instructions).toContain('Never select the newest incident');
+		expect(instructions).toContain('UTC occurrence or observation time, scope, impact, classification, evidence gaps, and exact safe references');
+		expect(instructions).toContain('do not turn a current observation into historical onset');
+		expect(instructions).toContain('infer a cause absent from the result, or suggest an intervention');
+	});
+
 	test('keeps broad Deployment routing separate from application and Fantasy monitoring', () => {
 		const instructions = readFileSync(new URL('../../agents/jamis.ts', import.meta.url), 'utf8');
 		const deployment = instructions.indexOf('For broad questions about the server or full Deployment');

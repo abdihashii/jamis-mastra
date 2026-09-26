@@ -1,6 +1,6 @@
 # 021: Deployment incident triage
 
-Status: **Stages 1 and 2 implemented and locally verified. Stage 3 pending.**
+Status: **Stages 1 through 3 implemented and locally verified. Stage 3 awaits commit sign-off.**
 
 Linear: [JAM-69](https://linear.app/abdirahman-haji/issue/JAM-69/triage-a-specific-jamis-deployment-incident).
 
@@ -74,6 +74,8 @@ If choosing only between GPT-6 Luna and GPT-5.6 Terra, use Terra High for Stage 
 **Demo:** Call the tool directly through `mastra api` before Jamis. After separate push and deployment approvals, repeat an authenticated direct-tool production smoke, then ask Jamis over iMessage about one known Monitoring finding and one named component. Confirm the selected target matches source evidence and no unrelated incident is attributed.
 
 **Proposed commit:** `feat: route Deployment incident triage through Jamis`
+
+**Stage 3 result (2026-09-26 UTC):** Jamis now routes broad Deployment questions to `checkMonitoring`, accepted-snapshot follow-ups to `triageIncident` with the `monitoring_finding` target, named components to the `application` target, and specific Fantasy recap incidents by exact week. Multiple possible findings prompt clarification; replies preserve unknown times, gaps, classifications, impact, and exact safe references without inferring cause or intervention. The focused routing checks passed: 17 tests. A direct `mastra api` call for Postgres ran before Jamis and returned a safe `not_found`; Jamis then routed a named Postgres question to `triageIncident`, and a broad server question to Deployment Monitoring. The repository gate passed: 352 Bun tests, 4 Python tests, typecheck, lint, build, and `git diff --check`. Correctness, security, and Ponytail reviews found no issues. Linear has 9 of 10 acceptance criteria checked; nearby-evidence correlation remains open. The production direct-tool and iMessage smoke remain after separate push and deployment approvals.
 
 ## Delivery gate
 
