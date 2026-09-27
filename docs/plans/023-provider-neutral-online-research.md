@@ -1,6 +1,6 @@
 # 023: Provider-neutral online research (JAM-63)
 
-Status: **Stage 1 complete, verified, and approved for commit and push. Stage 2 pending. No deployment approved.**
+Status: **Stage 1 committed and pushed. Stage 2 complete, verified, and approved for commit. Stage 2 push and deployment are not approved.**
 
 Baseline: `main` at `e024d8f`, including PR #35. Firecrawl remains pinned to 4.41.0; retain `autoResume: false` and its processing-timeout regression. No dependency upgrade is part of this work.
 
@@ -65,6 +65,16 @@ Stop after verification and present the diff summary and proposed commit. Wait f
 **Proposed commit:** `feat: default online research search to Perplexity`
 
 Stop after verification and present the diff summary and proposed commit. Wait for explicit commit approval. Push and deployment need separate confirmation. Finish with the repository-wide gates, observed smoke results, and final commit list.
+
+### Stage 2 verification record (2026-09-27 UTC)
+
+- Native Perplexity protocol smoke accepted the existing credential before changing the default. The response contained `id` and `results`; each candidate included title, URL, snippet, date, and last-updated fields. Only title and URL cross the tool boundary. Requests use three results, medium context, and a private 30-second timeout.
+- Isolated local HTTP fixtures pass for both search providers and Firecrawl reading. Startup tests prove absent selection defaults to Perplexity, explicit Perplexity works, Firecrawl-only operation needs no Perplexity key, scraping always needs Firecrawl, and invalid/empty/case-mismatched selections fail. Contract cases cover empty/bounded candidates, missing titles, malformed results, invalid JSON, non-2xx failures, neutral errors, safe success/error telemetry through actual Mastra export, no retry/fallback, and Firecrawl processing timeout without resumption. A missing-URL Firecrawl result now fails validation rather than being silently discarded.
+- Repository-wide typecheck, lint, build, and `git diff --check` pass. The full suite passes 358 tests across 28 files against disposable local Postgres. No package, lockfile, Docker, infra, model, agent policy, or channel change is included.
+- Direct tool smokes used the same query, `IANA example domains official documentation`, in separate processes. Both providers returned `https://www.iana.org/help/example-domains`, `https://www.iana.org/domains/reserved`, and `https://www.iana.org/news/2024/example-domain-http-methods`. Perplexity search took 199 ms; manually selected Firecrawl search took 552 ms. Firecrawl read the first page successfully in each process (952 markdown characters, 1,170 ms and 1,156 ms respectively). These observations do not establish a search-quality winner. Exported metadata contains only provider, operation, duration, and outcome; research still exposes only the two neutral tool IDs.
+- A real request through the existing Jamis agent and model gateway asked what IANA reserves example.com and example.org for and whether they can be registered or transferred. Trace `ec4fc690f2895809d4738c78c5d48045` completed in 29,661 ms with one research delegation, one Perplexity search (1,339 ms), and one Firecrawl read (1,157 ms, 2,287 markdown characters), sequentially. The delegation prompt contained only the public task. The verified evidence memo mapped three findings to the scraped `https://www.iana.org/domains/reserved`; the final answer cited that page beside both factual claims and included the required `Sources:` heading. A separate read of the cited page verified the documentation, illustrative-use, and no-registration-or-transfer statements. The smoke used disposable storage and in-memory telemetry and sent no messaging-channel reply.
+- Independent read-only correctness and tests/contracts reviews found no verified regression; the four-lane security audit found no introduced exploitable vulnerability. Ponytail review found nothing to cut. Native `bun audit` reports the existing high `js-yaml@3.15.1` advisory through `gray-matter` (GHSA-2883-xcg3-v3hh), already recorded during Stage 1. Dependency remediation remains separate.
+- Smoke and evidence artifacts remain ignored under `.firecrawl/jam-63-stage2-*`; the disposable database was removed after the closing gates. The operator approved the Stage 2 commit on the existing branch: `feat: default online research search to Perplexity`. Push and deployment require separate approval.
 
 ## Research evidence
 
