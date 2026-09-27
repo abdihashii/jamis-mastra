@@ -17,6 +17,14 @@ An internal agent that accepts bounded delegated work from Jamis. Jamis owns the
 Jamis's capability to discover relevant public webpages from a question, read selected pages, and use what it finds to answer the operator with source URLs. It excludes whole-site crawling and interactive browser work.
 _Avoid_: web browsing, web search
 
+**Research candidate**:
+A public webpage discovered during Online research that may contain relevant evidence. Its title, URL, or search excerpt alone does not verify a claim.
+_Avoid_: verified source, evidence
+
+**Research source**:
+A public webpage read during Online research whose content supports a cited finding.
+_Avoid_: search result, unread source
+
 **Personal-accounts agent**:
 The internal subagent that owns tool integrations with the operator's personal accounts (first: Gmail over the Google API; second: Calendar). Jamis delegates personal-account requests to it; its result is evidence for Jamis's final reply, not a channel reply itself. One delegation boundary for the whole personal-account class, not one subagent per account provider.
 _Avoid_: email agent, gmail subagent, google agent

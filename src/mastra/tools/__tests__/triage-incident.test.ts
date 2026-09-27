@@ -734,6 +734,8 @@ describe('bounded incident reader', () => {
 			['propose-operator-time-zone-change', 'proposeOperatorTimeZoneChange'],
 			['calendar-events', 'calendarEventsTool'],
 			['gmail-search', 'gmailSearchTool'],
+			['web-search', 'webSearch'],
+			['web-scrape', 'webScrape'],
 			['firecrawl-search', 'firecrawlSearch'],
 			['firecrawl-scrape', 'firecrawlScrape'],
 			['weather-tool', 'weatherTool'],

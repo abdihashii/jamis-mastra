@@ -2,6 +2,12 @@
 
 Jamis will gain online research as a first-class capability by delegating to one internal research subagent that owns Firecrawl search and single-page scrape tools. The subagent discovers relevant public webpages and reads selected pages; Jamis remains the only public agent and owns the final answer. Evidence requirements constrain how Jamis uses this capability for factual answers.
 
+## Amendment: neutral tool boundary (JAM-63, 2026-09-27 UTC)
+
+The original decision below records the Firecrawl-only rollout. Research now exposes only `web-search` and `web-scrape`, with provider-neutral schemas, instructions, and execution errors. Provider selection, credentials, upstream payloads, normalization, and safe operation telemetry belong to one web-tool module; they are absent from the agent-facing interface. This first stage retains Firecrawl for both operations, including PR #35's Firecrawl 4.41.0 freshness settings and disabled processing-timeout resumption.
+
+Research ownership, delegation, source quality, citation/refusal behavior, instruction-based budgets, and existing private tool-result retention remain unchanged. Historical incident-component mappings remain available alongside the neutral tool names. The operator approved Perplexity as the eventual default search provider, with manually selectable Firecrawl search and Firecrawl-only page reading; that provider-selection stage is pending.
+
 ## Context
 
 Jamis currently answers ordinary conversation directly and delegates current weather to `weather-agent`. It cannot discover public webpages from a question or read selected pages, so it cannot fulfill a general online-research request. It also has no general live source for current product behavior, people and organization status, dates, numbers, quotations, or recommendations that depend on changeable facts. An instruction based on whether Jamis feels uncertain is not sufficient because some models express confidence even when their answer is unsupported.
