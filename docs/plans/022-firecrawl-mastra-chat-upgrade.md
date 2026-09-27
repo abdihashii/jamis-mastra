@@ -1,6 +1,6 @@
 # 022: Firecrawl, Mastra, and Chat SDK upgrade
 
-Status: **Stage 1 verified, awaiting commit approval. Stage 2 pending.**
+Status: **Both stages complete locally. Stage 1 committed as `eb02a53`; Stage 2 is this commit. Push and deployment are not approved.**
 
 Branch: `chore/firecrawl-mastra-chat-upgrade`. No ticket, per operator clarification.
 
@@ -8,10 +8,10 @@ Upgrade the requested packages to the npm stable versions verified on 2026-09-26
 
 ## Version decision
 
-| Package | Current | Target |
+| Package | Before upgrade | Pinned |
 | --- | --- | --- |
 | `firecrawl` | 4.32.2 | 4.41.0 |
-| `chat` (currently transitive) | 4.38.0 | 4.41.0 |
+| `chat` (formerly transitive) | 4.38.0 | 4.41.0 |
 | `@mastra/core` | 1.68.0 | 1.71.0 |
 | `@mastra/memory` | 1.31.0 | 1.32.1 |
 | `@mastra/observability` | 1.17.9 | 1.18.1 |
@@ -21,7 +21,7 @@ Upgrade the requested packages to the npm stable versions verified on 2026-09-26
 
 Firecrawl now automatically resumes certain processing timeouts. Set `autoResume: false` on the existing scrape call to preserve its previous timeout and error behavior. Keep freshness settings and the existing result schemas.
 
-The operator requires exact version pins for the upgraded packages. Pin Chat SDK directly to 4.41.0 so its runtime version is controlled by the root manifest as well as the lockfile. Existing code already imports Chat SDK types; no new integration is introduced.
+The operator requires exact version pins for the upgraded packages. Pin Chat SDK directly to 4.41.0 so its runtime version is controlled by the root manifest as well as the lockfile. A Bun override also pins transitive Chat SDK consumers: the initial install otherwise retained Sendblue's nested 4.38.0 and caused incompatible private class types. Existing code already imports Chat SDK types; no new integration is introduced.
 
 Mastra 1.71 enables eager execution for eligible tools in `Agent.stream()`. The operator approved adopting the released behavior and verifying it with synthetic model responses. No inference provider or model change is part of this upgrade.
 
@@ -54,6 +54,16 @@ Mastra 1.71 enables eager execution for eligible tools in `Agent.stream()`. The 
 The unchanged repository passes 354 tests across 26 files when pointed at disposable local Postgres. Earlier four failures came from missing database access. Test databases and local protocol fixtures do not use production storage or send messages.
 
 Stage 1 passes 355 tests across 27 files, typecheck, lint, build, and `git diff --check`. The new local HTTP regression covers result normalization, freshness flags, missing markdown, and processing-timeout failure without resumption. Both installed and generated build dependencies report Firecrawl 4.41.0. Only Firecrawl's manifest and package entries changed in the lockfile.
+
+Stage 2 passes 356 tests across 28 files, typecheck, lint, build, and `git diff --check`. Exact installed versions match all targets; every runtime target also matches the generated build. The lockfile contains one Chat SDK 4.41.0, with a frozen installation verified after removing Bun's stale, unlocked nested 4.38.0 directory.
+
+- A new synthetic-model check proves the default stream executes an eligible tool before the model step ends, executes it once, and retains its result.
+- Actual Sendblue webhooks through Chat SDK and Mastra state pass DM/group routing, deduplication, and invalid-secret rejection. No outbound messages.
+- The built API uses test credentials and disposable Postgres/ClickHouse. Unauthenticated schema access returns 401; authenticated access returns 200 with 371 routes. The installed CLI discovers 11 tools and `fantasy-weekly-recap` without executing them. Fantasy delivery is disabled for this smoke.
+- Fresh standalone ClickHouse emits the existing Keeper probe warning documented in plan 001 and successfully uses the fallback. No compatibility changes to application code were required in Stage 2.
+- No external model request, live research, handset delivery, push, or deployment was performed. Temporary services are removed after verification.
+
+Final repository gate repeated on 2026-09-27 UTC: 356 tests passed across 28 files, with typecheck, lint, build, and `git diff --check` passing. All nine requested manifest pins match the installed versions, and every runtime pin matches the generated build. Both stage commits were approved by the operator.
 
 ## Research
 
