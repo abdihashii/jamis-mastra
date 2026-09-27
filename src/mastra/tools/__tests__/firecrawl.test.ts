@@ -17,7 +17,7 @@ test('Firecrawl tools preserve fresh results and fail processing timeouts withou
 			}
 			scrapeCalls += 1;
 			return processing
-				? Response.json({ success: false, error: 'Still processing', details: { state: 'processing_continues', retryAfterSeconds: 0 } }, { status: 408 })
+				? Response.json({ success: false, code: 'SCRAPE_TIMEOUT', error: 'Still processing', details: { state: 'processing_continues', retryAfterSeconds: 0 } }, { status: 408 })
 				: Response.json({ success: true, data: { markdown } });
 		},
 	});
