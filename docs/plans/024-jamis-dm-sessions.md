@@ -1,0 +1,89 @@
+# 024: Jamis DM sessions (JAM-58)
+
+Status: **Stage 1 implemented, verified, and approved. Stage 2 not started.**
+
+Linear: [JAM-58](https://linear.app/abdirahman-haji/issue/JAM-58/jamis-dm-sessions-new-starts-a-clean-mastra-thread).
+
+## Resolved product contract
+
+- Recognize only text whose trimmed value is exactly `/new`, from the allowlisted operator in a 1:1 Sendblue DM. Case variants, arguments, other adapters, and group messages do not rotate the session.
+- The operator chose to finish an active DM reply before starting the new session. The command and following ordinary DMs must remain queued in order.
+- A session is a complete conversational boundary. The stable iMessage conversation and operator `resourceId` remain; the active Mastra `threadId` changes. Previous threads, messages, observations, summaries, and metadata remain intact and inspectable.
+- New sessions receive no prior conversational memory, including personal facts learned only through chat. Applied operator settings, such as the time-zone override, and account authentication remain available.
+- `/new` cancels pending time-zone proposals and conversational follow-up targets. Stored fantasy broadcast drafts retain their existing rules, but their previous discussion is absent from the new session. Fantasy ingestion, recap generation, and broadcast tools retain their existing contracts.
+- Handle the command in application code. Neither the command nor its fixed confirmation becomes an agent turn, and no model decides whether to rotate or clear a proposal.
+- No automatic rollover, session management interface, cross-session recall, history deletion, additional service, dependency upgrade, or deployment is included.
+
+## Engineering decisions
+
+These are implementation choices derived from the contract, not additional product questions.
+
+**Ordering.** Use the order in which validated messages enter the operator DM queue. An ordinary message queued after `/new` resolves its thread only after the rollover completes. Do not reorder by provider timestamps or introduce a delay to guess whether an earlier webhook is missing. A message received before the command is processed under the then-active session; the success confirmation proves the boundary has taken effect.
+
+**Existing storage.** Reuse Mastra's native channel mapping rather than adding an active-session table. Installed `AgentChannels.findThreadMapping` selects the newest matching thread using the existing channel coordinates and owner. Create a new thread with those coordinates, owner `jamis`, and the existing resource identity. Copy only channel coordinates, never old thread metadata containing conversational state. Preserve legacy unclaimed-thread lookup without modifying the old thread merely to claim it.
+
+**Deterministic selection and retries.** Derive the new thread ID from a scoped digest of the command's provider handle. A repeated delivery of the same command must reuse that result and must not rotate again or overwrite its thread. A separate `/new` message creates a separate session. Give each fresh thread a `createdAt` strictly later than the current matching thread, including equal-millisecond and backward-clock cases, so native newest-thread selection has one winner. Replays of an older command must never reactivate its thread; only a replay of the still-current command may retry its confirmation.
+
+**Memory isolation.** Explicitly configure Jamis's Observational Memory with thread scope and retrieval disabled. Keep semantic recall and working memory disabled. Leave other agents' memory configuration alone. New threads start without copied observations, summaries, working memory, or messages, and the native DM path does not import platform history into the prompt.
+
+**Busy-channel intake.** Chat SDK 4.41.0 defaults to `drop`, but installed Mastra 1.71.0 already constructs Chat with `concurrency: { strategy: 'concurrent' }`. Jamis does not override it. Reuse this native dispatch so each accepted DM reaches the existing process-local operator queue; that queue continues to serialize agent execution and rollover. In Stage 2, verify the actual busy-DM dispatch path and concurrent group ingestion, including passive persistence and deduplication without agent invocation. No extra Chat setting or queue is needed.
+
+**Pending channel state.** Deliver any already-applied setting notification through its existing path. Cancel the pending time-zone proposal and clear the preceding session's intake watermark before saving the new thread; retain the applied override. This prevents an equal provider timestamp from silently discarding the first ordinary DM after rollover. Clear the existing process-local monitoring follow-up snapshot when the boundary succeeds. Replayed commands must not cancel a later session's proposal or follow-up state.
+
+**Failure boundaries.** Await the durable fresh-thread write before sending `New session started.` A failed storage operation produces a fixed error response and never calls the agent or sends the success confirmation. Do not delete the old thread or invalidate its mapping. A write whose acknowledgement is lost may already have committed; keep the valid stored mapping and let the deterministic command ID resolve a subsequent replay. If only confirmation posting fails, keep the new session active and record a reply-acceptance failure without claiming the storage rollover failed. No outbox or automatic application retry is added.
+
+**Deployment ceiling.** The existing queue and Chat deduplication are process-local. This plan supports the current single application process; durable session selection survives restart, but in-flight queued webhook recovery across a process crash is outside this issue. Keep that ceiling explicit in the existing `ponytail:` comment.
+
+**Future durable event delivery.** Mastra already provides `queueMessage()` for a next turn on an existing thread and a pluggable PubSub event bus. The default bus is in-process. Its official `RedisStreamsPubSub` backend adds persisted events, redelivery, consumer groups, and distributed thread ownership. Configuring that bus alone does not persist the earlier Chat SDK webhook queue or include `/new`, which is intercepted before agent dispatch and changes the target thread. If restart-safe intake or multiple application workers become requirements, make durable, conversation-keyed intake a separate infrastructure slice using the supported primitives and idempotent command handling. A queue does not make the PostgreSQL rollover and Sendblue acknowledgement one transaction. No new queue service is added in JAM-58.
+
+## 1. Establish durable clean-thread creation and memory isolation
+
+**Goal:** The production rollover helper creates a clean, correctly owned thread which native channel resolution selects after restart, without changing the previous thread.
+
+**Critical files:** `src/mastra/channels/sendblue.ts`, `src/mastra/channels/sendblue.test.ts`, `src/mastra/agents/jamis.ts`, `docs/CONTEXT.md`, and ADR 0010. Add a separate focused test file only if needed for a real Postgres/native-channel fixture; no generic session abstraction.
+
+**Implementation:** Add the narrow rollover helper to the existing channel module and pin Jamis's memory isolation options. Resolve the existing native mapping, preserve its exact resource identity, allocate the deterministic fresh ID, and append only clean channel metadata. Handle the first-ever DM, a legacy mapping, duplicate commands, and monotonic creation ordering. Keep `/new` unavailable until Stage 2 wires the handler.
+
+**Verification:** Seed an old thread with distinct message and observation sentinels in disposable Postgres. Invoke the production helper and resolve a subsequent ordinary message through a fresh native channels instance over the same store. Assert a different thread, the same resource, an unchanged old record and history, and no old sentinels in the captured new model prompt. Cover repeated command delivery, two distinct commands with a frozen clock, and a backward clock. Use an installed mock model, with no external model call or channel send. Run `bun run typecheck`, `bun run lint`, `bun test`, and `git diff --check`.
+
+**Demo:** The native-channel fixture observes an ordinary DM using the new thread after reconstructing the channel instance; Studio storage still exposes the seeded old thread and history.
+
+**Observed Stage 1 verification:** `src/mastra/channels/sendblue-sessions.test.ts` adds eight checks, six using disposable local PostgreSQL and two asserting Jamis's actual memory configuration and the fixture's database guard. A fresh native channels instance stores an ordinary DM as a `signal` in the replacement thread with the exact existing resource identity. Its captured mock-model prompt contains the current DM and no old message, observation, reflection, summary, or working-memory sentinel. The old thread, messages, and observation history compare unchanged. Other checks cover legacy and first-ever mappings, scoped command IDs, duplicate and superseded replays, frozen and backward clocks, failed writes, lost write acknowledgements, and invalid DM scope. No external model call or channel send occurred.
+
+The database fixture requires `JAMIS_TEST_DATABASE_URL` pointing to a loopback database named `jamis_sessions_test`; it never falls back to the application's database. It creates and removes a unique schema. The full repository test run also sets `DATABASE_URL` to that disposable database for the existing SQL-backed tests. Without the fixture variable, its six database checks are skipped.
+
+Review fixes seed both synthetic Google client credentials before importing Jamis, reject PostgreSQL `host` query overrides and non-PostgreSQL schemes before storage initialization, and remove the unused dispatch return value. All eight fixture checks pass with `--no-env-file` against disposable PostgreSQL; the previously affected Calendar test also passes alongside the fixture without `.env`.
+
+Stage 1 gates: `rtk bun run typecheck` and `rtk bun run lint` passed; `rtk bun test` passed **366 tests across 29 files, zero failures**, with both database variables pointed at disposable PostgreSQL. `rtk git diff --check` passed. The operator approved the Stage 1 commit. No push, deployment, or Stage 2 implementation has occurred.
+
+**Approved commit:** `feat: add durable isolated Jamis DM sessions`
+
+Present the diff and observed verification results, then wait for explicit commit approval before committing or starting Stage 2. Commit approval does not authorize a push.
+
+## 2. Wire the exact command and preserve ordered channel intake
+
+**Goal:** The operator can send `/new` while idle or while a reply is running; the next queued ordinary DM reaches the clean session.
+
+**Critical files:** `src/mastra/channels/sendblue.ts`, `src/mastra/channels/sendblue.test.ts`, `src/mastra/agents/jamis.ts`, and `src/lib/operator-time-zone.ts`. Reuse `clearDeploymentSnapshot` in `src/mastra/tools/deployment-monitoring.ts`. Update this plan and ADR 0010 when the behavior is implemented and verified.
+
+**Implementation:** Retain the existing native concurrent dispatch. Handle `/new` inside the existing validated operator queue before the default agent handler. Cancel pending conversational state, call the verified rollover helper, then post the fixed confirmation. Keep storage and notification failures separate, and leave ordinary messages, login commands, and fantasy handlers on their established paths.
+
+**Verification:** Extend focused tests for exact matching and whitespace, case/argument rejection, operator/adapter/DM scope, no agent invocation or stored command turn, and confirmation only after the write completes. Exercise the real Chat dispatch path with an active paused reply, `/new`, and an ordinary DM; helper-only queue tests do not prove intake. Assert reply-before-confirmation order and that the ordinary DM reaches the fresh thread even with equal provider timestamps. Inject storage and posting failures, retry a committed command, and replay an older command after a later rollover. Confirm pending proposals and monitoring follow-ups cannot cross the boundary while applied settings remain. Run existing fantasy ingestion, recap, broadcast, login, time-zone, and monitoring tests, including concurrent passive group intake. Close with `bun run typecheck`, `bun run lint`, `bun test`, `bun run build`, and `git diff --check` across the repository.
+
+**Demo:** A local Sendblue webhook fixture with stubbed outbound HTTP observes one fixed confirmation and zero agent runs for `/new`; an immediate ordinary fixture DM runs under a different thread with the same resource. Reconstruct the application channels over the same disposable store and verify the mapping survives. No handset message or production deployment is required for this stage.
+
+**Proposed commit:** `feat: handle /new in Jamis operator DMs`
+
+Present the diff, verification totals, and demo observations, then wait for explicit commit approval. Push and deployment require separate confirmation. Final reporting lists completed stages, observed checks, and approved commits.
+
+## Evidence checked during design
+
+- Stage 1 cross-check with the Mastra skill and current published [channel reference](https://mastra.ai/reference/agents/channels), [channels guide](https://mastra.ai/docs/channels), [Observational Memory reference](https://mastra.ai/reference/memory/observational-memory), and [memory guide](https://mastra.ai/docs/memory/observational-memory): resolver hooks do not run for existing mappings, thread scope isolates observations, and enabling retrieval permits cross-thread browsing by default. These contracts agree with the installed APIs and Stage 1's explicit isolation settings. Mapping metadata, owner selection, legacy lookup, and creation ordering were verified against the installed runtime and the real PostgreSQL fixture.
+- `src/mastra/channels/sendblue.ts`: operator/adapter/DM guard, one process-local operator queue, fixed login commands, and live channel capability boundary.
+- `src/lib/operator-time-zone.ts`: pending proposals are durable, and a strict provider-timestamp watermark currently suppresses equal-timestamp messages. Reset only the previous session's conversational intake state for this boundary.
+- Installed `@mastra/core@1.71.0` channel declarations and runtime: resolver hooks apply only to newly created mappings; native lookup uses channel coordinates plus owner and does not fetch platform history for DMs. A normal wake consumes its stream before returning.
+- Installed `@mastra/pg@1.27.1`: native thread listing defaults to descending creation order, with ID as the tie-breaker; `saveThread` awaits one PostgreSQL write. Avoid relying on the arbitrary ID tie-breaker for session ordering.
+- Installed `@mastra/memory@1.32.1`: observations default to thread scope and retrieval is opt-in. Core defaults disable semantic recall and working memory; explicit Jamis configuration records this issue's isolation contract.
+- Installed `chat@4.41.0`: default busy-thread handling drops messages; installed `AgentChannels.initialize` overrides that default with concurrent dispatch. The operator queue remains the execution serializer. The Stage 1 source review corrected the draft's proposed extra Chat setting; real busy-DM and group-intake verification remains in Stage 2.
+- Installed [Signals guide](https://mastra.ai/docs/harness/signals) and [PubSub guide](https://mastra.ai/docs/server/pubsub): `queueMessage()` preserves next-turn ordering, while the default event bus does not persist events. The [Redis Streams reference](https://mastra.ai/reference/pubsub/redis-streams), also found through Firecrawl Developer, documents persisted delivery, redelivery/reclaim, and distributed leasing. The installed `MastraStateAdapter` still holds its Chat queues in memory independently of the PubSub backend.
+- ADR 0010's manual-boundary amendment and the `Jamis DM session` glossary entry record the accepted domain boundary. No separate ADR or new memory architecture is needed.

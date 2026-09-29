@@ -60,8 +60,12 @@ export const jamis = new Agent({
 	tools: { checkMonitoring: checkMonitoringTool, currentTime: currentTimeTool, proposeOperatorTimeZoneChange: operatorTimeZoneChangeTool, triageIncident: triageIncidentTool },
 	memory: new Memory({
 		options: {
+			semanticRecall: false,
+			workingMemory: { enabled: false },
 			observationalMemory: {
 				model: 'neuralwatt/deepseek-v4-flash',
+				scope: 'thread',
+				retrieval: false,
 			},
 		},
 	}),

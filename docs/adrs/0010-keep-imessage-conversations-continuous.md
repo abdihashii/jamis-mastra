@@ -28,3 +28,11 @@ Mastra temporal markers annotate a time gap within the same thread. In the insta
 - An unrelated topic can still encounter stale task context, which is an accepted risk until real usage shows it warrants a boundary.
 - If that evidence appears, evaluate a 24-hour soft rollover as a separate change. It must retain the old thread and define explicit continuation or recall behavior before creating a new active thread.
 - Honcho remains a future memory-architecture option, not a prerequisite for a later soft rollover.
+
+## JAM-58 amendment (Stage 1 verified, command wiring pending)
+
+The operator may deliberately start a clean Jamis DM session with `/new`. This supersedes the decision to keep one Mastra thread indefinitely: the iMessage conversation and operator identity stay stable, while a new thread isolates conversational memory and leaves prior threads intact for inspection. Automatic rollover, idle expiry, and cross-session recall remain deferred. An active DM reply finishes before the command takes effect, preserving the existing request order.
+
+The command cancels pending operator time-zone proposals and conversational follow-up targets. Applied operator settings and account authentication survive the boundary. Fantasy broadcast drafts remain stored under their existing rules; a new DM session does not recall their prior discussion.
+
+Stage 1 implements durable clean-thread creation and explicitly pins Jamis's memory to thread-scoped Observational Memory with retrieval, semantic recall, and working memory disabled. A disposable PostgreSQL fixture verifies native selection after reconstructing channels, preserved operator identity, unchanged prior history and observations, and a clean captured model prompt. The helper preserves legacy mappings without claiming the old thread and handles duplicate commands and equal or backward clocks. `/new` handling, confirmations, and pending conversational state remain Stage 2 work; the command is not yet wired.

@@ -1,6 +1,8 @@
 import type { ChannelHandlerContext } from '@mastra/core/channels';
+import type { StorageThreadType } from '@mastra/core/memory';
 import type { Span } from '@mastra/core/observability';
 import type { RequestContext } from '@mastra/core/request-context';
+import type { MemoryStorage } from '@mastra/core/storage';
 import type { Message, Thread } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
 import type { SqlLike } from '../../lib/operator-time-zone';
@@ -48,6 +50,54 @@ export const sendblueAdapter = Object.assign(adapter, {
 
 export function isOperator(message: Message): boolean {
 	return message.author.userId.trim() === operatorNumber;
+}
+
+/** Called inside the serialized operator queue; does not send a reply or run the agent. */
+export async function startJamisDmSession(
+	memory: MemoryStorage,
+	thread: Thread,
+	message: Message,
+): Promise<{ status: 'created' | 'replayed' | 'superseded'; thread: StorageThreadType }> {
+	if (!isOperator(message) || thread.adapter.name !== 'sendblue' || !thread.isDM
+		|| !thread.id || message.threadId !== thread.id || !message.id?.trim()) {
+		throw new Error('A validated operator Sendblue DM is required to start a Jamis session.');
+	}
+
+	const coordinates = {
+		channel_platform: 'sendblue',
+		channel_externalThreadId: thread.id,
+		channel_externalChannelId: thread.channelId,
+	};
+	const metadata = { ...coordinates, channel_ownerId: 'jamis' };
+	const { threads } = await memory.listThreads({ filter: { metadata }, perPage: 1 });
+	let current: StorageThreadType | undefined = threads[0];
+	if (!current) {
+		// Match native legacy selection without claiming or changing the old thread.
+		const { threads: candidates } = await memory.listThreads({
+			filter: { metadata: coordinates },
+			perPage: 10,
+			orderBy: { field: 'createdAt', direction: 'ASC' },
+		});
+		current = candidates.find(candidate => !('channel_ownerId' in (candidate.metadata ?? {})));
+	}
+
+	const threadId = `jamis-dm-${hashSendblueMessageHandle(JSON.stringify(['jamis', thread.id, thread.channelId, message.id]))}`;
+	const existing = await memory.getThreadById({ threadId });
+	if (existing)
+		return { status: current?.id === existing.id ? 'replayed' : 'superseded', thread: existing };
+
+	const createdAt = new Date(Math.max(Date.now(), current ? current.createdAt.getTime() + 1 : 0));
+	const fresh = await memory.saveThread({
+		thread: {
+			id: threadId,
+			resourceId: current?.resourceId ?? `sendblue:${message.author.userId}`,
+			title: 'sendblue conversation',
+			createdAt,
+			updatedAt: createdAt,
+			metadata,
+		},
+	});
+	return { status: 'created', thread: fresh };
 }
 
 export function isOpenAILoginCommand(message: Message): boolean {
