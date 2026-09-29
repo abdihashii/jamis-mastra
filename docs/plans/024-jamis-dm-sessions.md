@@ -1,6 +1,6 @@
 # 024: Jamis DM sessions (JAM-58)
 
-Status: **Stage 1 committed as `7fec515`. Stage 2 implemented, verified, and approved for commit.**
+Status: **Complete. Stage 1: `7fec515`. Stage 2: `998a0a9`.**
 
 Linear: [JAM-58](https://linear.app/abdirahman-haji/issue/JAM-58/jamis-dm-sessions-new-starts-a-clean-mastra-thread).
 
