@@ -14,11 +14,11 @@ import { createTool } from '@mastra/core/tools';
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
 import { z } from 'zod';
 
-import { clearPendingOperatorTimeZoneNotification, consumePendingOperatorTimeZoneChange, readPendingOperatorTimeZoneNotification, readPendingOperatorTimeZoneProposal, saveOperatorTimeZoneProposal, withOperatorTimeZoneTransaction } from '../../lib/operator-time-zone';
+import { clearOperatorTimeZoneConversation, clearPendingOperatorTimeZoneNotification, consumePendingOperatorTimeZoneChange, readPendingOperatorTimeZoneNotification, readPendingOperatorTimeZoneProposal, saveOperatorTimeZoneProposal, withOperatorTimeZoneTransaction } from '../../lib/operator-time-zone';
 import { isIanaTimeZone } from '../../lib/time';
 import { requireEnv, requireOperatorTimeZone } from '../env';
 import { DEVICE_LOGIN_TIMEOUT_ERROR, MODEL_AUTH_FAILURE, runDeviceLogin } from '../gateways/openai-codex-auth';
-import { settleDeploymentSnapshotReply } from '../tools/deployment-monitoring';
+import { clearDeploymentSnapshot, settleDeploymentSnapshotReply } from '../tools/deployment-monitoring';
 
 export const CODEX_AUTH_CHANNEL_ERROR = 'JAMIS lost access to ChatGPT and did not complete your request. Re-authentication is required.';
 export const GENERIC_CHANNEL_ERROR = 'JAMIS could not complete that request. The error was logged.';
@@ -27,6 +27,7 @@ export const OPENAI_LOGIN_SUCCESS = 'OpenAI login complete.';
 export const OPENAI_LOGIN_TIMEOUT = 'OpenAI login timed out. Send "login openai" to try again.';
 export const OPENAI_LOGIN_FAILURE = 'OpenAI login failed. The error was logged.';
 export const OPERATOR_TIME_ZONE_DECLINED = 'Operator time zone change declined.';
+export const NEW_SESSION_SUCCESS = 'New session started.';
 export const SENDBLUE_CHANNEL_SPAN_NAME = 'sendblue.channel';
 export const SENDBLUE_CORRELATION_KEY = 'sendblue_message_digest';
 
@@ -57,6 +58,7 @@ export async function startJamisDmSession(
 	memory: MemoryStorage,
 	thread: Thread,
 	message: Message,
+	beforeCreate?: () => Promise<void>,
 ): Promise<{ status: 'created' | 'replayed' | 'superseded'; thread: StorageThreadType }> {
 	if (!isOperator(message) || thread.adapter.name !== 'sendblue' || !thread.isDM
 		|| !thread.id || message.threadId !== thread.id || !message.id?.trim()) {
@@ -87,6 +89,7 @@ export async function startJamisDmSession(
 		return { status: current?.id === existing.id ? 'replayed' : 'superseded', thread: existing };
 
 	const createdAt = new Date(Math.max(Date.now(), current ? current.createdAt.getTime() + 1 : 0));
+	await beforeCreate?.();
 	const fresh = await memory.saveThread({
 		thread: {
 			id: threadId,
@@ -216,7 +219,7 @@ async function deliverPendingOperatorTimeZoneNotification(thread: Thread, sql?: 
 /** ponytail: one process-wide login; use shared coordination only if JAMIS scales past one process. */
 let openAILoginInFlight: Promise<void> | null = null;
 
-/** ponytail: one process-wide operator queue; use shared coordination if JAMIS scales past one process. */
+/** ponytail: one process-wide operator queue; add durable intake for crash recovery or multiple processes. */
 let directMessageTail = Promise.resolve();
 
 function enqueueDirectMessage(task: () => Promise<void>): Promise<void> {
@@ -349,6 +352,39 @@ export async function handleSendblueDirectMessage(
 		}
 
 		return await enqueueDirectMessage(async () => {
+			if (message.text.trim() === '/new') {
+				let result: Awaited<ReturnType<typeof startJamisDmSession>>;
+				try {
+					await deliverPendingOperatorTimeZoneNotification(observedThread, sql);
+					const memory = await context?.mastra?.getStorage()?.getStore('memory');
+					if (!memory)
+						throw new Error('Memory storage is required to start a Jamis session.');
+					result = await startJamisDmSession(memory, thread, message, async () => {
+						// Cancel before writing so a lost write acknowledgement cannot leak old state.
+						await clearOperatorTimeZoneConversation(sql);
+						clearDeploymentSnapshot(thread.id);
+					});
+				}
+				catch {
+					console.error(deliveryFailed
+						? '[jamis-dm-session] Setting notification acceptance failed.'
+						: '[jamis-dm-session] Session rollover failed.');
+					if (!deliveryFailed) {
+						await observedThread.post(GENERIC_CHANNEL_ERROR);
+						span?.update({ metadata: { stage: 'channel_intake', classification: 'failed' } });
+					}
+					return;
+				}
+				if (result.status !== 'superseded') {
+					try {
+						await observedThread.post(NEW_SESSION_SUCCESS);
+					}
+					catch {
+						console.error('[jamis-dm-session] Session started; confirmation acceptance failed.');
+					}
+				}
+				return;
+			}
 			await deliverPendingOperatorTimeZoneNotification(observedThread, sql);
 			if (correlation) {
 				const confirmationRequested = isOperatorTimeZoneConfirmation(message.text);

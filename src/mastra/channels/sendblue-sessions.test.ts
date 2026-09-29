@@ -2,7 +2,9 @@ import type { StorageThreadType } from '@mastra/core/memory';
 import type { MemoryStorage } from '@mastra/core/storage';
 import type { Message, Thread } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
+import type { FantasyConfig } from '../../fantasy/config';
 
+import { SQL } from 'bun';
 import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 
@@ -12,6 +14,9 @@ import { MastraLanguageModelV2Mock } from '@mastra/core/test-utils/llm-mock';
 import { Memory } from '@mastra/memory';
 import { PostgresStore } from '@mastra/pg';
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
+
+import { clearOperatorTimeZoneConversation, readPendingOperatorTimeZoneProposal, resolveOperatorTimeZone, saveOperatorTimeZoneProposal, setOperatorTimeZoneOverride } from '../../lib/operator-time-zone';
+import { getDeploymentSnapshot, stageDeploymentSnapshot } from '../tools/deployment-monitoring';
 
 process.env.JAMIS_ALLOWED_NUMBER = '+15555550101';
 process.env.SENDBLUE_API_KEY = 'test-api-key';
@@ -23,8 +28,10 @@ process.env.FIRECRAWL_API_KEY = 'test-firecrawl-key';
 process.env.PERPLEXITY_API_KEY = 'test-perplexity-key';
 process.env.GOOGLE_CLIENT_ID = 'test-client-id';
 process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
+process.env.OPERATOR_TIMEZONE = 'America/Chicago';
 
-const { sendblueAdapter, startJamisDmSession } = await import('./sendblue');
+const { handleSendblueDirectMessage, NEW_SESSION_SUCCESS, sendblueAdapter, startJamisDmSession } = await import('./sendblue');
+const { createFantasyGroupHandler } = await import('../../fantasy/ingest');
 const { jamis } = await import('../agents/jamis');
 const memoryOptions = (await jamis.getMemory())!.getMergedThreadConfig();
 
@@ -61,6 +68,7 @@ const databaseUrl = process.env.JAMIS_TEST_DATABASE_URL;
 describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native channels', () => {
 	let store: PostgresStore;
 	let memory: MemoryStorage;
+	let sql: SQL;
 	const schema = `jamis_sessions_${randomUUID().replaceAll('-', '')}`;
 
 	beforeAll(async () => {
@@ -68,11 +76,13 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 		store = new PostgresStore({ id: schema, connectionString: databaseUrl!, schemaName: schema });
 		await store.init();
 		memory = (await store.getStore('memory'))!;
+		sql = new SQL(databaseUrl!, { connection: { search_path: schema } });
 	}, 30000);
 
 	afterAll(async () => {
 		if (store) {
 			try {
+				await sql?.close();
 				await store.db.none(`DROP SCHEMA "${schema}" CASCADE`);
 			}
 			finally {
@@ -129,15 +139,26 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 		});
 	}
 
-	async function nativeChannels() {
+	async function nativeChannels(options: {
+		commandFlow?: boolean;
+		onPrompt?: () => Promise<void>;
+		onIntake?: (message: Message) => void;
+		fantasyConfig?: FantasyConfig;
+	} = {}) {
 		const prompts: unknown[] = [];
 		const model = new MastraLanguageModelV2Mock({
-			doStream: async (options) => {
-				prompts.push(options.prompt);
+			doStream: async (streamOptions) => {
+				prompts.push(streamOptions.prompt);
+				await options.onPrompt?.();
 				return {
 					stream: new ReadableStream({
 						start(controller) {
 							controller.enqueue({ type: 'stream-start', warnings: [] });
+							if (options.commandFlow) {
+								controller.enqueue({ type: 'text-start', id: 'reply' });
+								controller.enqueue({ type: 'text-delta', id: 'reply', delta: 'Fixture reply.' });
+								controller.enqueue({ type: 'text-end', id: 'reply' });
+							}
 							controller.enqueue({ type: 'finish', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 0, totalTokens: 1 } });
 							controller.close();
 						},
@@ -145,13 +166,15 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 				};
 			},
 		});
-		const adapter = createSendblueAdapter();
+		const adapter = createSendblueAdapter({ webhookSecret: process.env.SENDBLUE_WEBHOOK_SECRET });
 		Object.assign(adapter, { isDM: (id: string) => !adapter.decodeThreadId(id).groupId });
-		// Exercise native mapping and prompts, with no provider HTTP or channel sends.
-		adapter.startTyping = async () => {};
-		adapter.postMessage = async () => {
-			throw new Error('Unexpected channel send');
-		};
+		// Exercise native mapping and prompts; command flows use stubbed outbound HTTP.
+		if (!options.commandFlow) {
+			adapter.startTyping = async () => {};
+			adapter.postMessage = async () => {
+				throw new Error('Unexpected channel send');
+			};
+		}
 		adapter.fetchMessages = async () => {
 			throw new Error('DMs must not import platform history');
 		};
@@ -171,13 +194,47 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 			}),
 			channels: {
 				adapters: { sendblue: { adapter, gateway: false, toolDisplay: 'hidden' } },
-				handlers: { onMention: false, onSubscribedMessage: false },
+				handlers: {
+					onDirectMessage: options.commandFlow
+						? (thread, message, defaultHandler, context) => {
+								options.onIntake?.(message);
+								return handleSendblueDirectMessage(thread, message, defaultHandler, context, sql);
+							}
+						: undefined,
+					onMention: options.fantasyConfig ? createFantasyGroupHandler(options.fantasyConfig) : false,
+					onSubscribedMessage: false,
+				},
 			},
 		});
 		const mastra = new Mastra({ storage: store, agents: { jamis: agent }, logger: false });
 		const channels = agent.getChannels()!;
 		await channels.initialize(mastra);
 		return { adapter, channels, prompts, sdk: channels.sdk! };
+	}
+
+	function stubSendblueHttp() {
+		const replies: string[] = [];
+		const fetch = spyOn(globalThis, 'fetch').mockImplementation((async (input, init) => {
+			const url = new URL(String(input));
+			if (url.hostname !== 'api.sendblue.co' || !['/api/send-message', '/api/mark-read', '/api/send-typing-indicator'].includes(url.pathname))
+				throw new Error(`Unexpected fixture HTTP: ${url.origin}${url.pathname}`);
+			if (url.pathname === '/api/send-message')
+				replies.push(JSON.parse(String(init?.body)).content);
+			return Response.json({ message_handle: randomUUID(), status: 'SENT' });
+		}) as typeof globalThis.fetch);
+		return { fetch, replies };
+	}
+
+	async function webhook(fixture: Awaited<ReturnType<typeof nativeChannels>>, payload: SendblueMessagePayload) {
+		const tasks: Promise<unknown>[] = [];
+		const response = await fixture.sdk.webhooks.sendblue(new Request('http://localhost/api/agents/jamis/channels/sendblue/webhook', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', 'sb-signing-secret': process.env.SENDBLUE_WEBHOOK_SECRET! },
+			body: JSON.stringify(payload),
+		}), { waitUntil: task => tasks.push(task), propagateHandlerErrors: true });
+		expect(response.status).toBe(200);
+		expect(tasks).toHaveLength(1);
+		return { completion: Promise.all(tasks) };
 	}
 
 	async function dispatch(fixture: Awaited<ReturnType<typeof nativeChannels>>, original: Message) {
@@ -189,6 +246,121 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 		await fixture.sdk.processMessage(fixture.adapter, message.threadId, message);
 		expect(fixture.prompts).toHaveLength(1);
 	}
+
+	test('local webhook demo confirms without an agent turn, then restart routes the immediate DM to the durable session', async () => {
+		await clearOperatorTimeZoneConversation(sql);
+		const { message, thread } = dm(randomUUID(), '+15555550120');
+		const old = await seed(thread);
+		const oldRecord = await memory.getThreadById({ threadId: old.id });
+		const http = stubSendblueHttp();
+		let fixture = await nativeChannels({ commandFlow: true });
+		try {
+			await (await webhook(fixture, message.raw as SendblueMessagePayload)).completion;
+			expect(http.replies).toEqual([NEW_SESSION_SUCCESS]);
+			expect(fixture.prompts).toHaveLength(0);
+			const fresh = (await memory.listThreads({ filter: { metadata: { ...coordinates(thread), channel_ownerId: 'jamis' } }, perPage: 1 })).threads[0];
+			expect(fresh.id).not.toBe(old.id);
+			expect(fresh.resourceId).toBe(old.resourceId);
+			expect((await memory.listMessages({ threadId: fresh.id })).total).toBe(0);
+			expect(await memory.getThreadById({ threadId: old.id })).toEqual(oldRecord);
+			await fixture.sdk.shutdown();
+			fixture = await nativeChannels({ commandFlow: true });
+			await (await webhook(fixture, {
+				...(message.raw as SendblueMessagePayload),
+				message_handle: randomUUID(),
+				content: 'IMMEDIATE DM SENTINEL',
+			})).completion;
+			expect(fixture.prompts).toHaveLength(1);
+			expect(JSON.stringify(fixture.prompts)).toContain('IMMEDIATE DM SENTINEL');
+			expect(JSON.stringify(fixture.prompts)).not.toMatch(/OLD |\/new|New session started/);
+			const messages = (await memory.listMessages({ threadId: fresh.id })).messages;
+			expect(messages.map(item => item.role)).toContain('signal');
+			expect(messages.every(item => item.resourceId === old.resourceId)).toBe(true);
+			expect(JSON.stringify(messages)).not.toMatch(/\/new|New session started/);
+			expect((await memory.listMessages({ threadId: old.id })).total).toBe(0);
+			expect(http.replies).toEqual([NEW_SESSION_SUCCESS, 'Fixture reply.']);
+		}
+		finally {
+			await fixture.sdk.shutdown();
+			http.fetch.mockRestore();
+		}
+	}, 30000);
+
+	test('native busy-DM dispatch queues reply, rollover, and equal-timestamp DM while groups persist concurrently', async () => {
+		await clearOperatorTimeZoneConversation(sql);
+		await setOperatorTimeZoneOverride('America/Chicago', sql);
+		const { message, thread } = dm(randomUUID(), '+15555550121');
+		const old = await seed(thread);
+		const active = { ...(message.raw as SendblueMessagePayload), message_handle: randomUUID(), content: 'ACTIVE DM SENTINEL' };
+		const following = { ...active, message_handle: randomUUID(), content: 'FOLLOWING DM SENTINEL' };
+		const paused = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const commandEntered = Promise.withResolvers<void>();
+		const queued = Promise.withResolvers<void>();
+		const intake: string[] = [];
+		const fantasyConfig: FantasyConfig = { sendblueGroupId: randomUUID(), sleeperLeagueId: 'fixture-league', managerMap: {}, recapTimezone: 'UTC' };
+		const http = stubSendblueHttp();
+		const fixture = await nativeChannels({
+			commandFlow: true,
+			fantasyConfig,
+			onIntake: (incoming) => {
+				intake.push(incoming.id);
+				if (incoming.id === message.id)
+					commandEntered.resolve();
+				if (intake.length === 3)
+					queued.resolve();
+			},
+			onPrompt: async () => {
+				if (intake.length !== 1)
+					return;
+				expect(await saveOperatorTimeZoneProposal('Asia/Tokyo', thread.id, active.message_handle, message.metadata.dateSent, sql)).toBe(true);
+				stageDeploymentSnapshot(thread.id, active.message_handle, {} as never, []);
+				paused.resolve();
+				await release.promise;
+			},
+		});
+		const completions: Promise<unknown>[] = [];
+		try {
+			completions.push((await webhook(fixture, active)).completion);
+			await paused.promise;
+			completions.push((await webhook(fixture, message.raw as SendblueMessagePayload)).completion);
+			await commandEntered.promise;
+			completions.push((await webhook(fixture, following)).completion);
+			await queued.promise;
+			expect(intake).toEqual([active.message_handle, message.id, following.message_handle]);
+			expect(http.replies).toEqual([]);
+			expect(fixture.prompts).toHaveLength(1);
+			const group = { ...active, group_id: fantasyConfig.sendblueGroupId, content: '/new', message_handle: randomUUID() };
+			const groupNext = { ...group, content: 'PASSIVE GROUP SENTINEL', message_handle: randomUUID() };
+			const groups = await Promise.all([webhook(fixture, group), webhook(fixture, groupNext), webhook(fixture, group)]);
+			await Promise.all(groups.map(item => item.completion));
+			const groupMessages = await memory.listMessages({ threadId: `fantasy-group-${fantasyConfig.sendblueGroupId}` });
+			expect(groupMessages.total).toBe(2);
+			expect(groupMessages.messages.map(item => item.id).sort()).toEqual([group.message_handle, groupNext.message_handle].sort());
+			expect(fixture.prompts).toHaveLength(1);
+			expect((await memory.listThreads({ filter: { metadata: { ...coordinates(thread), channel_ownerId: 'jamis' } } })).total).toBe(1);
+			release.resolve();
+			await Promise.all(completions);
+			expect(http.replies).toEqual(['Fixture reply.', NEW_SESSION_SUCCESS, 'Fixture reply.']);
+			expect(fixture.prompts).toHaveLength(2);
+			expect(JSON.stringify(fixture.prompts[1])).toContain('FOLLOWING DM SENTINEL');
+			expect(JSON.stringify(fixture.prompts[1])).not.toMatch(/ACTIVE DM SENTINEL|\/new|New session started|PASSIVE GROUP SENTINEL/);
+			const fresh = (await memory.listThreads({ filter: { metadata: { ...coordinates(thread), channel_ownerId: 'jamis' } }, perPage: 1 })).threads[0];
+			expect(fresh.id).not.toBe(old.id);
+			expect(fresh.resourceId).toBe(old.resourceId);
+			expect(JSON.stringify(await memory.listMessages({ threadId: fresh.id }))).toContain('FOLLOWING DM SENTINEL');
+			expect(JSON.stringify(await memory.listMessages({ threadId: old.id }))).not.toContain('FOLLOWING DM SENTINEL');
+			expect(await readPendingOperatorTimeZoneProposal(sql)).toBeNull();
+			expect(await resolveOperatorTimeZone('UTC', sql)).toEqual({ timeZone: 'America/Chicago', source: 'override' });
+			expect(getDeploymentSnapshot(thread.id, active.message_handle)).toBeUndefined();
+		}
+		finally {
+			release.resolve();
+			await Promise.allSettled(completions);
+			await fixture.sdk.shutdown();
+			http.fetch.mockRestore();
+		}
+	}, 30000);
 
 	test('restart selects the clean owned session and leaves old history and observations intact', async () => {
 		const { message, thread } = dm(randomUUID(), '+15555550110');

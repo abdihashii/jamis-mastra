@@ -3,16 +3,19 @@ import type { AnyExportedSpan } from '@mastra/core/observability';
 import type { Message, Thread } from 'chat';
 import type { SqlLike } from '../../lib/operator-time-zone';
 
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { Buffer } from 'node:buffer';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { Mastra } from '@mastra/core/mastra';
 import { TracingEventType } from '@mastra/core/observability';
 import { RequestContext } from '@mastra/core/request-context';
+import { InMemoryStore } from '@mastra/core/storage';
 import { Observability } from '@mastra/observability';
 import { MODEL_AUTH_FAILURE } from '../gateways/openai-codex-auth.js';
+import { clearDeploymentSnapshot, getDeploymentSnapshot, settleDeploymentSnapshotReply, stageDeploymentSnapshot } from '../tools/deployment-monitoring';
 
 process.env.JAMIS_ALLOWED_NUMBER = '+15555550101';
 process.env.SENDBLUE_API_KEY = 'test-api-key';
@@ -29,6 +32,7 @@ const {
 	handleSendblueDirectMessage,
 	hashSendblueMessageHandle,
 	isOpenAILoginCommand,
+	NEW_SESSION_SUCCESS,
 	operatorTimeZoneChangeTool,
 	OPENAI_LOGIN_FAILURE,
 	OPENAI_LOGIN_IN_PROGRESS,
@@ -50,6 +54,7 @@ const messageHistory = new Map<string, Message[]>();
 beforeEach(() => {
 	messageHistory.clear();
 	messageSequence = 0;
+	clearDeploymentSnapshot(directThreadId);
 });
 
 function makeMessage(
@@ -71,6 +76,7 @@ function makeThread(
 ): Thread {
 	return {
 		id: options.id ?? directThreadId,
+		channelId: 'test-line',
 		isDM: options.isDM ?? true,
 		adapter: {
 			name: options.adapterName ?? 'sendblue',
@@ -121,6 +127,11 @@ function memorySql(initialOverride?: string | null) {
 	let applied = 0;
 	const sql = (async (strings, ...values) => {
 		const query = strings.join('?');
+		if (query.includes('SET proposal_time_zone = NULL') && query.includes('last_message_at = NULL')) {
+			proposal = undefined;
+			lastMessage = undefined;
+			return [];
+		}
 		if (query.includes('SET proposal_time_zone =') && query.includes('AND last_message_id =')) {
 			const [timeZone, threadId, messageId, messageAt] = values as [string | null, string, string, Date];
 			if (notification
@@ -410,6 +421,265 @@ describe('Sendblue request correlation', () => {
 			/raw-provider-handle|private operator text|raw storage failure body|15555550101/,
 		);
 		await observability.shutdown();
+	});
+});
+
+describe('Jamis new session command', () => {
+	async function fixture(observability?: Observability) {
+		const storage = new InMemoryStore();
+		const memory = (await storage.getStore('memory'))!;
+		const mastra = new Mastra({ storage, observability, logger: false });
+		return { memory, context: () => ({ mastra, requestContext: new RequestContext(), signalMetadata: {} }) };
+	}
+
+	test('recognizes only the trimmed exact command and never stores it or invokes the agent', async () => {
+		const sessions = await fixture();
+		const timeZone = memorySql();
+		const replies: string[] = [];
+		const thread = makeThread(replies);
+		let defaultCalls = 0;
+		for (const text of ['/new', ' /new\n', '\t/new ']) {
+			await handleSendblueDirectMessage(thread, makeMessage(text, operatorNumber, `command-${text}`), async () => {
+				defaultCalls++;
+			}, sessions.context(), timeZone.sql);
+		}
+		expect(defaultCalls).toBe(0);
+		expect(replies).toEqual([NEW_SESSION_SUCCESS, NEW_SESSION_SUCCESS, NEW_SESSION_SUCCESS]);
+		const { threads } = await sessions.memory.listThreads({});
+		expect(threads).toHaveLength(3);
+		for (const stored of threads)
+			expect((await sessions.memory.listMessages({ threadId: stored.id })).total).toBe(0);
+
+		for (const text of ['/NEW', '/New', '/new now', 'please /new', '/new!']) {
+			await handleSendblueDirectMessage(thread, makeMessage(text, operatorNumber, `ordinary-${text}`), async () => {
+				defaultCalls++;
+			}, sessions.context(), timeZone.sql);
+		}
+		expect(defaultCalls).toBe(5);
+		expect((await sessions.memory.listThreads({})).total).toBe(3);
+	});
+
+	test('rejects nonoperator, adapter, group, and invalid source scope without rotating', async () => {
+		const sessions = await fixture();
+		const timeZone = memorySql();
+		const replies: string[] = [];
+		let defaultCalls = 0;
+		for (const [thread, message] of [
+			[makeThread(replies), makeMessage('/new', '+15555550999')],
+			[makeThread(replies, undefined, { adapterName: 'slack' }), makeMessage('/new')],
+			[makeThread(replies, undefined, { isDM: false }), makeMessage('/new')],
+		] as const) {
+			await handleSendblueDirectMessage(thread, message, async () => {
+				defaultCalls++;
+			}, sessions.context(), timeZone.sql);
+		}
+		expect(replies).toEqual([]);
+		const errors = spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			for (const message of [makeMessage('/new', operatorNumber, ''), makeMessage('/new', operatorNumber, 'wrong-thread', 'different-thread')]) {
+				await handleSendblueDirectMessage(makeThread(replies), message, async () => {
+					defaultCalls++;
+				}, sessions.context(), timeZone.sql);
+			}
+		}
+		finally {
+			errors.mockRestore();
+		}
+		expect(defaultCalls).toBe(0);
+		expect(replies).toEqual([GENERIC_CHANNEL_ERROR, GENERIC_CHANNEL_ERROR]);
+		expect((await sessions.memory.listThreads({})).total).toBe(0);
+	});
+
+	test('awaits the durable write before confirming', async () => {
+		const sessions = await fixture();
+		const timeZone = memorySql();
+		const replies: string[] = [];
+		const save = sessions.memory.saveThread.bind(sessions.memory);
+		const started = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const write = spyOn(sessions.memory, 'saveThread').mockImplementation(async (args) => {
+			started.resolve();
+			await release.promise;
+			return await save(args);
+		});
+		const command = handleSendblueDirectMessage(makeThread(replies), makeMessage('/new'), async () => {
+			throw new Error('command reached the agent');
+		}, sessions.context(), timeZone.sql);
+		try {
+			await started.promise;
+			expect(replies).toEqual([]);
+			expect((await sessions.memory.listThreads({})).total).toBe(0);
+		}
+		finally {
+			release.resolve();
+			await command;
+			write.mockRestore();
+		}
+		expect(replies).toEqual([NEW_SESSION_SUCCESS]);
+		expect((await sessions.memory.listThreads({})).total).toBe(1);
+	});
+
+	test('cancels old proposals and monitoring targets, retains settings, and preserves later state on replays', async () => {
+		const sessions = await fixture();
+		const timeZone = memorySql('America/Chicago');
+		await seedProposal(timeZone, 'Asia/Tokyo', 'old-proposal');
+		stageDeploymentSnapshot(directThreadId, 'old-monitoring', {} as never, []);
+		settleDeploymentSnapshotReply(directThreadId, 'old-monitoring', true);
+		const replies: string[] = [];
+		const thread = makeThread(replies);
+		const first = makeMessage('/new', operatorNumber, 'new-first');
+		await handleSendblueDirectMessage(thread, first, async () => {
+			throw new Error('command reached the agent');
+		}, sessions.context(), timeZone.sql);
+		expect(timeZone.proposal()).toBeUndefined();
+		expect(timeZone.override()).toBe('America/Chicago');
+		expect(getDeploymentSnapshot(directThreadId, 'old-monitoring')).toBeUndefined();
+
+		// The first ordinary message shares the command's provider timestamp.
+		await seedProposal(timeZone, 'America/Denver', 'later-proposal', first.metadata.dateSent);
+		stageDeploymentSnapshot(directThreadId, 'later-monitoring', {} as never, []);
+		settleDeploymentSnapshotReply(directThreadId, 'later-monitoring', true);
+		await handleSendblueDirectMessage(thread, first, async () => {
+			throw new Error('replay reached the agent');
+		}, sessions.context(), timeZone.sql);
+		expect(timeZone.proposal()?.messageId).toBe('later-proposal');
+		expect(getDeploymentSnapshot(directThreadId, 'later-monitoring')).toBeDefined();
+		expect((await sessions.memory.listThreads({})).total).toBe(1);
+
+		const second = makeMessage('/new', operatorNumber, 'new-second');
+		await handleSendblueDirectMessage(thread, second, async () => {}, sessions.context(), timeZone.sql);
+		await seedProposal(timeZone, 'Asia/Tokyo', 'latest-proposal', second.metadata.dateSent);
+		stageDeploymentSnapshot(directThreadId, 'latest-monitoring', {} as never, []);
+		settleDeploymentSnapshotReply(directThreadId, 'latest-monitoring', true);
+		const repliesBeforeReplay = replies.slice();
+		await handleSendblueDirectMessage(thread, first, async () => {
+			throw new Error('superseded command reached the agent');
+		}, sessions.context(), timeZone.sql);
+		expect(replies).toEqual(repliesBeforeReplay);
+		expect(timeZone.proposal()?.messageId).toBe('latest-proposal');
+		expect(getDeploymentSnapshot(directThreadId, 'latest-monitoring')).toBeDefined();
+		expect(timeZone.override()).toBe('America/Chicago');
+		expect((await sessions.memory.listThreads({})).total).toBe(2);
+	});
+
+	test('delivers an already-applied setting notification before rollover and retains its override', async () => {
+		const sessions = await fixture();
+		const timeZone = memorySql();
+		await seedProposal(timeZone, 'Asia/Tokyo', 'applied-proposal');
+		const confirmation = makeMessage('yes', operatorNumber, 'applied-confirmation');
+		await consumePendingOperatorTimeZoneChange(directThreadId, confirmation.id, confirmation.metadata.dateSent, true, timeZone.sql);
+		expect(timeZone.notification()).toBeDefined();
+		const replies: string[] = [];
+		const command = makeMessage('/new', operatorNumber, 'new-after-applied-setting');
+		const errors = spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			await handleSendblueDirectMessage(makeThread([], async () => {
+				throw new Error('private setting notification failure');
+			}), command, async () => {}, sessions.context(), timeZone.sql);
+			expect(timeZone.notification()).toBeDefined();
+			expect((await sessions.memory.listThreads({})).total).toBe(0);
+			expect(errors.mock.calls).toEqual([['[jamis-dm-session] Setting notification acceptance failed.']]);
+		}
+		finally {
+			errors.mockRestore();
+		}
+		await handleSendblueDirectMessage(makeThread(replies), command, async () => {
+			throw new Error('command reached the agent');
+		}, sessions.context(), timeZone.sql);
+		expect(replies).toEqual(['Operator time zone changed to Asia/Tokyo (override).', NEW_SESSION_SUCCESS]);
+		expect(timeZone.notification()).toBeUndefined();
+		expect(timeZone.override()).toBe('Asia/Tokyo');
+	});
+
+	test('reports storage failures without success, including a committed write with a lost acknowledgement', async () => {
+		const spans: AnyExportedSpan[] = [];
+		const observability = captureObservability(spans);
+		const sessions = await fixture(observability);
+		const timeZone = memorySql();
+		const replies: string[] = [];
+		const thread = makeThread(replies);
+		const old = await sessions.memory.saveThread({ thread: {
+			id: 'previous-session',
+			resourceId: 'same-operator',
+			title: 'Previous session',
+			createdAt: new Date('2020-01-01T00:00:00.000Z'),
+			updatedAt: new Date('2020-01-01T00:00:00.000Z'),
+			metadata: { channel_platform: 'sendblue', channel_externalThreadId: thread.id, channel_externalChannelId: thread.channelId, channel_ownerId: 'jamis' },
+		} });
+		const command = makeMessage('/new');
+		const save = sessions.memory.saveThread.bind(sessions.memory);
+		const errors = spyOn(console, 'error').mockImplementation(() => {});
+		let write = spyOn(sessions.memory, 'saveThread').mockRejectedValue(new Error('private storage failure'));
+		try {
+			await handleSendblueDirectMessage(thread, command, async () => {
+				throw new Error('command reached the agent');
+			}, sessions.context(), timeZone.sql);
+			expect(replies).toEqual([GENERIC_CHANNEL_ERROR]);
+			expect((await sessions.memory.listThreads({})).threads).toEqual([old]);
+			write.mockRestore();
+			write = spyOn(sessions.memory, 'saveThread').mockImplementation(async (args) => {
+				await save(args);
+				throw new Error('private lost acknowledgement');
+			});
+			await handleSendblueDirectMessage(thread, command, async () => {}, sessions.context(), timeZone.sql);
+			expect(replies).toEqual([GENERIC_CHANNEL_ERROR, GENERIC_CHANNEL_ERROR]);
+			expect((await sessions.memory.listThreads({})).total).toBe(2);
+			write.mockRestore();
+			await handleSendblueDirectMessage(thread, command, async () => {}, sessions.context(), timeZone.sql);
+			expect(replies.at(-1)).toBe(NEW_SESSION_SUCCESS);
+			expect((await sessions.memory.listThreads({})).total).toBe(2);
+			expect(await sessions.memory.getThreadById({ threadId: old.id })).toEqual(old);
+			const failingSql = (async () => {
+				throw new Error('private setting storage failure');
+			}) as SqlLike;
+			await handleSendblueDirectMessage(thread, makeMessage('/new', operatorNumber, 'new-with-unavailable-setting-storage'), async () => {}, sessions.context(), failingSql);
+			expect(replies.at(-1)).toBe(GENERIC_CHANNEL_ERROR);
+			expect((await sessions.memory.listThreads({})).total).toBe(2);
+			write = spyOn(sessions.memory, 'saveThread').mockRejectedValue(new Error('private storage failure'));
+			await expect(handleSendblueDirectMessage(makeThread([], async () => {
+				throw new Error('private error reply failure');
+			}), makeMessage('/new', operatorNumber, 'new-with-failed-error-reply'), async () => {}, sessions.context(), timeZone.sql)).rejects.toThrow('private error reply failure');
+			await observability.flush();
+			expect(spans.filter(span => span.name === SENDBLUE_CHANNEL_SPAN_NAME).map(span => [span.metadata?.stage, span.metadata?.classification])).toEqual([
+				['channel_intake', 'failed'],
+				['channel_intake', 'failed'],
+				['reply_delivery', 'delivered'],
+				['channel_intake', 'failed'],
+				['reply_delivery', 'failed'],
+			]);
+			expect(errors.mock.calls.flat().join(' ')).not.toContain('private');
+		}
+		finally {
+			write.mockRestore();
+			errors.mockRestore();
+			await observability.shutdown();
+		}
+	});
+
+	test('keeps the new session on confirmation failure and records reply acceptance failure', async () => {
+		const spans: AnyExportedSpan[] = [];
+		const observability = captureObservability(spans);
+		const sessions = await fixture(observability);
+		const timeZone = memorySql();
+		const replies: string[] = [];
+		const errors = spyOn(console, 'error').mockImplementation(() => {});
+		const command = makeMessage('/new');
+		try {
+			await handleSendblueDirectMessage(makeThread(replies, async () => {
+				throw new Error('private Sendblue failure');
+			}), command, async () => {}, sessions.context(), timeZone.sql);
+			await observability.flush();
+			expect(spans.find(span => span.name === SENDBLUE_CHANNEL_SPAN_NAME)?.metadata).toMatchObject({ stage: 'reply_delivery', classification: 'failed' });
+			expect(errors.mock.calls).toEqual([['[jamis-dm-session] Session started; confirmation acceptance failed.']]);
+			expect((await sessions.memory.listThreads({})).total).toBe(1);
+			await handleSendblueDirectMessage(makeThread(replies), command, async () => {}, sessions.context(), timeZone.sql);
+			expect(replies).toEqual([NEW_SESSION_SUCCESS, NEW_SESSION_SUCCESS]);
+			expect((await sessions.memory.listThreads({})).total).toBe(1);
+		}
+		finally {
+			errors.mockRestore();
+			await observability.shutdown();
+		}
 	});
 });
 
