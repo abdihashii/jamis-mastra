@@ -10,6 +10,8 @@ Research ownership, delegation, source quality, citation/refusal behavior, instr
 
 ## Planned amendment: specialized research evidence (JAM-74)
 
+Stage 1 implements the independent structured-source boundary: two domain tools discover bounded paper/Developer contracts and retrieve normalized evidence. Provider selection, contract validation, the conservative six-credit Developer bound, provenance, and safe failures remain inside `research-sources.ts`. Contracts and pre-generated request identities live only in the owning task's Mastra request context; shallow-copied delegation state cannot authorize another task. The tools are not yet attached to the research subagent. Direct tool demos and all Stage 1 gates passed on 2026-10-01 UTC; agent routing and quality verification below remain planned for Stage 2. See [Plan 025](../plans/025-alexandria-research-sources.md).
+
 The research subagent will automatically select the Developer Index for code and API questions, the Research Index for paper-based questions, and ordinary webpage research for other tasks. Jamis retains delegation and the final answer. Specialized sources remain read-only and do not become another `WEB_SEARCH_PROVIDER` value.
 
 Retrieved abstracts may support claims explicitly stated in them when labeled abstract-only; they do not establish that full text was read. Discovery descriptions and unread metadata remain candidates, not evidence. Cited webpages still require scraping; structured findings require retrieved content with original source provenance.

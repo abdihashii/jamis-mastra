@@ -1,6 +1,6 @@
 # 025: Alexandria research sources (JAM-74)
 
-Status: researched and grilled; implementation stages planned. Application implementation has not started.
+Status: Stage 1 implemented and verified on the existing branch, awaiting commit sign-off. Stage 2 has not started.
 
 ## Resolved scope
 
@@ -52,6 +52,31 @@ Expose safe failure categories and a validated admin action URL for terms-requir
 **Proposed commit:** `feat: add bounded Alexandria research sources`
 
 Stop after verification and show the diff summary. Commit only after explicit sign-off; begin Stage 2 after that commit. Push requires separate approval.
+
+### Stage 1 results (2026-10-01 UTC)
+
+- Added `research-source-discover` and `research-source-retrieve` in one module, using the installed SDK with no dependency changes. Neither tool is attached to an agent yet. Discovery accepts only `papers` or `developer`; retrieval accepts only paper search/read or Developer search. Counts and provider routes remain internal constants.
+- Inspected contracts belong to the exact Mastra request-context instance. Installed Mastra 1.71.0 delegates by shallow-copying entries (`listAgentTools`); the fixture reproduces that copy and proves inherited contracts cannot authorize retrieval, new discovery cannot mutate the parent's state, and runtime contract state is absent from serialized context. Updates replace state and retain execution identities before sending requests.
+- Developer search uses a conservative six-credit maximum for three records, without discounting the catalogue's ten-record billing unit. Actual returned charges remain separate. Papers require a verified zero-credit contract. Unknown prices, unsupported contracts, or bounds above the permitted maximum block execution.
+- Normalized evidence includes original IDs/canonical URLs, content, evidence kind, UTC retrieval time, and available dates/license/attribution. Missing or ambiguous dates remain null. `web:` records contain no evidence content and explicitly require scraping. Unsupported original provenance produces a gap.
+- Local HTTP fixtures cover success and empty/malformed discovery, all supported provenance families, empty/malformed/partial evidence, failed records/passages, webpage candidates, credit and billing-unit validation, terms/access failures, execution-deadline failures, safe telemetry, and task isolation. The SDK's built-in 502 retries preserve identical bodies and request IDs; the module adds no retry. Missing credits and uncertain outcomes remain unknown.
+- Gates: `bun run typecheck`, `bun run lint`, `bun run build`, and `git diff --check` pass. Full `bun test`: 376 passed, zero failed, across 30 files. Both `DATABASE_URL` and `JAMIS_TEST_DATABASE_URL` point to disposable loopback Postgres for this gate; setting only the latter initially left four legacy fantasy/calendar checks without their fixture database.
+- Security review checked input-to-execution, credentials/telemetry, task ownership, and cross-module integration sequentially. No exploitable findings remain. APOSD/ponytail review kept the provider contracts, failure translation, pricing, and provenance inside one cohesive module with two domain tools. No registry, global contract cache, budget framework, or agent changes were added.
+- Explicit pre-commit reviews found two correctness issues, now fixed: valid SDK error items without routing fields retain their access/terms classification and admin URL, while successful items still require exact routing; malformed ISO/RFC calendar dates remain null instead of rolling forward. Regression cases failed before each fix and pass afterward, including valid leap-day/timezone conversions and rejection of missing or mismatched success routing. Security review found no introduced exploitable path; ponytail review found no worthwhile complexity cuts. Bun's advisory check reported pre-existing advisories in unchanged dependencies.
+
+Direct tool demos, using separate paper and Developer contexts:
+
+| Operation | Observed output | Reported credits | Request identity |
+| --- | --- | --- | --- |
+| Paper discovery | Search/read contracts, no evidence | 0 | `adce94e9-0555-40d7-a9c4-e4f8a185534f` |
+| Paper search | Ten abstract-only sources with original arXiv IDs/URLs | 0 | `ff42cdc7-f5ec-4c61-a039-315fb097acc0` |
+| Paper read | Three joined passages for `arxiv:2005.11401`, 11,805 characters; original dates retained | 0 | `94d435f9-422d-42f4-af25-0df0c24b1128` |
+| Developer discovery | Search contract, conservative maximum six credits | 0 | `0e3d548b-3b37-45c4-a4dc-e9052ae94e5d` |
+| Developer search | One SDK README passage with AGPL-3.0 attribution and two `web:` candidates requiring scraping | 2 | `535f3f49-44ec-4428-a01b-347d7a7fd56d` |
+
+Paper citation: `https://arxiv.org/abs/2005.11401`. Developer citation: `https://github.com/firecrawl/firecrawl/blob/33c042fd1e3c61f103b40dce41bd0381ff70e287/apps/go-sdk/README.md`. An earlier Developer query returned two supported records and one unsupported-provenance gap; the cap was not widened. These tool demos establish protocol behavior, not agent answer quality or index freshness.
+
+Ignored demo artifacts: `.firecrawl/jam-74-stage1-tools-smoke.ts` and `.firecrawl/jam-74-stage1-tools-smoke-result.json`. Existing glossary definitions already cover Stage 1. Agent routing, sequential task budgets, and answer quality remain Stage 2 work. No terms accepted, commit, push, or deployment performed.
 
 ## 2. Connect the research subagent and verify quality
 
