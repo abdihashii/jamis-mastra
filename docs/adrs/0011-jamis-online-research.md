@@ -8,6 +8,16 @@ The original decision below records the Firecrawl-only rollout. Research now exp
 
 Research ownership, delegation, source quality, citation/refusal behavior, instruction-based budgets, and existing private tool-result retention remain unchanged. Historical incident-component mappings remain available alongside the neutral tool names. Search defaults to Perplexity's native Search API (direct `fetch`, three results, medium context, fixed 30-second timeout). `WEB_SEARCH_PROVIDER=firecrawl` manually selects Firecrawl search. Invalid selections and missing selected credentials fail at startup: Perplexity search requires `PERPLEXITY_API_KEY`, and page reading always requires `FIRECRAWL_API_KEY`. Firecrawl-only operation needs no Perplexity key. No application retry or provider fallback is added; candidates expose only titles and URLs and must be scraped before serving as evidence.
 
+## Planned amendment: specialized research evidence (JAM-74)
+
+The research subagent will automatically select the Developer Index for code and API questions, the Research Index for paper-based questions, and ordinary webpage research for other tasks. Jamis retains delegation and the final answer. Specialized sources remain read-only and do not become another `WEB_SEARCH_PROVIDER` value.
+
+Retrieved abstracts may support claims explicitly stated in them when labeled abstract-only; they do not establish that full text was read. Discovery descriptions and unread metadata remain candidates, not evidence. Cited webpages still require scraping; structured findings require retrieved content with original source provenance.
+
+The operator permits automatic Developer Index execution with a verified upper bound of six credits per call. Unknown pricing or a higher bound blocks execution. Live billing units must be checked before execution; reported usage must not be inferred from a discovery price. The cap's effect on evidence quality remains subject to representative live smokes.
+
+Research Index search may retrieve up to ten paper candidates so the subagent can select stronger evidence. Each record-fetching provider call, including index search, counts toward the task's three retrieval-call limit across webpages and structured sources; at most three sources may be cited. A paper search therefore leaves at most two further reads.
+
 ## Context
 
 Jamis currently answers ordinary conversation directly and delegates current weather to `weather-agent`. It cannot discover public webpages from a question or read selected pages, so it cannot fulfill a general online-research request. It also has no general live source for current product behavior, people and organization status, dates, numbers, quotations, or recommendations that depend on changeable facts. An instruction based on whether Jamis feels uncertain is not sufficient because some models express confidence even when their answer is unsupported.
