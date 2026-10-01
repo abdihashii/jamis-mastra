@@ -1,6 +1,6 @@
 # 025: Alexandria research sources (JAM-74)
 
-Status: Stage 1 implemented and verified on the existing branch, awaiting commit sign-off. Stage 2 has not started.
+Status: Stage 1 committed as `7e84cca` after operator sign-off. Stage 2 implementation, behavioral checks, and independent reviews are complete locally. The incident-triage review finding is fixed and verified. Awaiting commit sign-off; nothing pushed or deployed.
 
 ## Resolved scope
 
@@ -76,7 +76,7 @@ Direct tool demos, using separate paper and Developer contexts:
 
 Paper citation: `https://arxiv.org/abs/2005.11401`. Developer citation: `https://github.com/firecrawl/firecrawl/blob/33c042fd1e3c61f103b40dce41bd0381ff70e287/apps/go-sdk/README.md`. An earlier Developer query returned two supported records and one unsupported-provenance gap; the cap was not widened. These tool demos establish protocol behavior, not agent answer quality or index freshness.
 
-Ignored demo artifacts: `.firecrawl/jam-74-stage1-tools-smoke.ts` and `.firecrawl/jam-74-stage1-tools-smoke-result.json`. Existing glossary definitions already cover Stage 1. Agent routing, sequential task budgets, and answer quality remain Stage 2 work. No terms accepted, commit, push, or deployment performed.
+Ignored demo artifacts: `.firecrawl/jam-74-stage1-tools-smoke.ts` and `.firecrawl/jam-74-stage1-tools-smoke-result.json`. Existing glossary definitions already cover Stage 1. Agent routing, sequential task budgets, and answer quality remain Stage 2 work. Stage 1 committed as `7e84cca` after operator sign-off. No terms accepted, push, or deployment performed.
 
 ## 2. Connect the research subagent and verify quality
 
@@ -95,3 +95,32 @@ Start with `maxSteps: 5`; increase only if traces prove the valid discovery/thre
 **Proposed commit:** `feat: use Alexandria evidence in online research`
 
 Stop after verification for explicit commit sign-off. Close with repository-wide gate totals and the final commit list. Push, deployment, and messaging-channel smokes require separate authorization.
+
+### Stage 2 results (2026-10-01 UTC)
+
+- Attached structured-source tools only to `researchAgent`. Updated its instructions for automatic paper/Developer/webpage selection, one discovery route, at most one additional contract inspection, three combined retrieval calls, original provenance, abstract-only labels, and insufficient-evidence refusal. Ordinary search remains Perplexity; page reading remains Firecrawl.
+- Kept the model, reasoning effort, and `maxSteps: 5`. Set native `toolCallConcurrency: 1`. Jamis's existing delegation hook surface clears parent-added instructions and pins the research run to five steps, retaining the subagent's own policy. The installed SDK adds parent instructions to the original policy; its execution path omits an empty addition, preserving that policy. A runtime fixture proves an attempted instruction override and three-step limit cannot truncate a four-step discovery/search/read/memo flow. Separate delegations retain isolated contracts and exclude unrelated parent conversation.
+- Jamis accepts citations from retrieved structured evidence as well as scraped webpages, labels abstract-only findings, and permits only the validated admin URL as access metadata on a terms-required refusal. It explicitly prohibits redelegating the same research question to bypass the task budget. New incident component mappings preserve historical webpage IDs.
+- Read version-matched Mastra documentation for subagent request-context copying, delegation hooks, generation/concurrency options, and exported spans; checked installed source for instruction merging and the five-step hook behavior. No new dependency, agent hierarchy, retry loop, or budget framework.
+- Final standard gates pass: typecheck, lint, 377 tests across 31 files with disposable Postgres, build, and whitespace checks. No channel message or deployment was performed. Live research used disposable local storage and unique smoke threads, with captured private artifacts only.
+
+Fixed questions, same model/reasoning settings, comparing current specialized routing against a smoke-only copy of the Stage 1 webpage agent:
+
+| Question | Webpage path | Specialized path | Webpage / specialized retrieval calls | Webpage / specialized latency |
+| --- | --- | --- | --- | --- |
+| RAG-Sequence versus RAG-Token, full-text support | Supported, adjacent citations to scraped original PDF | Supported, adjacent citations to retrieved original passages | 1 / 2 | 63.5s / 55.2s |
+| RAG abstract's stated language-generation comparison | Supported, labeled abstract-only | Supported, labeled abstract-only | 1 / 1 | 34.5s / 28.3s |
+| Firecrawl JS SDK request identity after uncertain execution | Correct refusal after three reads lacked the needed SDK evidence | Supported, three Developer records followed by two original README page reads | 3 / 3 | 75.6s / 97.8s |
+| Exact result in an unavailable named paper | Exact insufficient-evidence refusal | Exact insufficient-evidence refusal despite unrelated index records | 1 / 1 | 27.9s / 23.6s |
+
+All final runs used one research delegation and one discovery, sequential tool execution, and at most three retrieval calls. The synthetic unrelated-private-context marker appeared in no delegation prompt or tool input. Final factual sentences have adjacent citations; sources match retrieved original content. Operation metadata remains the established allowlist without query/content/credential/raw-error logging. Paper index operations reported zero credits; Developer search reported two credits. Existing webpage tools do not expose credit receipts, so webpage costs remain unknown. These single-run observations establish representative behavior, not a general quality or speed improvement.
+
+Controlled source failures with the real Jamis model also passed: terms-required yielded only the refusal plus the exact validated admin URL (20.1s); an execution-deadline failure yielded only the refusal and unknown cost (19.6s). Each made exactly two source calls (discovery and failed execution), with no retry or fallback. No provider terms were accepted.
+
+The first Developer answer omitted a sentence-level citation on an imperative SDK usage step; the clarified instruction and rerun fixed it. An earlier webpage comparison redelegated the same question and exceeded the total budget before its five-minute smoke deadline. The explicit no-redelegation instruction fixed that path: the final comparison stopped at one delegation/three reads and refused correctly. No cap was widened; the specialized path verified the SDK answer within the existing three-read cap.
+
+Ignored evidence: `.firecrawl/jam-74-stage2-jamis-smoke.ts`, the controlled-failure wrapper, `jam-74-stage2-evidence-check.ts`, and `jam-74-stage2-*.json`/logs. The final webpage Developer artifact is `jam-74-stage2-web-developer-final.json`; earlier failed runs remain separate historical observations. Stage 2 remains uncommitted.
+
+Requested independent reviews completed after code/testing: correctness, contracts/Mastra lifecycle, security, and ponytail/module boundaries. Security found no exploitable issues; ponytail found no worthwhile cuts. Review found that safe failure outputs ended as successful spans and therefore bypassed error-filtered incident triage. Fixed the shared source operation wrapper: upstream/access/unknown-outcome/invalid-response failures record a fixed safe span error without ending the span or changing its neutral output. Success, partial, empty, blocked, and terms-required outcomes remain normal results.
+
+The regression failed before the fix and now passes through local HTTP source responses, real Mastra tool execution/export, storage-equivalent error-derived status, and status-filtered incident triage. It covers both source components, all four hard-failure categories, normal gaps, and absence of raw provider diagnostics. Final gates still pass (377 tests across 31 files). A real-model controlled timeout rerun retained the exact refusal, unknown cost, and exactly two source calls without retry/fallback. Fresh code/security/ponytail re-reviews found no remaining issues or worthwhile cuts. Stage 2 is ready for commit sign-off.

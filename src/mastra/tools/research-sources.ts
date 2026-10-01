@@ -202,6 +202,8 @@ async function runOperation(operation: Operation | 'discovery', context: ToolExe
 			requestId: output.requestId,
 			credits: output.credits ?? 'unknown',
 		} } });
+		if (['upstream_error', 'access_denied', 'unknown_outcome', 'invalid_response'].includes(output.status))
+			context?.tracing?.currentSpan?.error({ error: new Error('Research source operation failed.'), endSpan: false });
 	}
 }
 

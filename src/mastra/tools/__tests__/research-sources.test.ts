@@ -89,7 +89,7 @@ else {
 		process.env.FIRECRAWL_API_URL = server.url.toString();
 		const { researchSourceDiscover: discoverTool, researchSourceRetrieve: retrieveTool } = await import('../research-sources');
 		function context(requestContext = new RequestContext()): ToolExecutionContext {
-			return { requestContext, observe: noopObserve, tracing: { currentSpan: { update: ({ metadata }: { metadata: Record<string, unknown> }) => telemetry.push(metadata.researchOperation as Record<string, unknown>) } } } as unknown as ToolExecutionContext;
+			return { requestContext, observe: noopObserve, tracing: { currentSpan: { update: ({ metadata }: { metadata: Record<string, unknown> }) => telemetry.push(metadata.researchOperation as Record<string, unknown>), error: () => {} } } } as unknown as ToolExecutionContext;
 		}
 		const ctx = context();
 		function unwrap(result: Awaited<ReturnType<NonNullable<typeof retrieveTool.execute>>>) {
