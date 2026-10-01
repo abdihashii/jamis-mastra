@@ -848,3 +848,11 @@ The verified issue/proposal UUID remains
 handling and the broader credential/trace-leak audit remain unobserved; original
 blocked updates/comments/relationships/sequencing remain unavailable. No ticket
 update, cleanup mutation, or additional commit ran.
+
+On 2026-10-01 UTC, the operator explicitly requested cleanup of the live smoke
+tickets. JAM-80 and JAM-81 were moved to the pinned team's `Canceled` state
+through the operator Linear connector, preserving their contents and audit
+history. Both resulting statuses were verified. This manual, operator-authorized
+cleanup does not add update/delete/archive capabilities to Jamis or relax the
+create-only implementation's stale-write and confirmation guarantees. JAM-64
+was not edited. No implementation changes were needed.
