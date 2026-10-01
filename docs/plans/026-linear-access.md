@@ -1,6 +1,6 @@
 # 026: Confirmed Linear issue access (JAM-64)
 
-Status: Stage 1 implemented, verified, and committed locally with operator sign-off. Repository gate and live credential smoke passed.
+Status: Stages 1 and 2 approved for local commits. Stage 2 reviewed; local gate/direct-tool smoke passed. Handset smoke deferred by operator sign-off until separately authorized deployment.
 
 Linear: [JAM-64](https://linear.app/abdirahman-haji/issue/JAM-64/give-jamis-confirmed-access-to-jamis-linear-issues).
 
@@ -93,7 +93,8 @@ JAM-64's real credential/team checkbox is now checked. Production runtime smoke
 and deployment have not been performed; local `.env.prod` provisioning does not
 prove VPS configuration.
 The operator approved the Stage 1 commit on 2026-10-01 UTC with the proposed
-message above. Push, deployment, and Stage 2 remain unapproved.
+message above. The operator authorized Stage 2 implementation after the commit.
+Push and deployment remain unapproved.
 
 ## 2. Add bounded issue reads
 
@@ -110,6 +111,44 @@ Expose stable issue identifiers/links, requested data, partial-page indicators, 
 **Demo:** Run direct-tool reads first. Then, over iMessage, retrieve JAM-64, request comments/attachment metadata, and answer a backlog query using real data. A cross-team identifier is refused; a partial result is labeled partial.
 
 **Proposed commit:** `feat: let Jamis read jamis Linear issues`
+
+Stage 2 contracts verified (2026-10-01 UTC): Linear's current published schema
+deprecates `issueSearch`; use `searchIssues(term:, filter:)`. Its `teamId` is a
+ranking boost, not an access filter. Both list and search use explicit
+`filter.team.id.eq` and recheck returned team IDs. `issue(id:)` exposes nested
+comments/attachments with `first`/`after` and `pageInfo.hasNextPage/endCursor`.
+Installed Mastra 1.71.0 docs/types confirm createTool's schema validation,
+execution context/abort signal, and `noopObserve` for direct execution.
+
+Implemented finite read filters and result bounds are recorded in
+[setup guidance](../setup-linear.md#stage-2-read-surface-and-smoke). Title
+references always return candidates for exact-identifier clarification; they
+never select the first match. Tokens remain in the runtime closure, outside tool
+inputs/results and HTTP traces. No write tool or mutation exists.
+
+Direct-tool live smoke passed: JAM-64 details/status, comments (empty), and
+attachments (empty), plus backlog and search pages. The latter explicitly report
+partial pages and cursors. A synthetic foreign prefix was denied before issue
+resolution. No issue/comment text or credentials were printed in the smoke.
+
+Final Stage 2 gate (2026-10-01 UTC): typecheck, lint, Studio build, and whitespace
+checks passed. Full suite passed **399 tests across 33 files, zero failures**,
+against disposable loopback PostgreSQL with both database variables set to
+`jamis_sessions_test`. The clean-environment focused suite passed **22 checks**,
+including native account delegation, Gmail/Calendar registration, history
+isolation, and credential-free exported spans/tool results.
+
+Review-code found an unusable ambiguity cursor and a missing isolated webhook
+secret fixture. Both were corrected and independently rechecked; no findings
+remain. Ponytail and security reviews found no unnecessary complexity or
+verified vulnerabilities. The final direct-tool live smoke passed again.
+
+The operator confirmed Sendblue routes to VPS production. The over-iMessage
+demo therefore needs a separately authorized deployment. Handset behavior has
+not been observed and its ticket acceptance criterion stays unchecked. On
+2026-10-01 UTC, the operator approved the Stage 2 commit with handset smoke
+deferred until separately authorized deployment. Push, deployment, and Stage 3
+remain unapproved.
 
 ## 3. Enforce one durable confirmed write
 

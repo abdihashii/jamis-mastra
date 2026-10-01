@@ -1,7 +1,7 @@
 # Jamis Linear app setup
 
-Stage 1 of [plan 026](plans/026-linear-access.md) exposes only app identity and
-the pinned `jamis` team. No issue tool or mutation is available.
+Stages 1 and 2 of [plan 026](plans/026-linear-access.md) authenticate the app and
+expose bounded issue reads in the pinned `jamis` team. No mutation is available.
 
 ## Verified contracts (2026-10-01 UTC)
 
@@ -56,7 +56,7 @@ the pinned `jamis` team. No issue tool or mutation is available.
    Expect only JSON with `viewer` (`id`, `name: Jamis`, `app: true`) and `team`
    (`id` matching the configured UUID, `name: jamis`, `key: JAM`). Check the
    viewer ID/name against the intended Jamis app in Linear. No token is printed.
-   Initial smoke authenticates and reads metadata; it never writes an issue.
+   Default smoke authenticates and reads metadata; it never writes an issue.
 4. In Linear's installed app details, restrict Jamis team access to **jamis
    only**, then rerun the smoke and inspect that the selection remains restricted.
    Record both observations in plan 026. Client-side ID/name enforcement remains
@@ -85,3 +85,51 @@ bodies, Authorization headers, response bodies, or fetch/Zod error objects.
 If credentials are exposed, rotate the client secret in Linear, update each
 on-box env file privately, and restart the affected runtime only after separate
 authorization. Do not recover by storing a personal token or copied app token.
+
+## Stage 2 read surface and smoke
+
+`personal-accounts-agent` owns `linearReadTool` alongside Gmail and Calendar.
+Jamis delegates account requests with isolated account history. Linear results
+are untrusted evidence; no issue write or attachment file transfer is available.
+
+The tool supports `list`, `search`, `issue`, `comments`, and `attachments`.
+List/search filters are exact state name, state type (`triage`, `backlog`,
+`unstarted`, `started`, `completed`, `canceled`), priority 0 through 4 (0 means
+none), and assignee UUID. Search takes a term of at most 200 characters. It uses
+`searchIssues` with `filter.team.id.eq`; the API's `teamId` argument merely boosts
+ranking and cannot enforce access. Deprecated `issueSearch` is not used.
+
+Pages default to 10 items, maximum 20. `partial` means the result is incomplete,
+whether due to more pages or truncated text. `nextCursor` is present only when
+more pages exist; pass it as `cursor` with the same action/reference/filters.
+No hidden page traversal occurs. Descriptions are capped at 8000 characters and
+comment bodies at 4000, with explicit `truncated` flags. Title/URL/page shapes
+are validated; malformed results fail safely rather than inventing missing data.
+
+Details/comments/attachments take an identifier such as `JAM-64` or an issue
+UUID. Foreign team prefixes are denied. Resolution is filtered to the pinned
+team; no match means not found or inaccessible, never permission to fetch an
+unverified target. A title reference returns candidates and requires the operator
+to choose an exact identifier, even when one candidate is shown. Ambiguous results
+have no continuation cursor; use `search` with `query` to expand candidate pages.
+Every returned
+issue is checked for team membership; a detail read rechecks membership and every
+nested comment/attachment is checked against its requested issue and team.
+
+Direct-tool read smoke (prints metadata/counts only, no issue or comment text):
+
+```bash
+rtk bun run scripts/linear-smoke.ts --reads
+```
+
+Expected: JAM-64 details/comments/attachments return `ok`; backlog/search return
+`ok` and label pagination; a synthetic `OUTSIDE-1` prefix returns `denied` without
+an issue read. Zero comments/attachments is a valid empty page. This prefix check
+does not prove server-side access restrictions; retain the installed-app check.
+
+Read contracts verified on 2026-10-01 UTC against the [published schema](https://github.com/linear/linear/blob/master/packages/sdk/src/schema.graphql),
+[filtering](https://linear.app/developers/filtering), and
+[pagination](https://linear.app/developers/pagination): `issues(filter:)`,
+`searchIssues(term:, filter:)`, `issue(id:)`, nested `comments`/`attachments`,
+and `pageInfo.hasNextPage/endCursor` with `first`/`after`. Only attachment title
+and link metadata are returned. No file URL is fetched.
