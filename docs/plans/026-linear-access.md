@@ -1,26 +1,50 @@
-# 026: Confirmed Linear issue access (JAM-64)
+# 026: Linear reads and confirmed creation (JAM-64)
 
-Status: Create-only delivery is deployed at `2f58c3d` and handset-verified, including capitalized confirmation, replay protection, and actual invalid-input validation-failure handling. Retained-store inspection found no exact Linear credential matches or Linear/Bearer token-pattern hits; historical current Sendblue credential exposure is tracked in JAM-82. Updates/comments remain blocked by strict stale-write requirements; relationships/sequencing remain unavailable. Broad composite write/security ACs remain open.
+Status: The operator accepted reads plus confirmed creation as JAM-64's scope on 2026-10-01 UTC. Its ten functional/verification ACs are satisfied by the recorded handset and fixture evidence; the credential/trace security AC remains open for JAM-82. Production runtime remains equivalent to `2f58c3d`; documentation release `f9e3c96` was pushed and deployed without an app restart. Updates/comments, metadata/relationships, and sequencing are deferred to JAM-83, JAM-84, and JAM-85. Strict stale-write requirements remain unchanged.
 
-Linear: [JAM-64](https://linear.app/abdirahman-haji/issue/JAM-64/give-jamis-confirmed-access-to-jamis-linear-issues).
+Linear: [JAM-64](https://linear.app/abdirahman-haji/issue/JAM-64/let-jamis-read-jamis-linear-issues-and-create-them-with-confirmation).
 
 ## Resolved scope
 
 - Jamis owns the existing operator iMessage DM. `personal-accounts-agent` owns Linear tools alongside Gmail and Calendar. Linear events never invoke Jamis.
-- Use a distinct Jamis Linear app actor with OAuth `client_credentials`, on-box client credentials, and access tokens held only in runtime memory. Request only necessary issue read/write scopes, never admin or Linear-native agent scopes.
-- Configure app access for `jamis` and enforce its pinned team ID for every issue read and mutation. Create always uses that team; all referenced issues in relationships must belong to it.
+- Use a distinct Jamis Linear app actor with OAuth `client_credentials`, on-box client credentials, and access tokens held only in runtime memory. Request only `read,issues:create`, never admin or Linear-native agent scopes.
+- Configure app access for `jamis` and enforce its pinned team ID for every issue read and create, including nested read results. Create always uses that team and a validated workflow state.
 - Read list/filter/search results, details/status, comments, and attachment names/links. Identify partial pages and ambiguous references without guessing.
-- Support creation, comments, status, permitted issue fields, and in-team parent/duplicate/blocks/related relationships. Inventory the current API fields rather than assuming a historical SDK contract.
-- Show the exact proposed change. Only the operator's immediately following `confirm` in the same DM and active Jamis DM session authorizes it. Other next messages cancel; `/new` clears proposals and sequences.
-- Proposals are durable and single-use. Several field updates on one issue form one proposal. Stale issues require a fresh proposal and confirmation.
-- Multiple requested changes proceed in order, one confirmation each. Success presents the next proposal automatically; decline, failure, or uncertain outcome stops the sequence.
-- Retry once silently only when no mutation demonstrably occurred. A possibly applied mutation is not retried and requires inspection.
+- Support one creation proposal at a time with title, description (at most 2,000 characters), and optional exact state name. Omission resolves the team default. Existing-issue mutations, additional fields, relationships, and automatic sequencing are unavailable.
+- Show the exact proposed issue. Only the operator's immediately following trimmed, case-insensitive word `confirm` in the same DM and active Jamis DM session authorizes it. Quotes, punctuation, extra words, and `yes` remain invalid. Other next messages cancel; `/new` and rollover cancel pending proposals. Use `decline` for handset refusal.
+- Proposals are durable and single-use. Claim execution before sending; duplicate delivery, restart, and replay cannot repeat a create. Recover notification outcomes without another mutation.
+- Retry at most once silently during proven no-mutation preflight. A possibly sent create is not retried and requires inspection if its outcome is uncertain.
 - Exclude team moves, project/cycle assignment or management, comment editing/deletion, issue archive/unarchive/deletion, and attachment file transfers.
 - Treat issue/comment content as untrusted data. Credentials and tokens never enter model output, stored messages, or exported traces.
 
+## Scope decision and deferred work (2026-10-01 UTC)
+
+The operator explicitly approved accepting the delivered read/create surface and
+moving the original broader write goals to follow-ups. The ticket now has ten
+checked functional/verification ACs, with fixture and handset evidence identified
+separately. Its credential/trace security AC remains unchecked; JAM-64 remains
+`In Progress` until that acceptance is resolved. Historical current Sendblue
+credential exposure is tracked in [JAM-82](https://linear.app/abdirahman-haji/issue/JAM-82).
+The scope revision does not waive security acceptance or authorize remediation.
+
+- [JAM-83](https://linear.app/abdirahman-haji/issue/JAM-83): title/description/status updates and new comments, gated on verified atomic issue-revision preconditions. A final reread is not an accepted stale-write substitute.
+- [JAM-84](https://linear.app/abdirahman-haji/issue/JAM-84): remaining app-writable metadata and in-team parent/duplicate/blocks/related relationships, retaining strict stale-write requirements and the original exclusions.
+- [JAM-85](https://linear.app/abdirahman-haji/issue/JAM-85): ordered multi-change sequencing, separate confirmations and stop/recovery behavior.
+
+These Backlog follow-ups preserve the deferred requirements, not completion claims
+or implementation approval. JAM-64 scope decision and checklist evidence are in
+comment `be63d585-fc69-47c9-9aaf-e8979406ac9c`; prior comments remain historical.
+The former full Stage 3/4 goals and timestamped observations below are retained
+as history and are superseded by this scope decision where they describe future
+JAM-64 requirements. The stale-write guarantee itself is not superseded.
+
 ## Delivery and evidence
 
-This feature introduces external authentication, issue-domain logic, durable write state, and new security checks. Deliver four separate stages, starting with credentials and the team boundary before agent behavior depends on them.
+The original delivery plan introduced external authentication, issue-domain logic,
+durable write state, and security checks in four stages. Stages 1/2 and the
+create-only Stage 3 slice supply the accepted read/create delivery. The remaining
+original Stage 3/4 work now belongs to JAM-83 through JAM-85. Stage records below
+preserve the evidence and authorization state at each historical point in time.
 
 Existing decisions: [ADR 0012](../adrs/0012-jamis-hitl-as-text-checks.md), [ADR 0015](../adrs/0015-personal-accounts-agent.md), [ADR 0022](../adrs/0022-confirm-linear-issue-writes-in-text.md), and [ADR 0010](../adrs/0010-keep-imessage-conversations-continuous.md).
 
@@ -150,9 +174,9 @@ not been observed and its ticket acceptance criterion stays unchecked. On
 deferred until separately authorized deployment. Push, deployment, and Stage 3
 remain unapproved.
 
-## 3. Enforce one durable confirmed write
+## 3. Enforce one durable confirmed write (original full scope)
 
-**Goal:** Create, title/description/status update, and add-comment operations execute once only after exact next-message confirmation.
+**Historical goal:** Create, title/description/status update, and add-comment operations execute once only after exact next-message confirmation. JAM-64 now accepts the verified create-only slice; updates/comments are deferred to JAM-83.
 
 **Critical files:** new `src/lib/linear-proposals.ts` and focused PostgreSQL tests, `src/lib/linear.ts`, `src/mastra/tools/linear.ts`, `src/mastra/channels/sendblue.ts`, its channel/session tests, and the two agent instruction files.
 
@@ -258,7 +282,10 @@ local commit on 2026-10-01 UTC with the proposed message above. Push and deploym
 remain unapproved. Updates and comment creation remain
 blocked, so the original full Stage 3 and Stage 4 goals are not complete.
 
-## 4. Complete issue fields, relationships, and sequencing
+## 4. Complete issue fields, relationships, and sequencing (deferred)
+
+This original stage is preserved as historical design. Its remaining metadata
+and relationships belong to JAM-84; ordered sequencing belongs to JAM-85.
 
 **Goal:** The agreed issue surface works within the same gate, and multiple requested changes require separate ordered confirmations.
 
