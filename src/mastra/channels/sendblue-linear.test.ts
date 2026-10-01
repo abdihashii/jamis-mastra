@@ -80,9 +80,9 @@ else {
 		expect(await readLinearProposal(dm, sql)).toBeNull();
 		const posts: string[] = [];
 		expect(await postLinearCreateProposal(op, dm, 'session', 'source', async text => posts.push(text), sql)).toBe(true);
-		expect(posts[0]).toContain(JSON.stringify(op.title));
-		expect(posts[0]).toContain(JSON.stringify(op.description));
-		expect(posts[0]).toContain(JSON.stringify(op.stateName));
+		expect(posts[0]).toContain(`Title: ${op.title}`);
+		expect(posts[0]).toContain(`Description: ${op.description}`);
+		expect(posts[0]).toContain(`Status: ${op.stateName}`);
 		await receiveLinearMessage(dm, 'next', sql);
 		expect(await postLinearCreateProposal(operation(), dm, 'session', 'source', async () => {}, sql)).toBe(false);
 		expect(JSON.stringify((await readLinearProposal(dm, sql))!.operation)).not.toMatch(/secret|token|thread|capability/);
@@ -219,9 +219,9 @@ else {
 			if (url.startsWith('https://api.sendblue.co/')) {
 				if (url.endsWith('/send-message')) {
 					const text = JSON.parse(String(init!.body)).content;
-					if ((failResultPost && text.startsWith('Created')) || (failProposalPost && text.startsWith('Proposed Linear')))
+					if ((failResultPost && text.startsWith('Created')) || (failProposalPost && text.startsWith('Create Linear issue')))
 						throw new Error('sendblue-create-fixture-secret');
-					if (rejectedProposalPost && text.startsWith('Proposed Linear'))
+					if (rejectedProposalPost && text.startsWith('Create Linear issue'))
 						return Response.json({ message_handle: randomUUID(), status: 'ERROR', error_message: 'sendblue-create-fixture-secret' });
 					posts.push(text);
 				}

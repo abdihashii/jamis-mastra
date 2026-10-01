@@ -87,7 +87,7 @@ export async function readLinearProposal(dmId: string, sql: SqlLike = getSql()):
 }
 
 export function formatLinearCreateProposal(op: LinearCreateOperation): string {
-	return `Proposed Linear issue in jamis:\nTitle: ${JSON.stringify(op.title)}\nDescription: ${JSON.stringify(op.description)}\nStatus: ${JSON.stringify(op.stateName)}\nNext reply: confirm | decline\nReply exactly confirm to create it or decline to cancel. Any other message cancels.`;
+	return `Create Linear issue in jamis?\n\nTitle: ${JSON.stringify(op.title).slice(1, -1)}\nDescription: ${JSON.stringify(op.description).slice(1, -1)}\nStatus: ${JSON.stringify(op.stateName).slice(1, -1)}\n\nNext reply: confirm | decline. Any other reply cancels.`;
 }
 
 export async function postLinearCreateProposal(

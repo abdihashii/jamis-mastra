@@ -437,6 +437,36 @@ the branch to production for another live test. Use proposed commit
 scopes and strict stale-write guarantee. Handset creation/replay evidence is
 still pending and the ticket has not been mutated.
 
+Clarification released as `7263704` (`fix: clarify Linear confirmation choices`)
+on 2026-10-01 UTC. Commit pushed and branch deployed via the existing script.
+VPS checkout verified clean at `726370444727f2d8c754381fda1b4e2bcc4735dc`;
+app started at `2026-10-01T17:06:31.586027672Z`, running with zero restarts and
+the newly built image. API checks returned 401 unauthenticated and 200
+authenticated. Updated-prompt handset cancellation/create/replay checks are
+next. These post-deployment observations remain local until another approved
+evidence commit; no ticket mutation ran.
+
+The operator observed the `confirm | decline` prompt on the handset at `7263704`
+and requested cleaner formatting with fewer repeated instructions. A second local
+copy-only revision removes enclosing field quotes (retaining JSON escaping inside
+values), separates fields from the single next-reply instruction, and uses
+`Create Linear issue in jamis?` as its header. Existing fixture assertions and
+proposal-failure/rejection matchers were adjusted for that header. Direct
+formatting/escaped-newline checks, typecheck, lint, the 10 isolated native/durable
+checks, and whitespace checks passed; disposable PostgreSQL was removed. The
+full repository gate has not been repeated for this second copy revision.
+It is uncommitted and undeployed. The current live proposal was not confirmed or
+canceled by the agent; production remains at `7263704`.
+
+The operator authorized commit, push, and deployment of the cleaner prompt.
+Final pre-release gate passed: **407 tests across 34 files, zero failures**,
+including the native/durability wrapper; typecheck, lint, Studio build, and
+whitespace checks passed. Both database variables targeted fresh disposable
+loopback `jamis_sessions_test`; its container was removed. The local build's
+initial sandbox temp-directory denial was resolved by rerunning with the required
+access. No feature or confirmation-authority change is included. Proposed commit:
+`fix: simplify Linear proposal wording`. Live checks resume after deployment.
+
 ### 4a. Retire the deployment and handset evidence gap (pending authorization)
 
 **Goal:** Verify the already-committed bounded reads and confirmed single-create
