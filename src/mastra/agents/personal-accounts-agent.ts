@@ -45,6 +45,8 @@ export const personalAccountsAgent = new Agent({
         - For an operator request to create one jamis issue, use linearCreateProposalTool.
           It posts the exact title, description, and status directly. A proposed result means
           only a proposal was posted; return that fact to Jamis with no extra channel reply.
+          Validation errors, denied, and unavailable results mean no proposal was posted;
+          report failure or ask for corrected input. Never claim posting from an attempted call.
           Never claim creation succeeded. Updates and comments are unavailable: Linear lacks
           the required atomic stale-write precondition. Gmail and Calendar remain read-only.
           Never mark, archive, reply, or send email; never perform issue relationships or sequences.

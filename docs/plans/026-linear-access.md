@@ -467,6 +467,45 @@ initial sandbox temp-directory denial was resolved by rerunning with the require
 access. No feature or confirmation-authority change is included. Proposed commit:
 `fix: simplify Linear proposal wording`. Live checks resume after deployment.
 
+Cleaner wording committed and pushed as `2a22400` on 2026-10-01 UTC. Initial
+VPS image build failed resolving unchanged TypeScript 6.0.3; a single retry
+succeeded without dependency changes and replaced the app. The operator also
+reported deploying. Subsequent read-only checks verified checkout
+`2a2240002748d1bcba627fb779d6d0b40ecbb71c`, app running with zero restarts,
+and API statuses 401 unauthenticated/200 authenticated. The image tag differed
+from the running container image at inspection, so the actual running `/app`
+bundle was inspected separately and verified to contain the cleaner header and
+single next-reply line. Handset prompt/create/replay checks remain next; these
+post-release observations are local and no ticket update ran.
+
+The operator observed the cleaner prompt on the handset, then reported the reply
+“A bare confirmation here does not authorize creation. No issue was created.”
+Read-only investigation found latest test proposal
+`f2c8c1f0-acec-4b94-969a-e8782c17c72e` durably canceled, with no outcome and one
+later receipt. Correlating that receipt to provider history established that its
+trimmed content was a seven-character case variant of `confirm`, not exact
+lowercase `confirm` and not a quoted word. Both source and latest messages were
+present. The case-sensitive policy therefore canceled the proposal and allowed
+the ordinary agent reply; this is not evidence of an exact-confirmation gate
+failure. No mutation was claimed. Fresh proposal/lowercase confirmation and
+replay checks remain pending; no policy relaxation or code change was made.
+
+After `/new`, the operator sent the context-relative retry instruction (“same
+description”) and reported no reply. `/new` was received and acknowledged; the
+retry receipt was durably recorded at ordinal 16. Exact channel trace
+`945cfc3af000156a9635378dbfebb2a9` finished without an outgoing reply, and no
+active proposal existed. Correlated agent trace
+`ec4eb706c9cc5a26e945477148a55466` shows `linearReadTool` followed by
+`linearCreateProposalTool`. Create input had action `create` but an 8,000-character
+description, exceeding the explicit 2,000-character limit. Its output was a
+validation error; nevertheless the account agent claimed a proposal was posted,
+and Jamis ended with no text. No proposal or mutation occurred. The agent's
+context-relative test instruction was inappropriate after session reset; retry
+with complete designated content. False posted-success reporting/silent handling
+of tool validation errors is a verified defect to resolve separately before
+calling the delivery complete. No code or live mutation was performed during
+this read-only investigation.
+
 ### 4a. Retire the deployment and handset evidence gap (pending authorization)
 
 **Goal:** Verify the already-committed bounded reads and confirmed single-create
@@ -558,3 +597,118 @@ not permission to update Linear and has not been posted.
 ## Completion
 
 Record verified Linear contracts, each stage's test totals and demo observations, approved commit IDs, deployment authorization, and production smoke/trace inspection evidence. Link this plan from JAM-64 and mark acceptance criteria complete only after their corresponding checks. Do not include live credentials, raw tokens, or private issue content in these records.
+
+## Proposal failure reporting correction (2026-10-01 UTC)
+
+Authorized local correction from `2a22400`, separate from feature expansion.
+
+1. **Goal:** Use runtime posting evidence for create-proposal responses, including
+   native validation failures before tool execution. **Critical files:** Linear
+   tool, Sendblue handler, account/Jamis instructions, existing native fixture.
+   **Verification:** Native oversized description, denied/unavailable/rejected
+   posting with lying account memo and empty/false-success parent text must
+   produce one safe failure, no actionable proposal, and zero mutations. Valid
+   posting must retain one exact proposal without redundant text. Run the full
+   gate against disposable loopback PostgreSQL and review authority boundaries.
+   **Proposed commit:** `fix: report Linear proposal failures from runtime evidence`.
+
+Do not commit, push, deploy, update the ticket, or perform live mutations.
+Strict stale-write restrictions and all confirmation checks remain mandatory.
+
+API/recommendation verification: Firecrawl Developer retrieved Mastra's tool
+reference and validation-error issue #22283; Firecrawl extracted the current
+[createTool reference](https://mastra.ai/reference/tools/create-tool) and
+[channel guide](https://mastra.ai/docs/channels). The tool reference supports
+`{ type: 'text', value }` output mapping and says `onOutput` skips errors.
+Installed 1.71.0 `Tool.execute` returns validation envelopes before the callback,
+and its agent mapping applies `toModelOutput` to those results. The native
+fixture verifies that installed behavior rather than assuming current docs
+prove version-specific validation handling. Perplexity discovery plus Firecrawl
+extraction of the [OWASP AI Agent Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/AI_Agent_Security_Cheat_Sheet.html)
+supports independent execution-side scope/approval validation, exact-action
+binding, replay protection, and failing closed. No new API, dependency, approval
+framework, write scope, or issue update/comment support was added.
+
+The new native regression was run against original `2a22400` channel/tool code:
+it failed with zero outgoing replies for the 8,000-character description,
+reproducing the observed silence despite the account memo claiming posting.
+The corrected native fixture passed the new failure matrix and valid-posted
+check on its first isolated run; older matrix checks then hit their existing
+15-second timeouts on this host. Matrix timeouts and the parent wrapper budget
+were increased to accommodate the added native cases; complete gate pending.
+
+Correction gate completed (2026-10-01 UTC): **407 tests across 34 files, zero
+failures**, including the wrapper for all **12 isolated native/durability
+checks**. Typecheck, lint, Studio build, and diff whitespace checks passed. Both
+database variables targeted disposable loopback `jamis_sessions_test`; model,
+Linear, and Sendblue traffic in the contract checks remained stubbed. Native
+validation, denied agent identity, unavailable preparation, and rejected posting
+each produced exactly one safe failure despite a false account memo and either
+empty or false-success parent text. They left no actionable proposal and no
+mutation, including after a subsequent `confirm`. Accepted posting retained
+one exact proposal and suppressed redundant parent text. Existing cancellation,
+case sensitivity, adjacency, parent-session binding, replay, rollover, and
+uncertain-outcome checks also passed.
+
+Correctness/integration and security-audit lanes were reviewed sequentially,
+without independent subagents. No verified findings remain in the correction.
+Runtime reporting flags are held only in the existing AsyncLocalStorage turn;
+no model memo or serialized context grants posting or write authority. Durable
+proposal claiming/execution, confirmation rules, input bounds, credential scopes,
+and strict stale-write restrictions are unchanged. Prior plan observations were
+preserved. This is local fixture evidence, not production/handset verification.
+
+Proposed commit remains `fix: report Linear proposal failures from runtime evidence`.
+All correction changes remain uncommitted. No push, deployment, ticket update,
+live credential request, message send, or issue mutation was performed.
+
+### Review correction: preserve other answers and native errors
+
+Independent review found the reply proxy discarded unrelated answers and native
+reauthentication notifications after any proposal attempt. Authorized fix:
+
+1. **Goal:** Keep runtime-owned Linear proposal status while preserving other
+   requested answers and native errors. **Critical files:** Sendblue handler,
+   Jamis instructions, existing native fixture. **Verification:** Actual native
+   issue-read evidence survives both accepted and denied create proposals; model
+   proposal-status fields are ignored; model authentication failures retain their
+   safe reauthentication notification; validation/no-reply and all durable
+   authority regressions still pass. Run the full gate on disposable loopback
+   PostgreSQL. **Proposed commit:** unchanged correction commit above.
+
+After a proposal attempt, Jamis separates other answers into a small JSON
+`otherAnswers` field. The channel parses that field and renders its strings,
+while ignoring model proposal-status fields and unstructured acknowledgments.
+Native generic/authentication error constants bypass this response boundary.
+This is reply composition only, with no new mutation or confirmation authority.
+The structured boundary avoids a prose keyword filter. Commit, push, deployment,
+ticket updates, and live mutations remain prohibited. Verification pending.
+
+Review correction verified (2026-10-01 UTC): **407 tests across 34 files, zero
+failures**, including the wrapper for **14 isolated native/durable checks**.
+Typecheck, lint, Studio build, and whitespace checks passed. Both database
+variables targeted fresh disposable loopback `jamis_sessions_test`; provider
+and model traffic remained stubbed. Mixed-request evidence now runs through
+`linearReadTool` on the account child and native delegation, matching production
+routing. Accepted and denied proposals both preserve the requested issue-read
+answer, ignore the model's separate false proposal-status field, and perform
+zero mutations. Native model authentication failures retain exactly one safe
+reauthentication notification after accepted or failed proposals. Existing
+validation, false-success/empty-text, exact-proposal, confirmation, cancellation,
+replay, rollover, and uncertain-outcome checks passed unchanged.
+
+Independent correctness and Mastra/contracts reviewers rechecked the correction
+and found no verified introduced defects. The reply envelope is parsed in the
+channel; it does not change Mastra structured-output APIs or write authority.
+Jamis's envelope instruction explicitly preserves required research/weather
+answer formatting inside separate answer strings. Native generic/authentication
+error notifications pass through directly. All prior commit/live-operation
+restrictions remain in force; no commit, push, deployment, ticket update, live
+message send, or Linear mutation ran. Proposed commit remains
+`fix: report Linear proposal failures from runtime evidence`.
+
+The operator approved committing the verified correction on 2026-10-01 UTC
+with “go and then we test.” Commit message:
+`fix: report Linear proposal failures from runtime evidence`. Per the global
+per-stage approval rule, push and production deployment require separate
+confirmation; handset testing follows the verified production release.

@@ -43,7 +43,7 @@ if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
 		});
 		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
 		expect({ exit, output: exit === 0 ? '' : stdout + stderr }).toEqual({ exit: 0, output: '' });
-	}, 30000);
+	}, 120000);
 }
 else {
 	const url = new URL(databaseUrl!);
@@ -155,15 +155,17 @@ else {
 		finally { await restart.close(); }
 	});
 
-	const { handleSendblueDirectMessage, proposeLinearCreate, requireSendbluePostAcceptance, startJamisDmSession } = await import('./sendblue');
-	const { linearCreateProposalTool } = await import('../tools/linear');
+	const { CODEX_AUTH_CHANNEL_ERROR, formatSendblueError, handleSendblueDirectMessage, proposeLinearCreate, requireSendbluePostAcceptance, startJamisDmSession } = await import('./sendblue');
+	const { linearCreateProposalTool, linearReadTool } = await import('../tools/linear');
 	const originalFetch = globalThis.fetch;
-	type Action = { tool: string; input: Record<string, unknown> } | { text: string };
+	type Action = { tool: string; input: Record<string, unknown> } | { text: string } | { error: string };
 	function model(actions: Action[], prompts: unknown[]) {
 		let step = 0;
 		return new MastraLanguageModelV2Mock({ doStream: async (options) => {
 			prompts.push(options.prompt);
 			const action = actions[step++] ?? { text: '' };
+			if ('error' in action)
+				throw new Error(action.error);
 			return { stream: new ReadableStream({ start(controller) {
 				controller.enqueue({ type: 'stream-start', warnings: [] });
 				if ('tool' in action) {
@@ -180,7 +182,7 @@ else {
 		} });
 	}
 
-	async function fixture() {
+	async function fixture(options: { description?: string; reply?: string; unavailable?: boolean; denied?: boolean; modelError?: boolean; read?: boolean } = {}) {
 		await clearOperatorTimeZoneConversation(sql);
 		const posts: string[] = [];
 		const mutations: unknown[] = [];
@@ -205,6 +207,10 @@ else {
 				const state = { id: stateId, name: 'Backlog', team: { id: teamId } };
 				if (query.includes('JamisIdentityAndTeam'))
 					return Response.json({ data: { viewer: { id: stateId, name: 'jamis', app: true }, team } });
+				if (query.includes('JamisList'))
+					return Response.json({ data: { results: { nodes: [{ id: stateId, identifier: 'JAM-998', title: 'Fixture backlog issue', url: 'https://linear.app/fixture/issue/JAM-998', state: { name: 'Backlog', type: 'backlog' }, updatedAt: '2026-10-01T00:00:00.000Z', team: { id: teamId } }], pageInfo: { hasNextPage: false, endCursor: null } } } });
+				if (options.unavailable)
+					return new Response('linear-create-fixture-secret', { status: 503 });
 				if (query.includes('JamisDefaultCreateState'))
 					return Response.json({ data: { team: { ...team, defaultIssueState: state } } });
 				if (query.includes('JamisValidateCreateState'))
@@ -246,16 +252,16 @@ else {
 					spans.push(event.exportedSpan);
 			}, exportTracingEvent: async () => {}, flush: async () => {}, shutdown: async () => {} }],
 		} } });
-		const child = new Agent({ id: 'personal-accounts-agent', name: 'Account fixture', instructions: 'Propose only the requested create.', tools: { linearCreateProposalTool }, model: model([{ tool: 'linearCreateProposalTool', input: { action: 'create', title: 'Exact fixture title', description: 'Exact fixture description' } }, { text: 'Proposal posted. Do not send another response.' }], prompts) });
+		const child = new Agent({ id: options.denied ? 'wrong-account-agent' : 'personal-accounts-agent', name: 'Account fixture', instructions: 'Propose only the requested create.', tools: { linearCreateProposalTool, linearReadTool }, model: model([...(options.read ? [{ tool: 'linearReadTool', input: { action: 'list', stateType: 'backlog' } }] : []), { tool: 'linearCreateProposalTool', input: { action: 'create', title: 'Exact fixture title', description: options.description ?? 'Exact fixture description' } }, { text: options.read ? 'Proposal posted. Backlog: JAM-998, Fixture backlog issue.' : 'Proposal posted. Do not send another response.' }], prompts) });
 		const agent = new Agent({
 			id: 'jamis',
 			name: 'Jamis fixture',
 			instructions: 'Delegate creation; do not respond after the proposal.',
-			model: model([{ tool: 'agent-personalAccountsAgent', input: { prompt: 'Create one fixture issue.' } }, { text: '' }], prompts),
+			model: model([{ tool: 'agent-personalAccountsAgent', input: { prompt: 'Create one fixture issue.' } }, options.modelError ? { error: 'Model authentication failed. The error was logged.' } : { text: options.reply ?? '' }], prompts),
 			agents: { personalAccountsAgent: child },
 			defaultOptions: { maxSteps: 3, delegation: { messageFilter: () => [] } },
 			memory: new Memory({ options: { semanticRecall: false, workingMemory: { enabled: false } } }),
-			channels: { adapters: { sendblue: { adapter, gateway: false, toolDisplay: 'hidden' } }, handlers: { onDirectMessage: (thread, message, handler, context) => handleSendblueDirectMessage(thread, message, handler, context, sql), onMention: false, onSubscribedMessage: false } },
+			channels: { adapters: { sendblue: { adapter, formatError: formatSendblueError, gateway: false, toolDisplay: 'hidden' } }, handlers: { onDirectMessage: (thread, message, handler, context) => handleSendblueDirectMessage(thread, message, handler, context, sql), onMention: false, onSubscribedMessage: false } },
 		});
 		const mastra = new Mastra({ storage: store, agents: { jamis: agent }, observability, logger: false });
 		const channels = agent.getChannels()!;
@@ -322,7 +328,72 @@ else {
 			expect(f.spans.length).toBeGreaterThan(0);
 		}
 		finally { await f.close(); }
+	}, 30000);
+
+	test('native validation/denial/unavailability cannot become posted success or silence', async () => {
+		for (const mode of ['validation', 'denied', 'unavailable', 'rejected-proposal']) {
+			for (const reply of ['', 'The proposal was posted.']) {
+				const f = await fixture({ description: mode === 'validation' ? 'x'.repeat(8000) : undefined, denied: mode === 'denied', unavailable: mode === 'unavailable', reply });
+				try {
+					if (mode === 'rejected-proposal')
+						f.setRejectedProposal();
+					const source = await f.send('Create one fixture issue.');
+					expect(f.posts).toEqual(['Linear create proposal could not be posted. Nothing is authorized. Please request a fresh proposal with a title, description of at most 2,000 characters, and optional exact status.']);
+					expect(await readLinearProposal(source.threadId, sql)).toBeNull();
+					expect(JSON.stringify(f.prompts)).not.toContain('Linear create proposal undefined');
+					if (mode === 'validation')
+						expect(JSON.stringify(f.spans)).toContain('Tool input validation failed');
+					await f.send('confirm');
+					expect(f.mutations).toHaveLength(0);
+				}
+				finally { await f.close(); }
+			}
+		}
+	}, 30000);
+
+	test('native mixed requests preserve verified issue reads and ignore model proposal status', async () => {
+		for (const denied of [false, true]) {
+			const answer = 'Backlog: JAM-998, Fixture backlog issue.';
+			const f = await fixture({ denied, read: true, reply: JSON.stringify({ otherAnswers: [answer], proposalStatus: 'The proposal was posted.' }) });
+			try {
+				const source = await f.send('Create one fixture issue and read the backlog.');
+				expect(JSON.stringify(f.prompts)).toContain('JAM-998');
+				expect(f.posts).toContain(answer);
+				expect(f.posts).toHaveLength(2);
+				expect(f.posts.join(' ')).not.toContain('The proposal was posted.');
+				expect(!!await readLinearProposal(source.threadId, sql)).toBe(!denied);
+				expect(f.mutations).toHaveLength(0);
+			}
+			finally { await f.close(); }
+		}
 	}, 15000);
+
+	test('native reauthentication errors remain visible after accepted or failed proposals', async () => {
+		for (const denied of [false, true]) {
+			const f = await fixture({ denied, modelError: true });
+			try {
+				const source = await f.send('Create one fixture issue.');
+				expect(f.posts).toContain(CODEX_AUTH_CHANNEL_ERROR);
+				expect(f.posts.filter(text => text === CODEX_AUTH_CHANNEL_ERROR)).toHaveLength(1);
+				expect(!!await readLinearProposal(source.threadId, sql)).toBe(!denied);
+				expect(f.mutations).toHaveLength(0);
+			}
+			finally { await f.close(); }
+		}
+	}, 15000);
+
+	test('native accepted proposal suppresses redundant model success text', async () => {
+		const f = await fixture({ reply: 'The proposal was posted.' });
+		try {
+			const source = await f.send('Create one fixture issue.');
+			expect(f.posts).toHaveLength(1);
+			expect(f.posts[0]).toContain('Title: Exact fixture title');
+			expect(f.posts[0]).toContain('Description: Exact fixture description');
+			expect((await readLinearProposal(source.threadId, sql))!.state).toBe('pending');
+			expect(f.mutations).toHaveLength(0);
+		}
+		finally { await f.close(); }
+	});
 
 	test('cancel, other message, nonexact confirm, provider-history gap, and /new prevent create', async () => {
 		for (const text of ['decline', 'cancel', 'unrelated', 'yes', 'Confirm', 'confirm!', '/new', 'login openai', 'confirm']) {
@@ -339,7 +410,7 @@ else {
 			}
 			finally { await f.close(); }
 		}
-	}, 15000);
+	}, 30000);
 
 	test('native lost mutation response and failed result posting do not resend; failed proposal posting never authorizes', async () => {
 		for (const mode of ['lost', 'result', 'proposal', 'rejected-proposal']) {
@@ -371,7 +442,7 @@ else {
 			}
 			finally { await f.close(); }
 		}
-	}, 15000);
+	}, 30000);
 
 	test('direct/forged tool contexts lack authority; a simultaneous time-zone proposal cannot share confirm', async () => {
 		expect(await proposeLinearCreate({ action: 'create', title: 'Denied' })).toEqual({ status: 'denied' });

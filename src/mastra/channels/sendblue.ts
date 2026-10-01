@@ -146,7 +146,24 @@ const linearTurns = new AsyncLocalStorage<{
 	requestContext: RequestContext;
 	sql?: SqlLike;
 	active: boolean;
+	proposalAttempted: boolean;
+	proposalPosted: boolean;
 }>();
+
+const linearOtherAnswersSchema = z.object({ otherAnswers: z.array(z.string().trim().min(1)) });
+
+export const LINEAR_PROPOSAL_FAILURE = 'Linear create proposal could not be posted. Nothing is authorized. Please request a fresh proposal with a title, description of at most 2,000 characters, and optional exact status.';
+
+/** Mastra maps validation errors too, before execute has run. Never trust a memo as posting evidence. */
+export function linearProposalModelOutput(output: unknown): { type: 'text'; value: string } {
+	const turn = linearTurns.getStore();
+	if (turn?.active)
+		turn.proposalAttempted = true;
+	const result = z.object({ status: z.enum(['denied', 'proposed', 'unavailable']) }).safeParse(output);
+	return { type: 'text', value: result.success && result.data.status === 'proposed' && turn?.active && turn.proposalPosted
+		? 'The exact proposal was posted to the operator. Do not repeat the proposal or claim creation succeeded. Preserve evidence for other requested tasks.'
+		: LINEAR_PROPOSAL_FAILURE };
+}
 
 async function postLinearText(thread: Thread, text: string): Promise<void> {
 	try {
@@ -173,6 +190,7 @@ export async function proposeLinearCreate(raw: z.input<typeof linearCreateInputS
 		if (await readPendingOperatorTimeZoneProposal(turn.sql))
 			return { status: 'denied' };
 		const saved = await postLinearCreateProposal(op, turn.capability.threadId, session.data.thread.id, turn.capability.messageId, text => postLinearText(turn.capability.thread, text), turn.sql);
+		turn.proposalPosted = saved;
 		return { status: saved ? 'proposed' : 'denied' };
 	}
 	catch {
@@ -533,9 +551,36 @@ export async function handleSendblueDirectMessage(
 				await defaultHandler(observedThread, message);
 				return;
 			}
-			const turn = { capability, requestContext: correlation!.context.requestContext, sql, active: true };
+			const turn = { capability, requestContext: correlation!.context.requestContext, sql, active: true, proposalAttempted: false, proposalPosted: false };
 			try {
-				await linearTurns.run(turn, () => defaultHandler(observedThread, message));
+				// Keep native channel errors visible. The proposal itself uses observedThread.
+				const replyThread = new Proxy(observedThread, {
+					get(target, property, receiver) {
+						if (property !== 'post')
+							return Reflect.get(target, property, receiver);
+						return async (postable: unknown) => {
+							if (!turn.proposalAttempted || postable === GENERIC_CHANNEL_ERROR || postable === CODEX_AUTH_CHANNEL_ERROR)
+								return Reflect.apply(target.post, target, [postable]);
+							// A dedicated field preserves other answers without forwarding proposal-status prose.
+							const text = typeof postable === 'string' ? postable : z.object({ markdown: z.string() }).safeParse(postable).data?.markdown;
+							let parsed: unknown;
+							try {
+								parsed = JSON.parse(text ?? '');
+							}
+							catch {
+								return;
+							}
+							const answers = linearOtherAnswersSchema.safeParse(parsed);
+							if (answers.success) {
+								for (const answer of answers.data.otherAnswers)
+									await Reflect.apply(target.post, target, [answer]);
+							}
+						};
+					},
+				});
+				await linearTurns.run(turn, () => defaultHandler(replyThread, message));
+				if (turn.proposalAttempted && !turn.proposalPosted)
+					await observedThread.post(LINEAR_PROPOSAL_FAILURE);
 			}
 			finally {
 				turn.active = false;
