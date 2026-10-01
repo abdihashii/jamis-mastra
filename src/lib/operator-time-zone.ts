@@ -173,6 +173,22 @@ export async function clearPendingOperatorTimeZoneNotification(
 	`;
 }
 
+export async function clearOperatorTimeZoneConversation(sql: SqlLike = getSql()): Promise<void> {
+	await ensureOperatorTimeZoneTable(sql);
+	await sql`
+		UPDATE operator_time_zone
+		SET proposal_time_zone = NULL,
+			proposal_thread_id = NULL,
+			proposal_message_id = NULL,
+			proposal_message_at = NULL,
+			last_message_thread_id = NULL,
+			last_message_id = NULL,
+			last_message_at = NULL,
+			updated_at = now()
+		WHERE singleton = TRUE
+	`;
+}
+
 export async function saveOperatorTimeZoneProposal(
 	timeZone: string | null,
 	threadId: string,

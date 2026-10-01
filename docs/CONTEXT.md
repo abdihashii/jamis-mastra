@@ -7,7 +7,7 @@ Docker Compose runs Postgres and ClickHouse in both dev and prod. In dev that is
 ## Language
 
 **Jamis**:
-Just A Mostly Intelligent System. The channel-facing personal agent (`id: 'jamis'`). A personal agent to text like a person, that remembers the operator across days, projects, and contexts rather than restarting each session, and over time takes work off his plate. The model is JARVIS to Tony Stark, and that sets the register: dry and understated rather than eager, says the inconvenient thing plainly, and admits what it does not know. "Mostly Intelligent" is the same point in the name. Also the Docker Compose project name, and the name of the agent's unprivileged account on the VPS.
+Just A Mostly Intelligent System. The channel-facing personal agent (`id: 'jamis'`). A personal agent to text like a person, that keeps conversational continuity across days, projects, and contexts until the operator starts a new DM session, and over time takes work off his plate. The model is JARVIS to Tony Stark, and that sets the register: dry and understated rather than eager, says the inconvenient thing plainly, and admits what it does not know. "Mostly Intelligent" is the same point in the name. Also the Docker Compose project name, and the name of the agent's unprivileged account on the VPS.
 _Avoid_: master agent, main agent (use "Jamis")
 
 **Subagent**:
@@ -60,6 +60,10 @@ _Avoid_: app timezone (ambiguous), detected location
 **Channel**:
 A messaging platform the operator reaches an agent through, instead of Studio. iMessage over Sendblue is the first one.
 _Avoid_: integration, connector, bridge
+
+**Jamis DM session**:
+A bounded conversation with Jamis inside the operator's unchanged 1:1 iMessage conversation. Sessions keep the same operator identity (`resourceId`) but have separate Mastra threads (`threadId`), with no conversational memory shared between sessions.
+_Avoid_: iMessage conversation, operator identity, agent run
 
 **Request intake**:
 The Channel's acceptance of an Operator message for Jamis. It does not imply a completed reply.
