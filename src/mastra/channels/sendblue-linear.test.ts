@@ -155,7 +155,7 @@ else {
 		finally { await restart.close(); }
 	});
 
-	const { CODEX_AUTH_CHANNEL_ERROR, formatSendblueError, handleSendblueDirectMessage, proposeLinearCreate, requireSendbluePostAcceptance, startJamisDmSession } = await import('./sendblue');
+	const { CODEX_AUTH_CHANNEL_ERROR, formatSendblueError, handleSendblueDirectMessage, OPENAI_LOGIN_FAILURE, proposeLinearCreate, requireSendbluePostAcceptance, startJamisDmSession } = await import('./sendblue');
 	const { linearCreateProposalTool, linearReadTool } = await import('../tools/linear');
 	const originalFetch = globalThis.fetch;
 	type Action = { tool: string; input: Record<string, unknown> } | { text: string } | { error: string };
@@ -184,6 +184,7 @@ else {
 
 	async function fixture(options: { description?: string; reply?: string; unavailable?: boolean; denied?: boolean; modelError?: boolean; read?: boolean } = {}) {
 		await clearOperatorTimeZoneConversation(sql);
+		let channelSql: SqlLike = sql;
 		const posts: string[] = [];
 		const mutations: unknown[] = [];
 		const prompts: unknown[] = [];
@@ -261,14 +262,14 @@ else {
 			agents: { personalAccountsAgent: child },
 			defaultOptions: { maxSteps: 3, delegation: { messageFilter: () => [] } },
 			memory: new Memory({ options: { semanticRecall: false, workingMemory: { enabled: false } } }),
-			channels: { adapters: { sendblue: { adapter, formatError: formatSendblueError, gateway: false, toolDisplay: 'hidden' } }, handlers: { onDirectMessage: (thread, message, handler, context) => handleSendblueDirectMessage(thread, message, handler, context, sql), onMention: false, onSubscribedMessage: false } },
+			channels: { adapters: { sendblue: { adapter, formatError: formatSendblueError, gateway: false, toolDisplay: 'hidden' } }, handlers: { onDirectMessage: (thread, message, handler, context) => handleSendblueDirectMessage(thread, message, handler, context, channelSql), onMention: false, onSubscribedMessage: false } },
 		});
 		const mastra = new Mastra({ storage: store, agents: { jamis: agent }, observability, logger: false });
 		const channels = agent.getChannels()!;
 		await channels.initialize(mastra);
 		const line = `+1555${Math.floor(1000000 + Math.random() * 8999999)}`;
-		async function send(text: string, id: string = randomUUID(), addHistory = true) {
-			const payload = { message_handle: id, content: text, from_number: process.env.JAMIS_ALLOWED_NUMBER!, to_number: line, group_id: '', is_outbound: false, status: 'RECEIVED', service: 'iMessage', date_sent: '2026-10-01T00:00:00.000Z' };
+		async function send(text: string, id: string = randomUUID(), addHistory = true, dateSent = '2026-10-01T00:00:00.000Z') {
+			const payload = { message_handle: id, content: text, from_number: process.env.JAMIS_ALLOWED_NUMBER!, to_number: line, group_id: '', is_outbound: false, status: 'RECEIVED', service: 'iMessage', date_sent: dateSent };
 			const message = adapter.parseMessage(payload as never);
 			if (addHistory)
 				history.push(message);
@@ -287,6 +288,7 @@ else {
 			history,
 			mastra,
 			channels,
+			setSql: (value: SqlLike) => { channelSql = value; },
 			setLost: () => { lostResponse = true; },
 			setFailResult: (value: boolean) => { failResultPost = value; },
 			setFailProposal: () => { failProposalPost = true; },
@@ -458,6 +460,59 @@ else {
 			finally { await f.close(); }
 		}
 	}, 30000);
+
+	test('recovered success or claim does not consume a fresh unrelated request', async () => {
+		for (const state of ['succeeded', 'claimed']) {
+			const f = await fixture();
+			try {
+				const source = await f.send('Create one fixture issue.');
+				if (state === 'succeeded') {
+					f.setFailResult(true);
+					await expect(f.send('confirm')).rejects.toThrow();
+					f.setFailResult(false);
+				}
+				else {
+					const proposal = (await readLinearProposal(source.threadId, sql))!;
+					const confirmId = randomUUID();
+					await receiveLinearMessage(source.threadId, confirmId, sql);
+					expect(await claimLinearCreate(proposal, proposal.session_id, confirmId, true, sql)).toBe(true);
+				}
+				await f.send('What is on my calendar tomorrow?', randomUUID(), true, '2026-10-01T00:00:01.000Z');
+				expect(JSON.stringify(f.prompts)).toContain('What is on my calendar tomorrow?');
+				expect(f.posts.join(' ')).toContain(state === 'succeeded' ? 'Created JAM-999' : 'outcome is uncertain');
+				expect(f.mutations).toHaveLength(state === 'succeeded' ? 1 : 0);
+				expect(await readLinearProposal(source.threadId, sql)).toBeNull();
+			}
+			finally { await f.close(); }
+		}
+	}, 15000);
+
+	test('login survives Linear receipt or cancellation failure and later confirm cannot revive the proposal', async () => {
+		for (const failure of ['receipt', 'cancellation']) {
+			const f = await fixture();
+			try {
+				const source = await f.send('Create one fixture issue.');
+				const intercept = (target: SqlLike): SqlLike => (strings, ...values) => {
+					const query = strings.join('');
+					if ((failure === 'receipt' && query.includes('INSERT INTO linear_dm_receipts'))
+						|| (failure === 'cancellation' && query.includes('SET state = \'canceled\''))) {
+						throw new Error('private fixture storage failure');
+					}
+					return target(strings, ...values);
+				};
+				const failingSql = intercept(sql);
+				failingSql.begin = work => sql.begin(tx => work(intercept(tx)));
+				f.setSql(failingSql);
+				await f.send('login openai');
+				expect(f.posts).toContain(OPENAI_LOGIN_FAILURE);
+				f.setSql(sql);
+				await f.send('confirm');
+				expect(f.mutations).toHaveLength(0);
+				expect(await readLinearProposal(source.threadId, sql)).toBeNull();
+			}
+			finally { await f.close(); }
+		}
+	}, 15000);
 
 	test('direct/forged tool contexts lack authority; a simultaneous time-zone proposal cannot share confirm', async () => {
 		expect(await proposeLinearCreate({ action: 'create', title: 'Denied' })).toEqual({ status: 'denied' });

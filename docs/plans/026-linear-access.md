@@ -963,3 +963,42 @@ are unchanged; updates/comment creation remain blocked, and remaining fields,
 relationships, and ordered sequencing remain unavailable. Restart, rollover,
 uncertain-outcome, and authority fixtures are not relabeled as live demonstrations.
 No code change, new test gate, commit, push, deployment, or remediation mutation ran.
+
+## Pre-merge regression correction (2026-10-01 UTC)
+
+The operator authorized fixing two independently verified PR #39 regressions:
+outcome-notification recovery consumed fresh unrelated requests, and Linear
+receipt/cancellation storage failure prevented `login openai` from starting.
+
+1. **Goal:** Recover Linear outcomes without dropping fresh unrelated requests;
+   preserve authentication recovery during a database outage while keeping
+   Linear confirmation fail-closed. **Critical files:** `sendblue.ts` and its
+   existing channel/native fixture tests. **Verification:** Reproduce recovery
+   with a new request, verify login starts after receipt/cancellation failure,
+   and prove later confirmation cannot revive the intervened proposal. Run the
+   full gate against disposable loopback PostgreSQL with stubbed provider/model
+   traffic. **Proposed commit:** `fix: preserve requests and login during Linear recovery`.
+
+This is a local correction only. Commit, push, squash-merge, deployment, and live
+remediation remain separately approval-gated. Confirmation and stale-write
+guarantees are unchanged; JAM-82 work remains deferred to the operator.
+
+Correction verified locally: outcome recovery now continues fresh unrelated turns,
+while duplicate turns and exact confirmations remain consumed. Login catches
+Linear intake/cancellation storage failure with a fixed-category log and proceeds
+with authentication recovery. Later confirmation still requires durable receipts,
+active-session matching, and provider-history adjacency. Native fixture checks
+cover recovered success and claimed outcomes, receipt and cancellation failures,
+and refusal of a later confirmation after the intervening login. The synthetic
+unrelated request uses a later timestamp to distinguish it from the existing
+time-zone replay filter; equal-timestamp Linear confirmation checks are retained.
+
+Final gate passed: **407 parent-process tests across 34 files, zero failures**,
+including the wrapper for **17 isolated native/durable checks**. Typecheck, lint,
+Studio build, and whitespace checks passed. Both database variables pointed to
+disposable loopback `jamis_sessions_test`; provider/model traffic was stubbed.
+The disposable PostgreSQL container was stopped and automatically removed.
+Independent re-review verified both root-cause fixes and unchanged cancellation,
+confirmation, and no-replay guarantees; no findings remained. No handset test,
+live mutation, credential change, commit, push, merge, or deployment ran.
+The correction and these notes remain uncommitted, pending operator sign-off.

@@ -216,7 +216,7 @@ async function handleLinearConfirmation(thread: Thread, message: Message, contex
 		return false;
 	if (proposal.state !== 'pending') {
 		await notifyLinearOutcome(proposal, text => postLinearText(thread, text), sql);
-		return true;
+		return !fresh || message.text.trim().toLowerCase() === 'confirm';
 	}
 	if (!fresh)
 		return true;
@@ -460,8 +460,14 @@ export async function handleSendblueDirectMessage(
 	try {
 		if (isOpenAILoginCommand(message)) {
 			return await enqueueDirectMessage(async () => {
-				if (linearContext && await receiveLinearMessage(thread.id, message.id, sql))
-					await cancelLinearConversation(thread.id, sql);
+				try {
+					if (linearContext && await receiveLinearMessage(thread.id, message.id, sql))
+						await cancelLinearConversation(thread.id, sql);
+				}
+				catch {
+					// Later confirmations still require durable intake and provider-history adjacency.
+					console.error('[linear] Failed to clear a pending proposal during OpenAI login.');
+				}
 				const { completion } = await handleOpenAILoginCommand(observedThread);
 				if (correlation) {
 					try {
