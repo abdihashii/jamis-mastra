@@ -298,7 +298,7 @@ else {
 		try {
 			const source = await f.send('Create one fixture issue.');
 			expect(f.posts).toHaveLength(1);
-			expect(f.posts[0]).toContain('Reply exactly confirm');
+			expect(f.posts[0]).toContain('Next reply: confirm | decline');
 			expect(f.mutations).toHaveLength(0);
 			const proposal = (await readLinearProposal(source.threadId, sql))!;
 			expect(proposal.session_id).toBeTruthy();
@@ -325,13 +325,15 @@ else {
 	}, 15000);
 
 	test('cancel, other message, nonexact confirm, provider-history gap, and /new prevent create', async () => {
-		for (const text of ['cancel', 'unrelated', 'yes', 'Confirm', 'confirm!', '/new', 'login openai', 'confirm']) {
+		for (const text of ['decline', 'cancel', 'unrelated', 'yes', 'Confirm', 'confirm!', '/new', 'login openai', 'confirm']) {
 			const f = await fixture();
 			try {
 				const source = await f.send('Create one fixture issue.');
 				if (text === 'confirm')
 					f.history.push({ id: randomUUID(), threadId: source.threadId, author: { userId: process.env.JAMIS_ALLOWED_NUMBER }, text: 'Unreceived intervening message' } as Message<SendblueMessagePayload>);
 				await f.send(text);
+				if (text === 'decline')
+					expect(f.posts).toContain('Linear create proposal canceled.');
 				expect(f.mutations).toHaveLength(0);
 				expect(await readLinearProposal(source.threadId, sql)).toBeNull();
 			}

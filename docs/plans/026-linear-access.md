@@ -276,6 +276,255 @@ Store the remaining finite requested sequence with the proposal state. Only the 
 
 **Proposed commit:** `feat: complete confirmed Linear issue changes and sequencing`
 
+## Next slice: verify the existing create-only delivery
+
+Scope decision (2026-10-01 UTC), from local commit `70455dc`: the operator chose
+**pause feature work for deployment and handset verification**. No further
+implementation is authorized. The working tree was clean before this planning
+update. A read-only check of JAM-64 and its comments confirmed that its progress
+narrative still ends at Stage 2, says Stage 3 is unapproved, and has no Stage 3
+progress comment. Only the credential/team acceptance criterion is checked.
+No live ticket change, token request, scope transition, or mutation ran.
+
+Strict stale-write guarantee retained: updates and comments remain blocked.
+Relationships cannot be assumed safe without verified atomic preconditions for
+all referenced issues. A final reread remains insufficient. Independent
+create-only sequencing is a feasible future candidate because it references no
+existing issue revision, but it is deferred by this decision. Additional create
+metadata and the original Stage 4 are also deferred. ADR 0022 is unchanged.
+
+Read-only deployment preparation (2026-10-01 UTC): VPS checkout is clean at
+`3dbabd1`, an ancestor of `70455dc`; all four Compose services are running.
+VPS `.env.prod` exists with mode `0600` and nonempty Linear client ID, client
+secret, and team ID settings. Presence does not validate credentials or app/team
+identity. No values were printed and no token was requested. The remote JAM-64
+branch remains at `43bd483`, so the three locally approved implementation commits
+must be pushed before branch-based deployment. Shared-app runtime inventory is
+awaiting operator confirmation. No push or deployment ran.
+
+The operator subsequently authorized the push on 2026-10-01 UTC. The JAM-64
+remote branch now resolves to `70455dc3a899ee93713db711d4bfcd61782ed7e9`,
+verified with `git ls-remote` after the successful push. This planning update
+remains uncommitted and was not pushed. Deployment, scope transition, ticket
+mutation, and live issue creation remain unauthorized.
+
+The operator confirmed that the VPS is the only production copy of Jamis and
+explicitly authorized deploying this branch. No local listener was observed on
+port `4111` (not a complete inventory of arbitrary local processes). Deployment
+via the existing `infra/deploy.sh` succeeded on 2026-10-01 UTC. The VPS checkout
+was verified at `70455dc3a899ee93713db711d4bfcd61782ed7e9`; the app container
+started at `2026-10-01T16:28:58.033929663Z`, was running with zero restarts,
+and matched the newly built image. All four Compose services were running.
+Read-only API health/auth checks returned 401 without authentication and 200
+with the runtime token; no credential values were printed. Linear token/scope
+smoke, handset reads/creation, ticket synchronization, and live issue mutations
+have not run. No new local commit was made.
+
+After explicit operator authorization, the production-checkout identity/read
+smoke ran successfully on the VPS with `read,issues:create` on 2026-10-01 UTC.
+It used Bun 1.3.14 with the checkout mounted read-only and `.env.prod` supplied
+privately. Observed app user `7207c952-99d3-424c-abd8-d405facd0d5f` (`jamis`,
+`app: true`) and pinned team `62db635f-aa68-484c-9458-f4d48b92236c` (`jamis`,
+`JAM`), matching prior operator-confirmed identities. JAM-64 details returned
+`ok`, `In Progress`, with explicit truncation/partial indication; comments and
+attachments returned valid empty pages. Backlog and search returned `ok` with
+partial-page flags and cursors. The synthetic foreign prefix was denied with
+`outside_team`. The script exited zero, with no issue mutation, handset message,
+credential value, or issue/comment body printed. This establishes the authorized
+scope transition and VPS direct-read evidence, not handset behavior or a fresh
+observation of installed-app team-access settings. Ticket checkboxes unchanged.
+
+Operator-reported handset observation (2026-10-01 UTC): Jamis returned JAM-64's
+correct title/link and `In Progress (started)` status, explicitly reported complete
+empty comments and attachment lists, and noted that the issue description was
+truncated/partial. This verifies the requested handset detail read; backlog and
+ambiguity checks, confirmed creation, and production trace inspection remain
+pending. No ticket mutation or new commit was made.
+
+Operator-reported backlog handset observation (2026-10-01 UTC): Jamis returned
+JAM-78, JAM-77, and JAM-76 with links and `Backlog` status, explicitly stating
+that more results exist and this was the first paginated page. Together with the
+detail read above, the deferred Stage 2 handset read demo is now observed.
+Ambiguous-reference handling and the remaining write/trace checks are still
+pending. Ticket acceptance checkboxes have not been changed.
+
+Ambiguity handset check (2026-10-01 UTC): for “Read the Linear issue called
+confirmed access”, Jamis selected JAM-64 and returned details without asking
+for an exact identifier. This does not establish the planned clarification
+behavior; the same session had already identified JAM-64, so prior conversational
+resolution is a possible confounder. Tool-call evidence has not been inspected.
+Do not mark ambiguous-reference acceptance complete from this response. A broader
+title-reference check is pending; no fix or scope expansion is authorized.
+
+Broader title-reference handset check (2026-10-01 UTC): for “Read the Linear
+issue called Jamis”, the operator reported that Jamis refused to select among
+multiple matches and requested an exact identifier or more specific title. This
+observes clarification for an ambiguous reference. The reply claimed 22 matches;
+that count and the underlying tool calls have not been independently verified.
+The preceding session-resolved JAM-64 response remains recorded above. No issue
+write has run; the next proposed smoke requires authorization for designated
+test-issue content, starting with cancellation before any creation.
+
+The operator authorized one live test issue titled
+`JAM-64 handset confirmation smoke (2026-10-01)`, description
+`Operator-authorized test of cancellation, confirmed creation, and repeated-confirmation protection.`,
+status `Backlog`, with cancellation first, fresh confirmed creation second, and
+repeated-confirmation protection afterward. The operator reported receipt of
+the exact proposal, then sent `cancel` and reported no reply.
+
+Read-only investigation (2026-10-01 UTC): designated proposal UUID
+`9d12be19-72e6-467f-a550-67eefb202b74` is durably `canceled`, `notified: true`,
+with no execution outcome and one later receipt. Direct Linear lookup of that
+UUID reported no referenced issue. The exact later receipt was correlated via
+its SHA-256 digest with channel trace `be028f7828c2553802e142225142764b`, whose
+classification is `reply_delivery: failed`. Sendblue message history contains
+the cancellation notification with `status: ERROR` and provider `error_code: 402`.
+The provider's textual reason was not output and its cause has not yet been
+established. Cancellation prevented creation; successful handset cancellation
+notification is not established. The stored `notified` flag reflects cancellation
+state handling, not successful handset delivery. Confirmed creation and replay
+smokes are paused for this provider failure; no mutation retry, manual message
+send, code change, new commit, or ticket update ran during investigation.
+
+Cause established from the operator's Sendblue dashboard screenshot and
+[official Security & Compliance documentation](https://docs.sendblue.com/security/#tcpa-compliance):
+Sendblue has built-in opt-out detection for `cancel` (alongside `stop`,
+`unsubscribe`, `opt out`, `revoke`, `end`, and `quit`) and opt-in via `start`.
+The agent's guided instruction to send `cancel` therefore collided with provider
+consent handling. The screenshot explicitly reports “recipient opted out”.
+Restore consent by having the operator send `start`; do not override consent via
+API. Future cancellation smokes should use `decline`, which is already accepted
+by the application and is absent from the documented opt-out list. No product
+code change is required to use that existing path. Opt-in restoration and resumed
+smokes remain unobserved; do not infer successful delivery from durable cancellation.
+
+Operator sent `start` and reported a handset reply saying it was not an explicit
+Linear confirmation. Read-only Sendblue contact retrieval then verified
+`contact.opt_out: false`; the designated old proposal remained `canceled` with
+no execution outcome. Messaging consent is restored. The model's wording about
+the old proposal does not make it actionable. Repeat the cancellation demo with
+a fresh proposal and `decline` before proceeding to confirmed creation.
+
+The operator reported a fresh exact proposal followed by `decline`, then receipt
+of `Linear create proposal canceled.` on the handset. This observes successful
+cancellation notification through the existing safe decline path. The operator
+then requested clearer `confirm | decline` choices. A local copy-only change to
+`formatLinearCreateProposal` now displays those choices explicitly, retaining
+exact confirmation and next-message semantics. The existing native fixture's
+prompt assertion was updated. This small correction is not committed, pushed,
+or deployed; production still runs `70455dc`. A direct no-env formatting assertion,
+typecheck, lint, and whitespace checks passed. The database-backed native fixture
+was not rerun for this copy-only change; its updated assertion remains pending
+that gate. Confirmed creation/repeated-confirmation and production trace leak
+inspection remain pending.
+
+At the operator's request to test again, the updated prompt passed the existing
+native/durable channel fixture against fresh disposable loopback PostgreSQL.
+The cancellation matrix now explicitly includes `decline` and asserts its
+notification, with zero mutations. Native confirm/replay and uncertain-outcome
+checks also passed. Full gate: **407 tests across 34 files, zero failures**,
+including the parent wrapper for the **10 isolated native/durability checks**;
+typecheck, lint, Studio build, and whitespace checks passed. Both database
+variables pointed to the disposable local `jamis_sessions_test` instance. The
+fixture container was stopped and automatically removed after verification.
+This supersedes the earlier pending-native-gate note. The copy-only change and
+verification notes remain uncommitted and undeployed; production remains at
+`70455dc`. No new live mutation or handset message was sent by this test run.
+
+The operator subsequently approved committing the clarification and deploying
+the branch to production for another live test. Use proposed commit
+`fix: clarify Linear confirmation choices`; retain the existing create-only
+scopes and strict stale-write guarantee. Handset creation/replay evidence is
+still pending and the ticket has not been mutated.
+
+### 4a. Retire the deployment and handset evidence gap (pending authorization)
+
+**Goal:** Verify the already-committed bounded reads and confirmed single-create
+path in the real operator DM before adding further feature scope.
+
+**Critical files:** Existing `docs/setup-linear.md`, `scripts/linear-smoke.ts`,
+deployment guidance/scripts, this plan, and ADR 0022. No code change is planned.
+Use the committed Stage 3 implementation and its existing recovery contracts.
+
+**Preparation:** Review the existing deployment procedure and identify every
+runtime sharing the Linear app. Establish a coordinated transition from `read`
+to `read,issues:create`, including rollback consequences: changing requested
+scopes revokes existing app tokens. Verify VPS provisioning privately; local
+provisioning is not evidence. Prepare exact commands and operator-designated
+create content before requesting authorization. Do not run this checkout's
+live smoke during preparation.
+
+**Authorization boundaries:** Ticket synchronization is a live mutation and
+needs separate authorization. Push, deployment, scope transition/token requests,
+and an operator-designated issue creation demo are not authorized by the choice
+to pause feature work. Prepare each concrete action before seeking its approval.
+When the operator executes setup or smoke, give one command and expected output,
+then wait for its result before the next step. Never print credential files.
+
+**Verification order:**
+
+1. Coordinate runtimes/scopes and privately verify required VPS configuration.
+   After separate push/deployment authorization, deploy the approved commit.
+   Record the deployed revision and safe health observations.
+2. After scope-transition authorization, run the documented identity/team smoke
+   on the deployed runtime, then `rtk bun run scripts/linear-smoke.ts --reads`.
+   Expect the intended app/team identities and safe direct-tool read outcomes;
+   retain the separate installed-app team-access observation.
+3. Over the operator iMessage DM, retrieve JAM-64 and a backlog page; request
+   comments/attachment metadata. Observe actual handset replies, partial-page
+   labeling, and exact-identifier clarification for ambiguous requests.
+4. With separately authorized operator-designated create content, cancel a
+   proposal and inspect Linear for no creation. Request a fresh proposal, confirm
+   it, and inspect the exact issue/team/status. Repeated confirmation must not
+   create another issue. Exercise `/new` cancellation without implying that live
+   restart/response-loss scenarios have been demonstrated.
+5. Inspect safe production trace evidence and record only observed results.
+   Preserve unchecked acceptance criteria for blocked writes and unobserved
+   scenarios. Re-run the full repository gate defined above if code changes
+   become necessary; any fix needs its own scope and commit sign-off.
+
+**Demoable acceptance:** The deployed revision is recorded; direct reads pass;
+actual handset reads and a separately authorized confirmed single-create are
+observed with cancellation and repeated-confirmation checks. An API acceptance
+status alone is not handset-delivery evidence. The full original write and
+relationship acceptance criteria remain incomplete.
+
+**Proposed evidence-only commit:** `docs: record Linear handset verification`
+
+Stop now with this proposed slice. Do not commit, push, deploy, change live scopes,
+or perform live mutations. Implementation fixtures and review results remain the
+historical evidence recorded in Stage 3, not newly executed checks.
+
+### Pending Stage 3 ticket synchronization (draft only)
+
+For a future authorized ticket edit, preserve all acceptance checkboxes and
+historical Stage 2 observations. Clarify that the Stage 2 statement about Stage 3
+being unapproved described that earlier point in time, then append:
+
+> Stage 3 progress (2026-10-01 UTC): The operator retained the strict stale-write
+> guarantee and approved a create-only slice. Updates and comment creation remain
+> blocked because the verified Linear contracts expose no atomic issue-revision
+> precondition. Implemented durable, single-use creation proposals bound to the
+> validated operator DM and active parent session, with exact next-message
+> confirmation, cancellation, conservative uncertain outcomes, and credential-safe
+> runtime authority. Committed locally as `70455dc`
+> (`feat: gate Linear issue creation with durable text confirmation`).
+>
+> Final gate passed: 407 tests across 34 files, zero failures, plus 10 isolated
+> native/durability fixture checks; typecheck, lint, Studio build, and whitespace
+> checks passed against disposable loopback PostgreSQL with stubbed HTTP.
+> Correctness/contracts/concurrency/channel, security, and Ponytail review passes
+> were sequential, not independent reviewer subagents. The Sendblue acceptance
+> finding was fixed and verified; no verified findings remain.
+>
+> No live create, scope transition, handset creation, push, or deployment ran.
+> Stage 2 handset reads remain deferred. The original full Stage 3 and Stage 4
+> remain incomplete. Existing acceptance checkboxes are unchanged; fixtures do
+> not establish broad live or production acceptance. Next-slice scope is pending.
+
+Re-read the ticket immediately before any future authorized edit. This draft is
+not permission to update Linear and has not been posted.
+
 ## Completion
 
 Record verified Linear contracts, each stage's test totals and demo observations, approved commit IDs, deployment authorization, and production smoke/trace inspection evidence. Link this plan from JAM-64 and mark acceptance criteria complete only after their corresponding checks. Do not include live credentials, raw tokens, or private issue content in these records.
