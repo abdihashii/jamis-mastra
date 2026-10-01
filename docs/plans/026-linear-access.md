@@ -1,6 +1,6 @@
 # 026: Confirmed Linear issue access (JAM-64)
 
-Status: draft. No implementation or live Linear credential smoke completed.
+Status: Stage 1 implemented, verified, and committed locally with operator sign-off. Repository gate and live credential smoke passed.
 
 Linear: [JAM-64](https://linear.app/abdirahman-haji/issue/JAM-64/give-jamis-confirmed-access-to-jamis-linear-issues).
 
@@ -32,7 +32,25 @@ Repo evidence checked on 2026-10-01 UTC:
 - Installed Mastra 1.71.0 channel types and Sendblue 0.2.0 preserve the text-channel limitation recorded in ADR 0012. Use application-enforced text confirmation; do not introduce approval cards or streaming.
 - Package/runtime is Bun. Existing account integrations use `fetch`; start with that and installed Zod, not a new SDK, provider interface, or generic approval framework.
 
-Linear references: [OAuth](https://linear.app/developers/oauth-2-0-authentication) and [app actors/team access](https://linear.app/developers/agents). Current scopes, token behavior, writable fields, relationship operations, mutation failure semantics, and concurrency guarantees still need primary-source verification. Record the verified contracts here during their stages; this draft does not claim live API verification.
+Linear references: [OAuth](https://linear.app/developers/oauth-2-0-authentication) and [app actors/team access](https://linear.app/developers/agents). Stage 1 authentication contracts are recorded below. Writable fields, relationship operations, mutation failure semantics, and concurrency guarantees still need primary-source verification during their stages. Documentation verification does not establish a successful live credential smoke.
+
+Stage 1 primary-source verification (2026-10-01 UTC): Firecrawl Developer lookup
+and full official OAuth/app/actor pages, plus Linear's published GraphQL schema,
+confirm `client_credentials` yields an app actor, 30-day `expires_in`, no refresh
+token, comma-separated requested scopes, and Bearer GraphQL authorization.
+`viewer { id name app }` observes the app user; `team(id: String!) { id name key }`
+resolves the pinned team. App team access initially includes all public teams and
+can be restricted after first token generation in installed app details. Secret
+rotation invalidates client-credentials tokens; changing scopes revokes existing
+app tokens. See [setup guidance and source links](../setup-linear.md).
+
+Stage 1 requests only `read`, the minimum for identity/team metadata. The later
+issue-update stage requires `write`; coordinate that scope change rather than
+granting unused mutation permission now. No native-agent/admin scope is requested.
+Identity validation requires `viewer.app` and the Jamis name; its ID is reported
+for operator comparison. It is not inferred from token success. Writable fields,
+mutation failure semantics, and concurrency contracts remain unverified and are
+gated in their later stages.
 
 ## Verification and sign-off
 
@@ -57,6 +75,25 @@ Use a small `fetch` client with validated inputs/results, bounded network waits,
 **Demo:** `rtk bun run scripts/linear-smoke.ts` authenticates with real on-box credentials and reports the Jamis app identity and pinned `jamis` team. Confirm configured team access in Linear. No mutation endpoint or tool is available in this stage.
 
 **Proposed commit:** `feat: add team-bound Linear app authentication`
+
+Stage 1 observations (2026-10-01 UTC): typecheck, lint, build with Studio, and
+diff whitespace checks passed. Full Bun gate passed **387 tests across 32 files,
+zero failures**, with both database variables targeting disposable loopback
+PostgreSQL `jamis_sessions_test`. The new client contributes 10 focused HTTP
+fixture checks. No external model/channel traffic was used in this gate.
+Review-code (independent correctness, API/test contract, and security passes)
+found no verified defects. Ponytail review found no unnecessary complexity.
+Live local smoke passed before and after the operator restricted installed-app
+team access to `jamis` only and confirmed the intended app identity in Linear.
+Both runs reported app user `7207c952-99d3-424c-abd8-d405facd0d5f`, name `jamis`,
+`app: true`, and team `62db635f-aa68-484c-9458-f4d48b92236c`, name `jamis`, key
+`JAM`. No tokens or credentials were printed; no issue mutation was available.
+The team-access selection is operator-confirmed, not inferred from a team query.
+JAM-64's real credential/team checkbox is now checked. Production runtime smoke
+and deployment have not been performed; local `.env.prod` provisioning does not
+prove VPS configuration.
+The operator approved the Stage 1 commit on 2026-10-01 UTC with the proposed
+message above. Push, deployment, and Stage 2 remain unapproved.
 
 ## 2. Add bounded issue reads
 
