@@ -14,16 +14,20 @@ _Avoid_: master agent, main agent (use "Jamis")
 An internal agent that accepts bounded delegated work from Jamis. Jamis owns the operator conversation and turns a subagent result into the final response.
 
 **Online research**:
-Jamis's capability to discover relevant public webpages from a question, read selected pages, and use what it finds to answer the operator with source URLs. It excludes whole-site crawling and interactive browser work.
+Jamis's capability to discover and read relevant public webpages or specialized research records from a question, then answer the operator with traceable sources. It excludes whole-site crawling and interactive browser work.
 _Avoid_: web browsing, web search
 
 **Research candidate**:
-A public webpage discovered during Online research that may contain relevant evidence. Its title, URL, or search excerpt alone does not verify a claim.
+A public webpage or specialized research record identified during Online research that may contain relevant evidence. Discovery descriptions, titles, identifiers, and unread metadata alone do not verify a claim.
 _Avoid_: verified source, evidence
 
 **Research source**:
-A public webpage read during Online research whose content supports a cited finding.
+A public webpage, research record, or passage actually read during Online research whose retrieved content supports a cited finding and is traceable to its original source URL or identifier.
 _Avoid_: search result, unread source
+
+**Abstract-only evidence**:
+A retrieved paper abstract that supports only findings explicitly stated in that abstract. It is labeled abstract-only and does not establish that the paper's full text was read.
+_Avoid_: full-text evidence, paper read
 
 **Personal-accounts agent**:
 The internal subagent that owns tool integrations with the operator's personal accounts (first: Gmail over the Google API; second: Calendar). Jamis delegates personal-account requests to it; its result is evidence for Jamis's final reply, not a channel reply itself. One delegation boundary for the whole personal-account class, not one subagent per account provider.

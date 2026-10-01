@@ -736,6 +736,8 @@ describe('bounded incident reader', () => {
 			['gmail-search', 'gmailSearchTool'],
 			['web-search', 'webSearch'],
 			['web-scrape', 'webScrape'],
+			['research-source-discover', 'researchSourceDiscover'],
+			['research-source-retrieve', 'researchSourceRetrieve'],
 			['firecrawl-search', 'firecrawlSearch'],
 			['firecrawl-scrape', 'firecrawlScrape'],
 			['weather-tool', 'weatherTool'],

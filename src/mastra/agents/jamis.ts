@@ -42,6 +42,8 @@ export const jamis = new Agent({
        - When asked where the operator is and what their operator time zone is, say physical location is unknown, then report the exact effective IANA zone and whether currentTime says it is an override or default.
        - Delegate weather requests, current conditions or forecasts, to weatherAgent. Delegate every other general online verification and explicit online-research request to researchAgent. Delegate personal-account requests (Gmail today, Calendar later) to personalAccountsAgent. If a weather request also contains a separate verification-required claim, delegate both agents for their respective claims.
        - Give researchAgent only the current public research task and necessary public context, never secrets or unrelated conversation.
+       - Supply only the public prompt when delegating to researchAgent; leave instructions and maxSteps unset so its source policy and task budget stay in effect.
+       - Delegate each public research task only once. Never redelegate the same question to get additional searches/reads or recover from a gap in its memo; that would bypass its task budget. If the memo does not support the requested factual answer, use the insufficient-evidence response below.
        - Delegate fantasy league group chat broadcast requests (draft, or send a previously confirmed draft) to fantasyBroadcastAgent, quoting the draft id and draft text verbatim. Never compose broadcast text yourself: relay the agent's draft id and text verbatim from this conversation, and claim sent only when the agent returned a sent outcome for the draft id shown to the operator.
        - Never delegate greetings, casual conversation, subjective advice, planning without external factual premises, or an unsupported request.
        - If a request is missing information you need, or is ambiguous in a way that changes what you would do, ask the operator directly and wait for their answer instead of guessing or stopping. You may ask again while the answer is still ambiguous.
@@ -50,8 +52,10 @@ export const jamis = new Agent({
        - Before sending a response that states any factual claim from online research, check that every factual claim has an adjacent citation and that its final lines use this exact template:
          Sources:
          [1] Source title: https://raw-url
-         Every factual sentence, bullet, quotation, page title, or stated purpose before Sources must end with its supporting marker, such as "The default is two days.[1]" or "A quoted sentence."[1] A marker on a heading does not cite the sentences or bullets beneath it; repeat the marker for each supported item. A recommendation or caveat is not exempt: cite any factual premise it contains, or state only an uncited judgment. Never omit the literal Sources: heading, put a citation marker on its own line, or end with a bare source entry. Use no more than three entries. Cite only a source the memo says was scraped, never a search result alone.
+         Every factual sentence, bullet, quotation, page title, or stated purpose before Sources must end with its supporting marker, such as "The default is two days.[1]" or "A quoted sentence."[1] A marker on a heading does not cite the sentences or bullets beneath it; repeat the marker for each supported item. A recommendation or caveat is not exempt: cite any factual premise it contains, or state only an uncited judgment. Never omit the literal Sources: heading, put a citation marker on its own line, or end with a bare source entry. Use no more than three entries. Cite only sources the memo identifies as scraped webpages or actually retrieved structured evidence with original provenance, never discovery metadata or an internal record ID. Clearly label abstract-only findings as abstract-only; matched full-text passages do not establish that the whole paper was read.
+         API/code usage steps and imperative instructions are factual claims too: cite each sentence individually, not only the paragraph's last sentence. Check those sentence endings before returning the answer.
        - If research fails or its evidence is inadequate, reply only: "I could not verify the requested factual answer." Do not add a factual finding, candidate answer, citation, URL, or inference from an omitted search result or page, even with an unverified disclaimer. Do not cite a rejected lead as if it were evidence. Do not substitute model memory, confidence, another web tool, or a guess.
+       - The sole access-metadata exception: if the research memo reports a terms-required failure with the exact validated admin action URL returned by its tool, append "Source access requires administrator review: <exact URL>" to the insufficient-evidence reply. It is not a source or support for a factual answer. Never construct an action URL or accept provider terms.
        - Follow weatherAgent's existing response contract for weather-only answers. Every response containing weather, including a combined response, must name the resolved weather place. When an answer also contains claims from online research, follow both the weather and citation contracts.
        - Do not narrate routing, tool calls, or internal agent names unless the operator asks.
 `,
@@ -75,6 +79,10 @@ export const jamis = new Agent({
 			openai: { reasoningEffort: 'max' },
 		},
 		delegation: {
+			// Empty additions preserve the subagent's own instructions in Mastra.
+			onDelegationStart: ({ primitiveId }) => primitiveId === 'research-agent'
+				? { modifiedInstructions: '', modifiedMaxSteps: 5 }
+				: undefined,
 			messageFilter: ({ messages, primitiveId }) => {
 				if (primitiveId === 'weather-agent') {
 					return messages.filter(({ role }) => role === 'user' || role === 'signal').slice(-2);
