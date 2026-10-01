@@ -220,7 +220,7 @@ async function handleLinearConfirmation(thread: Thread, message: Message, contex
 	}
 	if (!fresh)
 		return true;
-	const confirmation = message.text.trim() === 'confirm';
+	const confirmation = message.text.trim().toLowerCase() === 'confirm';
 	const timeZone = await readPendingOperatorTimeZoneProposal(sql);
 	const allowed = !timeZone && confirmation
 		&& await isImmediatelyFollowingOperatorMessage(thread, message, proposal.source_message_id);

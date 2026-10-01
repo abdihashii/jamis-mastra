@@ -712,3 +712,96 @@ with “go and then we test.” Commit message:
 `fix: report Linear proposal failures from runtime evidence`. Per the global
 per-stage approval rule, push and production deployment require separate
 confirmation; handset testing follows the verified production release.
+
+The operator separately approved push and deployment on 2026-10-01 UTC.
+Correction committed and pushed as `b19d03f042d85cf7d47523f0063ace15b372f731`
+(`fix: report Linear proposal failures from runtime evidence`). Deployment via
+the existing `infra/deploy.sh` succeeded; VPS checkout was clean at that exact
+revision. App was running with zero restarts, started at
+`2026-10-01T18:23:51.77869194Z`; all four Compose services were running. The
+actual running `/app/mastra.mjs` verified the reply schema/parser, safe proposal
+failure text, and native reauthentication-error bypass. API checks returned 401
+without authentication and 200 with the runtime token; no token was printed.
+Handset testing is next, beginning with `/new` and its acknowledgment. No issue
+mutation or ticket update ran during release verification. These post-release
+observations remain local and uncommitted.
+
+Operator reported `/new` acknowledgment after `b19d03f` deployment, then sent
+the full designated create content together with a JAM-64 status request. The
+handset received one exact `Backlog` create proposal and a separate reply
+reporting JAM-64 `In Progress` with its link. This observes the valid mixed-reply
+path on production, not the validation-failure path. Read-only durable inspection
+found exactly one active proposal `0168f636-274e-4c98-af51-89e6a4ccee07`, state
+`pending`, no outcome, exact designated content, and source equal to the latest
+recorded operator receipt. The active session matches and no conflicting time-zone proposal exists.
+No issue mutation or ticket update was performed by this inspection.
+
+The operator reported handset autocorrect changed the confirmation to uppercase
+`Confirm`. Read-only inspection found proposal
+`0168f636-274e-4c98-af51-89e6a4ccee07` durably `canceled` with no outcome.
+The case-sensitive rule remained unchanged and this proposal did not execute.
+A fresh full-content proposal is required before another lowercase confirmation.
+
+Operator reported successful handset creation of JAM-80 on 2026-10-01 UTC.
+Independent Linear read verified UUID `b7047bf6-28ac-4d1f-94ee-f504cdf2b5e1`,
+exact designated title and description, `Backlog`, pinned `jamis` team
+`62db635f-aa68-484c-9458-f4d48b92236c`, and creator Jamis app actor
+`7207c952-99d3-424c-abd8-d405facd0d5f`. Creation timestamp:
+`2026-10-01T18:33:10.360Z`. Durable outcome inspection is recorded separately.
+Repeated-confirmation protection is the next handset observation, not yet proven
+from this creation reply. No ticket update ran.
+
+### Capitalization correction (2026-10-01 UTC)
+
+The Operator explicitly requested accepting capitalized confirmation unless
+Sendblue disallows it. Installed Sendblue 0.2.0 assigns incoming message text
+from `raw.content` unchanged. Fresh Firecrawl extraction of
+[Sendblue security documentation](https://docs.sendblue.com/security/#tcpa-compliance)
+lists opt-out detection for `stop`, `unsubscribe`, `cancel`, `opt out`, `revoke`,
+`end`, and `quit`, with opt-in via `start`; `confirm` is not listed. Previously
+observed capitalized receipts were processed by the app, so the restriction was
+the application equality check, not provider rejection.
+
+1. **Goal:** Accept capitalization of the trimmed word `confirm` without
+   relaxing any other confirmation/write gate. **Critical files:** Sendblue
+   confirmation check, existing native fixture, setup guide, ADR 0022.
+   **Verification:** Native `Confirm`, `CONFIRM`, mixed case, and surrounding
+   whitespace execute once; replay does not repeat creation. Quoted/punctuated
+   confirmation, other messages, provider adjacency, session, rollover, and
+   uncertain-outcome checks remain enforced. Run the full gate with disposable
+   loopback PostgreSQL. **Proposed commit:** `fix: accept case-insensitive Linear confirmation`.
+
+Implementation is authorized; commit, push, and deployment of this new correction
+await their separate approvals. Live production remains at `b19d03f`.
+
+JAM-80 durable outcome verified: proposal/issue UUID
+`b7047bf6-28ac-4d1f-94ee-f504cdf2b5e1` is `succeeded`, notification recorded,
+outcome identifier `JAM-80`. After the operator repeated lowercase `confirm`,
+the handset replied “There is no pending action to confirm.” Read-only durable
+inspection found the same succeeded outcome, two later receipts after proposal
+source (confirmation and replay), and zero active proposals in that DM. A
+complete Linear listing of the pinned team with creation timestamps since
+`2026-10-01T18:30:00.000Z`, including archived issues, returned only JAM-80
+(`hasNextPage: false`). This observes one exact live creation and replay
+protection at `b19d03f`. It does not establish live capitalization support or
+production validation-failure/leak-audit acceptance. Ticket unchanged.
+
+Capitalization gate completed (2026-10-01 UTC): **407 tests across 34 files,
+zero failures**, including the wrapper for **15 isolated native/durable checks**.
+Typecheck, lint, Studio build, and whitespace checks passed. Both database URLs
+pointed to disposable loopback `jamis_sessions_test`; provider/model traffic
+remained stubbed. The initial test attempt started before PostgreSQL finished
+initializing and failed with connection errors; after readiness verification,
+the full gate rerun passed. Native capitalization/whitespace variants each
+executed once and remained single-use; quoted/punctuated/non-confirm messages,
+adjacency/session checks, rollover, and uncertain outcomes remained protected.
+Independent security review found no introduced vulnerabilities and verified
+the unchanged authority boundaries. The disposable database was removed after
+the gate. Code remains local and uncommitted; production remains `b19d03f`.
+Proposed commit: `fix: accept case-insensitive Linear confirmation`.
+
+The operator approved both the capitalization commit and its push/deployment on
+2026-10-01 UTC with “go, we'll test again,” after separate commit and release
+questions identified the exact correction. Commit message:
+`fix: accept case-insensitive Linear confirmation`. Follow release verification
+with one handset step at a time. Ticket updates remain unauthorized.

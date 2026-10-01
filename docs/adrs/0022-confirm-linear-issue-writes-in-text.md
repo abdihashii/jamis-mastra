@@ -9,3 +9,10 @@ A failed write may be retried once silently without another confirmation only wh
 For a request containing several changes, Jamis presents them one at a time in the requested order. After a confirmed change succeeds, it presents the next proposal; a decline, failure, or uncertain outcome stops the remaining sequence.
 
 On 2026-10-01 UTC, verification of Linear's published schema found no atomic issue-revision precondition for updates or comment creation. The Operator retained the strict stale-write guarantee and authorized a create-only Stage 3 slice. Updates, comment creation, and later relationship/sequencing work remain unavailable until their contracts can satisfy that guarantee. A read followed by a mutation is not accepted as an atomic stale-write check.
+
+On 2026-10-01 UTC, the Operator approved case-insensitive matching of the trimmed
+word `confirm` to tolerate handset capitalization. `Confirm` and `CONFIRM` are
+accepted; punctuation, quotations, extra words, and `yes` remain invalid. All
+DM, immediately following message, active session, single-use, and stale-write
+requirements above remain unchanged. Sendblue preserves incoming message text;
+its documented opt-out keywords do not include `confirm`.

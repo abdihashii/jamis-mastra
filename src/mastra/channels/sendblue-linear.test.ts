@@ -395,8 +395,23 @@ else {
 		finally { await f.close(); }
 	});
 
+	test('native confirmation accepts capitalization, preserves trimming, and stays single-use', async () => {
+		for (const text of ['Confirm', 'CONFIRM', 'cOnFiRm', ' Confirm ']) {
+			const f = await fixture();
+			try {
+				const source = await f.send('Create one fixture issue.');
+				await f.send(text);
+				await f.send(text);
+				expect(f.mutations).toHaveLength(1);
+				expect(f.posts.filter(post => post.startsWith('Created'))).toHaveLength(1);
+				expect(await readLinearProposal(source.threadId, sql)).toBeNull();
+			}
+			finally { await f.close(); }
+		}
+	}, 30000);
+
 	test('cancel, other message, nonexact confirm, provider-history gap, and /new prevent create', async () => {
-		for (const text of ['decline', 'cancel', 'unrelated', 'yes', 'Confirm', 'confirm!', '/new', 'login openai', 'confirm']) {
+		for (const text of ['decline', 'cancel', 'unrelated', 'yes', '"confirm"', 'confirm!', '/new', 'login openai', 'confirm']) {
 			const f = await fixture();
 			try {
 				const source = await f.send('Create one fixture issue.');

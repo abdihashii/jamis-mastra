@@ -163,7 +163,7 @@ Postgres. A shared single-use channel capability arbitrates Linear and time-zone
 proposals. Studio, forged tool context, other senders, groups, and other channels
 cannot authorize creation.
 
-Only the immediately following, trimmed, case-sensitive `confirm` executes.
+Only the immediately following, trimmed, case-insensitive word `confirm` executes.
 Durable receipt order and provider-history adjacency both have to agree; equal
 provider timestamps do not prevent confirmation. Every other new operator message
 cancels, including login and `/new`. Duplicate deliveries do not consume newer
