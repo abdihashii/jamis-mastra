@@ -5,15 +5,20 @@ import type { RequestContext } from '@mastra/core/request-context';
 import type { MemoryStorage } from '@mastra/core/storage';
 import type { Message, Thread } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
-import type { SqlLike } from '../../lib/operator-time-zone';
+import type { linearCreateInputSchema } from '../../lib/linear';
 
+import type { SqlLike } from '../../lib/operator-time-zone';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 
+import process from 'node:process';
 import { SpanType } from '@mastra/core/observability';
 import { createTool } from '@mastra/core/tools';
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
-import { z } from 'zod';
 
+import { z } from 'zod';
+import { createLinearClient, linearCreateOperationSchema } from '../../lib/linear';
+import { cancelLinearConversation, claimLinearCreate, finishLinearCreate, notifyLinearOutcome, postLinearCreateProposal, readLinearProposal, receiveLinearMessage } from '../../lib/linear-proposals';
 import { clearOperatorTimeZoneConversation, clearPendingOperatorTimeZoneNotification, consumePendingOperatorTimeZoneChange, readPendingOperatorTimeZoneNotification, readPendingOperatorTimeZoneProposal, saveOperatorTimeZoneProposal, withOperatorTimeZoneTransaction } from '../../lib/operator-time-zone';
 import { isIanaTimeZone } from '../../lib/time';
 import { requireEnv, requireOperatorTimeZone } from '../env';
@@ -43,10 +48,26 @@ const operatorNumber = requireEnv('JAMIS_ALLOWED_NUMBER').trim();
 const adapter = createSendblueAdapter({
 	webhookSecret: requireEnv('SENDBLUE_WEBHOOK_SECRET'),
 });
+const postMessage = adapter.postMessage.bind(adapter);
+
+export function requireSendbluePostAcceptance(value: unknown): void {
+	const result = z.object({
+		id: z.string().min(1),
+		raw: z.object({ message_handle: z.string().min(1), status: z.enum(['QUEUED', 'SENT', 'DELIVERED']), error_code: z.number().nullable().optional() }),
+	}).safeParse(value);
+	if (!result.success || result.data.id !== result.data.raw.message_handle || result.data.raw.error_code)
+		throw new Error('Sendblue posting unavailable.');
+}
 
 // Chat SDK dispatches direct messages through Adapter.isDM().
 export const sendblueAdapter = Object.assign(adapter, {
 	isDM: (threadId: string): boolean => !adapter.decodeThreadId(threadId).groupId,
+	// Chat SDK discards the raw response in Thread.post; validate before that boundary.
+	postMessage: async (...args: Parameters<typeof adapter.postMessage>) => {
+		const result = await postMessage(...args);
+		requireSendbluePostAcceptance(result);
+		return result;
+	},
 });
 
 export function isOperator(message: Message): boolean {
@@ -120,6 +141,91 @@ interface SendblueChannelCapabilityInternal extends SendblueChannelCapability {
 }
 
 const sendblueChannelCapabilities = new WeakMap<RequestContext, SendblueChannelCapabilityInternal>();
+const linearTurns = new AsyncLocalStorage<{
+	capability: SendblueChannelCapabilityInternal;
+	requestContext: RequestContext;
+	sql?: SqlLike;
+	active: boolean;
+}>();
+
+async function postLinearText(thread: Thread, text: string): Promise<void> {
+	try {
+		const result = z.object({ id: z.string().min(1) }).safeParse(await thread.post(text));
+		if (!result.success)
+			throw new Error('Posting not accepted');
+	}
+	catch {
+		throw new Error('Linear channel posting unavailable.');
+	}
+}
+
+/** Runtime authority follows native delegation without serializing channel objects or a bearer capability. */
+export async function proposeLinearCreate(raw: z.input<typeof linearCreateInputSchema>): Promise<{ status: 'denied' | 'proposed' | 'unavailable' }> {
+	const turn = linearTurns.getStore();
+	if (!turn?.active || turn.capability.used)
+		return { status: 'denied' };
+	const session = z.object({ thread: z.object({ id: z.string().min(1) }) }).safeParse(turn.requestContext.getRaw('MastraMemory'));
+	if (!session.success)
+		return { status: 'denied' };
+	turn.capability.used = true;
+	try {
+		const op = await createLinearClient().prepareCreate(raw);
+		if (await readPendingOperatorTimeZoneProposal(turn.sql))
+			return { status: 'denied' };
+		const saved = await postLinearCreateProposal(op, turn.capability.threadId, session.data.thread.id, turn.capability.messageId, text => postLinearText(turn.capability.thread, text), turn.sql);
+		return { status: saved ? 'proposed' : 'denied' };
+	}
+	catch {
+		return { status: 'unavailable' };
+	}
+}
+
+async function activeJamisSession(context: ChannelHandlerContext, thread: Thread): Promise<string | null> {
+	const memory = await context.mastra?.getStorage()?.getStore('memory');
+	if (!memory)
+		return null;
+	const coordinates = { channel_platform: 'sendblue', channel_externalThreadId: thread.id, channel_externalChannelId: thread.channelId };
+	const owned = await memory.listThreads({ filter: { metadata: { ...coordinates, channel_ownerId: 'jamis' } }, perPage: 1 });
+	if (owned.threads[0])
+		return owned.threads[0].id;
+	const legacy = await memory.listThreads({ filter: { metadata: coordinates }, perPage: 10, orderBy: { field: 'createdAt', direction: 'ASC' } });
+	return legacy.threads.find(candidate => !('channel_ownerId' in (candidate.metadata ?? {})))?.id ?? null;
+}
+
+async function handleLinearConfirmation(thread: Thread, message: Message, context: ChannelHandlerContext, fresh: boolean, sql?: SqlLike): Promise<boolean> {
+	const proposal = await readLinearProposal(thread.id, sql);
+	if (!proposal)
+		return false;
+	if (proposal.state !== 'pending') {
+		await notifyLinearOutcome(proposal, text => postLinearText(thread, text), sql);
+		return true;
+	}
+	if (!fresh)
+		return true;
+	const confirmation = message.text.trim() === 'confirm';
+	const timeZone = await readPendingOperatorTimeZoneProposal(sql);
+	const allowed = !timeZone && confirmation
+		&& await isImmediatelyFollowingOperatorMessage(thread, message, proposal.source_message_id);
+	const claimed = await claimLinearCreate(proposal, await activeJamisSession(context, thread), message.id, allowed, sql);
+	if (!claimed) {
+		if (confirmation || /^(?:no|decline|cancel)[.!]?$/i.test(message.text.trim())) {
+			await thread.post('Linear create proposal canceled.');
+			return true;
+		}
+		return false;
+	}
+	let outcome;
+	try {
+		const op = linearCreateOperationSchema.parse(proposal.operation);
+		outcome = await createLinearClient(process.env, true).executeCreate(op);
+	}
+	catch {
+		outcome = { status: 'failed' as const };
+	}
+	await finishLinearCreate(proposal.id, outcome, sql);
+	await notifyLinearOutcome({ ...proposal, state: outcome.status, outcome }, text => postLinearText(thread, text), sql);
+	return true;
+}
 
 export function getSendblueChannelCapability(requestContext: RequestContext): SendblueChannelCapability | undefined {
 	return sendblueChannelCapabilities.get(requestContext);
@@ -278,10 +384,11 @@ export async function handleSendblueDirectMessage(
 		return;
 
 	const messageAt = message.metadata?.dateSent;
-	const hasSource = !!thread.id
+	const hasMessageIdentity = !!thread.id
 		&& !!message.id.trim()
-		&& message.threadId === thread.id
-		&& messageAt instanceof Date
+		&& message.threadId === thread.id;
+	const linearContext = hasMessageIdentity ? context : undefined;
+	const hasSource = hasMessageIdentity && messageAt instanceof Date
 		&& Number.isFinite(messageAt.getTime());
 	const correlation = context && hasSource && messageAt ? { context, messageAt } : undefined;
 	let defaultHandlerStarted = false;
@@ -335,6 +442,8 @@ export async function handleSendblueDirectMessage(
 	try {
 		if (isOpenAILoginCommand(message)) {
 			return await enqueueDirectMessage(async () => {
+				if (linearContext && await receiveLinearMessage(thread.id, message.id, sql))
+					await cancelLinearConversation(thread.id, sql);
 				const { completion } = await handleOpenAILoginCommand(observedThread);
 				if (correlation) {
 					try {
@@ -355,6 +464,8 @@ export async function handleSendblueDirectMessage(
 			if (message.text.trim() === '/new') {
 				let result: Awaited<ReturnType<typeof startJamisDmSession>>;
 				try {
+					if (linearContext)
+						await receiveLinearMessage(thread.id, message.id, sql);
 					await deliverPendingOperatorTimeZoneNotification(observedThread, sql);
 					const memory = await context?.mastra?.getStorage()?.getStore('memory');
 					if (!memory)
@@ -362,6 +473,7 @@ export async function handleSendblueDirectMessage(
 					result = await startJamisDmSession(memory, thread, message, async () => {
 						// Cancel before writing so a lost write acknowledgement cannot leak old state.
 						await clearOperatorTimeZoneConversation(sql);
+						await cancelLinearConversation(thread.id, sql);
 						clearDeploymentSnapshot(thread.id);
 					});
 				}
@@ -385,7 +497,14 @@ export async function handleSendblueDirectMessage(
 				}
 				return;
 			}
+			const freshLinearTurn = linearContext ? await receiveLinearMessage(thread.id, message.id, sql) : false;
 			await deliverPendingOperatorTimeZoneNotification(observedThread, sql);
+			if (linearContext && await handleLinearConfirmation(observedThread, message, linearContext, freshLinearTurn, sql)) {
+				// Never allow one confirm to authorize both kinds of proposal.
+				if (correlation)
+					await consumePendingOperatorTimeZoneChange(thread.id, message.id, correlation.messageAt, false, sql);
+				return;
+			}
 			if (correlation) {
 				const confirmationRequested = isOperatorTimeZoneConfirmation(message.text);
 				const proposal = confirmationRequested ? await readPendingOperatorTimeZoneProposal(sql) : null;
@@ -409,7 +528,18 @@ export async function handleSendblueDirectMessage(
 				}
 			}
 			defaultHandlerStarted = true;
-			await defaultHandler(observedThread, message);
+			const capability = correlation && sendblueChannelCapabilities.get(correlation.context.requestContext);
+			if (!capability || !freshLinearTurn) {
+				await defaultHandler(observedThread, message);
+				return;
+			}
+			const turn = { capability, requestContext: correlation!.context.requestContext, sql, active: true };
+			try {
+				await linearTurns.run(turn, () => defaultHandler(observedThread, message));
+			}
+			finally {
+				turn.active = false;
+			}
 		});
 	}
 	catch (error) {

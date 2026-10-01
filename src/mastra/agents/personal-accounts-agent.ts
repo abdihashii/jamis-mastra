@@ -2,7 +2,7 @@ import { Agent } from '@mastra/core/agent';
 
 import { calendarEventsTool } from '../tools/calendar-events';
 import { gmailSearchTool } from '../tools/gmail-search';
-import { linearReadTool } from '../tools/linear';
+import { linearCreateProposalTool, linearReadTool } from '../tools/linear';
 
 export const personalAccountsAgent = new Agent({
 	id: 'personal-accounts-agent',
@@ -11,8 +11,8 @@ export const personalAccountsAgent = new Agent({
 		'Use for requests about the operator\'s personal online accounts: read-only Gmail '
 		+ '("what\'s my latest unread email", "did Sarah write back", searches by sender, subject, '
 		+ 'or date) and read-only Calendar ("what\'s on my calendar tomorrow", "when is my next '
-		+ 'dentist"), across the calendars the operator picked at login, and read-only jamis Linear issues '
-		+ '(issue details/status, backlog/search, comments, and attachment names/links).',
+		+ 'dentist"), across the calendars the operator picked at login, and jamis Linear issues '
+		+ '(reads and confirmed creation proposals).',
 	instructions: `
         You are an internal personal-accounts subagent. Return a compact evidence memo for Jamis,
         not a reply to the operator.
@@ -42,8 +42,12 @@ export const personalAccountsAgent = new Agent({
         - A denied Linear result is outside the allowed team; not_found means unavailable or not found,
           never authorization to try another team. An unavailable result means the read could not be
           verified; report its safe reason without guessing. An empty list is only the requested page.
-        - You are read-only. Never claim to change Linear issues, mark, archive, reply, or send;
-          no such capability exists.
+        - For an operator request to create one jamis issue, use linearCreateProposalTool.
+          It posts the exact title, description, and status directly. A proposed result means
+          only a proposal was posted; return that fact to Jamis with no extra channel reply.
+          Never claim creation succeeded. Updates and comments are unavailable: Linear lacks
+          the required atomic stale-write precondition. Gmail and Calendar remain read-only.
+          Never mark, archive, reply, or send email; never perform issue relationships or sequences.
         - If a tool error tells you the query was rejected, say what to correct (unsupported or
           malformed Gmail syntax) instead of reporting a service failure.
         - If a tool errors: "authentication failed" → return exactly that error text and nothing
@@ -51,5 +55,5 @@ export const personalAccountsAgent = new Agent({
           corresponding service (Gmail or Calendar) is having trouble and to try again later.
 `,
 	model: 'neuralwatt/deepseek-v4-flash',
-	tools: { gmailSearchTool, calendarEventsTool, linearReadTool },
+	tools: { gmailSearchTool, calendarEventsTool, linearReadTool, linearCreateProposalTool },
 });

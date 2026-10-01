@@ -26,6 +26,7 @@ const histories = new Map<string, Message[]>();
 const sql = (async (strings: TemplateStringsArray) => strings.join(' ').includes('WITH previous')
 	? [{ applied: false, consumed_proposal: false, proposal_time_zone: null }]
 	: []) as SqlLike;
+sql.begin = operation => operation(sql);
 
 beforeEach(() => {
 	histories.clear();

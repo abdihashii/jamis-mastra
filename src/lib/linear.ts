@@ -10,7 +10,7 @@ const tokenSchema = z.object({
 	access_token: z.string().min(1),
 	token_type: z.literal('Bearer'),
 	expires_in: z.number().int().positive().max(2_592_000),
-	scope: z.string().refine(scope => scope.trim() === 'read'),
+	scope: z.string(),
 });
 const evidenceSchema = z.object({
 	data: z.object({
@@ -83,6 +83,29 @@ export type LinearReadResult = z.infer<typeof linearReadResultSchema>;
 const ISSUE_FIELDS = 'id identifier title url state { name type } updatedAt team { id }';
 const PAGE_FIELDS = 'pageInfo { hasNextPage endCursor }';
 
+export const linearCreateInputSchema = z.object({
+	action: z.literal('create'),
+	title: z.string().trim().min(1).max(200),
+	description: z.string().max(2000).default(''),
+	state: z.string().trim().min(1).max(100).optional(),
+}).strict();
+const workflowStateSchema = z.object({ id: z.uuid(), name: z.string().min(1).max(100), team: z.object({ id: z.uuid() }) });
+export const linearCreateOperationSchema = z.object({
+	id: z.uuid(),
+	teamId: z.uuid(),
+	title: linearCreateInputSchema.shape.title,
+	description: linearCreateInputSchema.shape.description,
+	stateId: z.uuid(),
+	stateName: z.string().min(1).max(100),
+}).strict();
+export type LinearCreateOperation = z.infer<typeof linearCreateOperationSchema>;
+export const linearCreateOutcomeSchema = z.object({
+	status: z.enum(['succeeded', 'failed', 'uncertain']),
+	identifier: issueSchema.shape.identifier.optional(),
+	url: issueSchema.shape.url.optional(),
+}).strict();
+export type LinearCreateOutcome = z.infer<typeof linearCreateOutcomeSchema>;
+
 type Failure = 'configuration' | 'authentication' | 'identity' | 'team' | 'response' | 'timeout' | 'unavailable';
 
 /** Only fixed categories leave this boundary, never upstream bodies or causes. */
@@ -93,12 +116,14 @@ export class LinearError extends Error {
 	}
 }
 
-/** Runtime-only app token. Only finite team-bound reads, never arbitrary queries or mutations. */
-export function createLinearClient(env: Record<string, string | undefined> = process.env) {
+/** Runtime-only app token. Writable clients are created only at the confirmed channel boundary. */
+export function createLinearClient(env: Record<string, string | undefined> = process.env, writable = false) {
 	const parsed = configSchema.safeParse(env);
 	if (!parsed.success)
 		throw new LinearError('configuration');
 	const config = parsed.data;
+	// All app clients use identical scopes: changing scopes revokes existing app tokens.
+	const scopes = 'read,issues:create';
 	let token: { access: string; expiresAt: number } | undefined;
 	let pendingToken: Promise<string> | undefined;
 
@@ -135,12 +160,12 @@ export function createLinearClient(env: Record<string, string | undefined> = pro
 					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 					body: new URLSearchParams({
 						grant_type: 'client_credentials',
-						scope: 'read',
+						scope: scopes,
 						client_id: config.LINEAR_CLIENT_ID,
 						client_secret: config.LINEAR_CLIENT_SECRET,
 					}),
 				}));
-				if (!result.success)
+				if (!result.success || result.data.scope.trim().split(/[,\s]+/).sort().join(',') !== 'issues:create,read')
 					throw new LinearError('response');
 				token = { access: result.data.access_token, expiresAt: startedAt + result.data.expires_in * 1000 - 60_000 };
 				return token.access;
@@ -277,5 +302,80 @@ export function createLinearClient(env: Record<string, string | undefined> = pro
 		return { status: 'ok', attachments: result.issue.attachments.nodes.map(({ issue: _issue, ...attachment }) => attachment), ...pageResult };
 	}
 
-	return { readIdentityAndTeam, readIssues };
+	async function prepareCreate(raw: z.input<typeof linearCreateInputSchema>): Promise<LinearCreateOperation> {
+		const input = linearCreateInputSchema.safeParse(raw);
+		if (!input.success)
+			throw new LinearError('configuration');
+		const { team } = await readIdentityAndTeam();
+		let state: z.infer<typeof workflowStateSchema>;
+		if (input.data.state) {
+			const result = await graphql(
+				'query JamisCreateState($filter: WorkflowStateFilter!) { workflowStates(filter: $filter, first: 2) { nodes { id name team { id } } pageInfo { hasNextPage } } }',
+				{ filter: { team: { id: { eq: team.id } }, name: { eq: input.data.state } } },
+				z.object({ workflowStates: z.object({ nodes: z.array(workflowStateSchema).max(2), pageInfo: z.object({ hasNextPage: z.boolean() }) }) }),
+			);
+			if (result.workflowStates.nodes.length !== 1 || result.workflowStates.pageInfo.hasNextPage)
+				throw new LinearError('response');
+			state = result.workflowStates.nodes[0];
+			if (state.name !== input.data.state)
+				throw new LinearError('response');
+		}
+		else {
+			const result = await graphql(
+				'query JamisDefaultCreateState($id: String!) { team(id: $id) { id defaultIssueState { id name team { id } } } }',
+				{ id: team.id },
+				z.object({ team: z.object({ id: z.uuid(), defaultIssueState: workflowStateSchema }) }),
+			);
+			if (result.team.id !== team.id)
+				throw new LinearError('team');
+			state = result.team.defaultIssueState;
+		}
+		if (state.team.id !== team.id)
+			throw new LinearError('team');
+		return { id: crypto.randomUUID(), teamId: team.id, title: input.data.title, description: input.data.description, stateId: state.id, stateName: state.name };
+	}
+
+	async function executeCreate(raw: LinearCreateOperation): Promise<LinearCreateOutcome> {
+		const operation = linearCreateOperationSchema.safeParse(raw);
+		if (!writable || !operation.success || operation.data.teamId !== config.LINEAR_TEAM_ID)
+			return { status: 'failed' };
+		const op = operation.data;
+		// One retry is safe here: no mutation has been sent during this preflight.
+		for (let attempt = 0; ; attempt++) {
+			try {
+				await readIdentityAndTeam();
+				const result = await graphql(
+					'query JamisValidateCreateState($id: String!) { workflowState(id: $id) { id name team { id } } }',
+					{ id: op.stateId },
+					z.object({ workflowState: workflowStateSchema }),
+				);
+				if (result.workflowState.id !== op.stateId || result.workflowState.name !== op.stateName || result.workflowState.team.id !== op.teamId)
+					return { status: 'failed' };
+				break;
+			}
+			catch (error) {
+				if (attempt === 0 && error instanceof LinearError && ['authentication', 'timeout', 'unavailable'].includes(error.category))
+					continue;
+				return { status: 'failed' };
+			}
+		}
+		try {
+			const { stateName: _stateName, ...input } = op;
+			const result = await graphql(
+				`mutation JamisCreateIssue($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { ${ISSUE_FIELDS} } } }`,
+				{ input },
+				z.object({ issueCreate: z.object({ success: z.boolean(), issue: issueSchema.nullable() }) }),
+			);
+			const issue = result.issueCreate.issue;
+			if (!result.issueCreate.success || !issue || issue.id !== op.id || issue.team.id !== op.teamId || issue.title !== op.title || issue.state.name !== op.stateName)
+				return { status: 'uncertain' };
+			return { status: 'succeeded', identifier: issue.identifier, url: issue.url };
+		}
+		catch {
+			// Sent requests, partial errors, malformed/lost responses: never replay.
+			return { status: 'uncertain' };
+		}
+	}
+
+	return { readIdentityAndTeam, readIssues, prepareCreate, executeCreate };
 }

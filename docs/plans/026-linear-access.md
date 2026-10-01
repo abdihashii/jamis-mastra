@@ -1,6 +1,6 @@
 # 026: Confirmed Linear issue access (JAM-64)
 
-Status: Stages 1 and 2 approved for local commits. Stage 2 reviewed; local gate/direct-tool smoke passed. Handset smoke deferred by operator sign-off until separately authorized deployment.
+Status: Stages 1 and 2 approved for local commits. Stage 3 narrowed by operator decision to confirmed creation only; updates and comment creation blocked by the strict stale-write requirement. Handset smoke remains deferred until separately authorized deployment.
 
 Linear: [JAM-64](https://linear.app/abdirahman-haji/issue/JAM-64/give-jamis-confirmed-access-to-jamis-linear-issues).
 
@@ -170,7 +170,93 @@ Separate proven rejection/no-mutation failures from uncertain outcomes. Permit a
 
 **Demo:** Directly exercise the proposal/confirmation boundary first. Over iMessage, cancel a change and verify Linear is unchanged; confirm one change and inspect it in Linear; replay confirmation without a second mutation; change a proposed issue externally and observe a fresh proposal. Exercise create/update/comment on operator-designated demo issues. No automatic sequence yet.
 
-**Proposed commit:** `feat: gate Linear writes with durable text confirmation`
+**Proposed commit (create-only slice):** `feat: gate Linear issue creation with durable text confirmation`
+
+Stage 3 contract investigation (2026-10-01 UTC): implementation is not complete.
+The operator retained the strict stale-write guarantee and rejected substituting
+a final reread with a documented concurrent-edit race. Updates remain blocked.
+Comments also lack a precondition on the referenced issue, so the same guarantee
+cannot currently be established for them. Creation has no existing issue revision.
+The operator explicitly authorized implementing a create-only slice, with updates
+and comment creation unavailable. The original full Stage 3 goal remains incomplete.
+
+Create-only slice: one independently committable implementation, extending the
+existing client/tool/channel and adding `src/lib/linear-proposals.ts`. Acceptance:
+the disposable-Postgres native channel fixture posts the exact proposal, sends
+one create only for the next exact `confirm`, and never resends a claimed create
+after replay, restart, or response loss. Verification uses the full gate below;
+live scope changes and handset creation still require separate operator setup/demo.
+
+Primary-source evidence:
+
+- Linear's [published schema](https://github.com/linear/linear/blob/master/packages/sdk/src/schema.graphql)
+  exposes `issueUpdate(id: String!, input: IssueUpdateInput!)`. The complete input
+  has no expected revision, timestamp, or conditional filter. `lastSyncId` is an
+  output on `IssuePayload`, not an accepted update precondition. `commentCreate`
+  accepts `CommentCreateInput`, likewise without an issue revision precondition.
+  A read followed by either mutation cannot enforce the strict guarantee against
+  another writer. No documented HTTP conditional-write alternative was found.
+- Initial field inventory: create supports `teamId`, `title`, `description`,
+  and `stateId`; update supports `title`, `description`, and `stateId`; comments
+  support `issueId` and `body`. Create/comment inputs accept a caller-provided
+  UUID v4 `id`, but that alone does not establish safe retry semantics. The schema
+  also permits excluded fields such as update `teamId` and `trashed`, so a future
+  tool must strictly allowlist inputs rather than forward arbitrary field objects.
+- Official [GraphQL error handling](https://linear.app/developers/graphql#error-handling)
+  explicitly allows partial success with HTTP 200 and an `errors` array. Neither
+  a generic GraphQL error nor a lost response proves no mutation occurred.
+  [Rate-limit documentation](https://linear.app/developers/rate-limiting#handling-rate-limit-errors)
+  specifies HTTP 400 with `RATELIMITED`; HTTP status alone is insufficient to
+  classify a mutation as safely retryable. No live writes or retry experiments ran.
+- Official [OAuth documentation](https://linear.app/developers/oauth-2-0-authentication#client-credentials-tokens)
+  confirms `write` is needed for updates and changing client-credentials scopes
+  revokes existing app tokens. No scope change or token generation was performed.
+- Installed Mastra 1.71.0 `listAgentTools` clones request-context entries into a
+  new `RequestContext` before `onDelegationStart`, dropping parent memory/thread
+  keys. The existing Sendblue capability WeakMap is keyed by the original context
+  and therefore does not automatically authorize the delegated account tool.
+  Native channel dispatch resolves the active memory thread inside the default
+  handler. Future implementation must bind the actual parent session and propagate
+  authority outside serialized proposal data and exported trace context.
+
+Create-only slice observations (2026-10-01 UTC): **407 tests across 34 files,
+zero failures** in the final full Bun gate. Both database variables targeted
+disposable loopback PostgreSQL `jamis_sessions_test`. Typecheck, lint, Studio
+build, and diff whitespace checks passed. The isolated native/durability
+subprocess contributes **10 additional fixture checks** (reported separately
+from Bun's parent-process total), with only stubbed Linear, Sendblue, and failed
+device-login HTTP. No credentials, token requests, or mutations were sent to
+live services.
+
+Observed fixture behavior includes exact proposal posting, no mutation before
+confirmation, one create for a valid next-message `confirm`, equal-timestamp
+confirmation, cancellation/login/rollover, replayed `/new`, provider-history gaps,
+session changes, denied channel/tool contexts, simultaneous time-zone arbitration,
+concurrent claims, restart before/after claim, lost claim acknowledgements,
+uncertain mutation responses, failed/rejected proposal posting, result-notification
+recovery, one preflight retry, and credential-free memory/tool/trace results on
+success and failure. App clients uniformly use the minimal `read,issues:create`
+scope set; no `write` or `comments:create` permission is requested.
+
+Review-code's correctness, contracts/tests, concurrency, and channel integration
+passes were performed sequentially, as were security-audit and ponytail-review.
+Review found the installed Sendblue adapter permits resolved HTTP-success payloads
+with status `ERROR`, while Chat SDK discards the raw status in `Thread.post`.
+The adapter boundary now validates acceptance before that discard; rejected and
+malformed responses cannot authorize a proposal. This was covered by a native
+rejection fixture and a finite acceptance test. The existing production trace
+sanitizer was reused, two old channel mocks gained transaction support, and a
+redundant posting state was removed. No verified review findings remain. No new
+dependency, approval framework, workflow engine, or infrastructure was introduced.
+
+Live create/scope-transition and handset demos have not run. Scope changes would
+revoke Stage 1/2 app tokens and require coordination across runtimes; see
+[setup guidance](../setup-linear.md#stage-3-confirmed-creation). The deferred
+Stage 2 handset observation remains unproven. No live ticket acceptance criterion
+was checked from fixtures. The operator approved the create-only slice for a
+local commit on 2026-10-01 UTC with the proposed message above. Push and deployment
+remain unapproved. Updates and comment creation remain
+blocked, so the original full Stage 3 and Stage 4 goals are not complete.
 
 ## 4. Complete issue fields, relationships, and sequencing
 

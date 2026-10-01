@@ -7,3 +7,5 @@ Each proposal is durable and single-use; duplicate channel delivery or repeated 
 A failed write may be retried once silently without another confirmation only when the failure proves no mutation occurred. If a sent write has an uncertain outcome, Jamis does not retry; it reports that uncertainty and requires inspection before another attempt, rather than risking a duplicate create or comment.
 
 For a request containing several changes, Jamis presents them one at a time in the requested order. After a confirmed change succeeds, it presents the next proposal; a decline, failure, or uncertain outcome stops the remaining sequence.
+
+On 2026-10-01 UTC, verification of Linear's published schema found no atomic issue-revision precondition for updates or comment creation. The Operator retained the strict stale-write guarantee and authorized a create-only Stage 3 slice. Updates, comment creation, and later relationship/sequencing work remain unavailable until their contracts can satisfy that guarantee. A read followed by a mutation is not accepted as an atomic stale-write check.

@@ -192,6 +192,7 @@ function message(id: string, at: string): Message {
 const sql = (async (strings: TemplateStringsArray) => strings.join(' ').includes('WITH previous')
 	? [{ applied: false, consumed_proposal: false, proposal_time_zone: null }]
 	: []) as SqlLike;
+sql.begin = operation => operation(sql);
 
 async function withLiveCapability<T>(
 	run: (requestContext: MastraRequestContext) => Promise<T>,

@@ -1,7 +1,9 @@
 # Jamis Linear app setup
 
 Stages 1 and 2 of [plan 026](plans/026-linear-access.md) authenticate the app and
-expose bounded issue reads in the pinned `jamis` team. No mutation is available.
+expose bounded issue reads in the pinned `jamis` team. The operator-approved
+Stage 3 slice adds durable confirmed creation only. Updates and comment creation
+remain unavailable because Linear exposes no atomic issue-revision precondition.
 
 ## Verified contracts (2026-10-01 UTC)
 
@@ -16,6 +18,13 @@ expose bounded issue reads in the pinned `jamis` team. No mutation is available.
   and `comments:create`. No admin or native-agent scope is needed. Changing
   client-credentials scopes revokes existing app tokens, so coordinate the later
   scope change across runtimes.
+- The Stage 3 create-only client now requests **`read,issues:create`** uniformly
+  for reads, proposals, and execution. It rejects other scopes, including `write`,
+  `comments:create`, admin, and native-agent scopes. All runtimes using this app
+  must agree on this set: running a Stage 1/2 checkout that requests only `read`
+  would revoke the new tokens again. Coordinate the scope transition before
+  running any live smoke from this checkout. No live scope transition has been
+  performed as part of implementation verification.
 - [App authentication](https://linear.app/developers/agents#installation): `viewer.id`
   identifies the app user within the workspace. The [published Linear schema](https://github.com/linear/linear/blob/master/packages/sdk/src/schema.graphql)
   defines `viewer: User!`, `User.app: Boolean!`, `User.name: String!`, and
@@ -133,3 +142,63 @@ Read contracts verified on 2026-10-01 UTC against the [published schema](https:/
 `searchIssues(term:, filter:)`, `issue(id:)`, nested `comments`/`attachments`,
 and `pageInfo.hasNextPage/endCursor` with `first`/`after`. Only attachment title
 and link metadata are returned. No file URL is fetched.
+
+## Stage 3 confirmed creation
+
+`linearCreateProposalTool` accepts only `action: create`, a title (1 through 200
+characters), description (at most 2000 characters), and an optional exact state
+name. Omission resolves the team's default workflow state. Missing, ambiguous,
+or foreign states are refused. The proposal displays the exact title, description,
+and resolved status; execution explicitly pins the configured team and state IDs.
+Other fields, issue updates, comment creation, relationships, and sequences are
+not exposed. Linear's published update/comment inputs have no issue revision
+precondition, so these operations remain blocked under the retained strict
+stale-write guarantee; a non-atomic reread is not substituted.
+
+Only the validated operator Sendblue DM can propose creation. Runtime authority
+follows native account delegation through AsyncLocalStorage, outside serialized
+request-context entries and trace exports. The proposal records its source message,
+external DM, actual parent memory session, operation, and execution state in
+Postgres. A shared single-use channel capability arbitrates Linear and time-zone
+proposals. Studio, forged tool context, other senders, groups, and other channels
+cannot authorize creation.
+
+Only the immediately following, trimmed, case-sensitive `confirm` executes.
+Durable receipt order and provider-history adjacency both have to agree; equal
+provider timestamps do not prevent confirmation. Every other new operator message
+cancels, including login and `/new`. Duplicate deliveries do not consume newer
+proposals; replayed `/new` does not clear them. Session rollover cancels pending
+creation before creating the new session.
+
+Proposal posting occurs inside the transaction. The adapter validates a nonempty
+matching message handle and `QUEUED`, `SENT`, or `DELIVERED` status before Chat SDK
+discards the raw response. `ERROR`, missing/malformed acceptance, and thrown posts
+roll back the proposal. These statuses establish API acceptance, not handset
+delivery. A lost commit acknowledgement alone cannot authorize execution; a later
+confirmation must read the committed proposal and reverify adjacency/session
+before claiming it. The execution claim commits before
+any mutation is sent. Preflight revalidates app/team and the selected workflow
+state, with at most one retry before sending. Every possibly sent mutation failure
+is treated conservatively as uncertain, including partial GraphQL errors and lost
+or malformed responses. There is no automatic mutation retry. A caller-provided
+UUID identifies the requested create for inspection; it is not assumed to prove
+remote idempotency.
+
+A recovered claim is reported as uncertain and never executed again. Stored
+success survives failed result posting; notification recovery reports that success
+without another mutation. Inspect an uncertain issue UUID in Linear before a new
+attempt. `/new` cannot clear or resend a claim or unreported outcome. Status
+notifications may be repeated after a lost posting acknowledgement; issue creation
+is single-use. The existing production channel-render-context trace sanitizer is
+reused and exercised by the native fixture.
+
+Run the local protocol smoke with disposable loopback PostgreSQL (both database
+variables set to `jamis_sessions_test`), using stubbed Linear/Sendblue traffic:
+
+```bash
+rtk bun --no-env-file test src/mastra/channels/sendblue-linear.test.ts
+```
+
+This is not a live Linear mutation or handset demo. The operator-designated live
+creation demo and deferred Stage 2 handset reads remain unobserved, pending a
+coordinated scope transition and separately authorized deployment.
