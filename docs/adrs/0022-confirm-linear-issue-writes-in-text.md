@@ -44,6 +44,9 @@ The Operator separately approved case-insensitive confirmation on 2026-10-01 UTC
 to tolerate handset capitalization. `Confirm` and `CONFIRM` are accepted without
 changing DM, next-message, session, single-use, or stale-write requirements.
 Credentials and runtime authority stay outside model inputs and exported traces.
-JAM-64's security acceptance remains open while historical Sendblue credential
-exposure tracked in [JAM-82](https://linear.app/abdirahman-haji/issue/JAM-82) is unresolved;
-narrowing the functional scope does not waive that acceptance.
+The Operator subsequently transferred JAM-64's remaining credential/trace security
+AC to [JAM-82](https://linear.app/abdirahman-haji/issue/JAM-82). It remains unchecked
+there; historical Sendblue exposure is unresolved and remediation is deferred to
+the Operator. JAM-64's delivered read/create acceptance is separate from that
+operational cleanup. The transfer does not waive credential safety or assert
+rotation, deletion, or successful security verification.

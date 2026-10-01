@@ -1,6 +1,6 @@
 # 026: Linear reads and confirmed creation (JAM-64)
 
-Status: The operator accepted reads plus confirmed creation as JAM-64's scope on 2026-10-01 UTC. Its ten functional/verification ACs are satisfied by the recorded handset and fixture evidence; the credential/trace security AC remains open for JAM-82. Production runtime remains equivalent to `2f58c3d`; documentation release `f9e3c96` was pushed and deployed without an app restart. Updates/comments, metadata/relationships, and sequencing are deferred to JAM-83, JAM-84, and JAM-85. Strict stale-write requirements remain unchanged.
+Status: JAM-64's accepted read/create scope has ten satisfied ACs and is `In Review`. The operator transferred its remaining credential/trace security AC to JAM-82, where it remains unchecked; security remediation is separate from this delivery. Production runtime remains equivalent to `2f58c3d`; documentation release `f9e3c96` was deployed without an app restart, and scope documentation commit `3f40850` is pushed. Updates/comments, metadata/relationships, and sequencing are deferred to JAM-83, JAM-84, and JAM-85. Strict stale-write requirements remain unchanged.
 
 Linear: [JAM-64](https://linear.app/abdirahman-haji/issue/JAM-64/let-jamis-read-jamis-linear-issues-and-create-them-with-confirmation).
 
@@ -22,10 +22,13 @@ Linear: [JAM-64](https://linear.app/abdirahman-haji/issue/JAM-64/let-jamis-read-
 The operator explicitly approved accepting the delivered read/create surface and
 moving the original broader write goals to follow-ups. The ticket now has ten
 checked functional/verification ACs, with fixture and handset evidence identified
-separately. Its credential/trace security AC remains unchecked; JAM-64 remains
-`In Progress` until that acceptance is resolved. Historical current Sendblue
-credential exposure is tracked in [JAM-82](https://linear.app/abdirahman-haji/issue/JAM-82).
-The scope revision does not waive security acceptance or authorize remediation.
+separately. The initial scope revision retained the security AC on JAM-64.
+The operator subsequently requested transferring it to
+[JAM-82](https://linear.app/abdirahman-haji/issue/JAM-82), where credential rotation,
+historical trace cleanup, and verification remain unchecked. JAM-64's checklist
+now contains only its ten satisfied read/create ACs; its current `In Review`
+status was preserved. This transfers acceptance ownership, not a claim of security
+remediation or permission to perform it. The operator will handle that work later.
 
 - [JAM-83](https://linear.app/abdirahman-haji/issue/JAM-83): title/description/status updates and new comments, gated on verified atomic issue-revision preconditions. A final reread is not an accepted stale-write substitute.
 - [JAM-84](https://linear.app/abdirahman-haji/issue/JAM-84): remaining app-writable metadata and in-team parent/duplicate/blocks/related relationships, retaining strict stale-write requirements and the original exclusions.
@@ -34,6 +37,10 @@ The scope revision does not waive security acceptance or authorize remediation.
 These Backlog follow-ups preserve the deferred requirements, not completion claims
 or implementation approval. JAM-64 scope decision and checklist evidence are in
 comment `be63d585-fc69-47c9-9aaf-e8979406ac9c`; prior comments remain historical.
+The security-AC transfer is recorded in JAM-64 comment
+`6b63955c-5cec-44f0-8025-6ead94686a1c` and JAM-82 comment
+`a0931d47-1c5f-4fe7-ab4f-f0af37a988e0`. No security AC was marked complete and
+no credential rotation, runtime change, or trace cleanup was performed.
 The former full Stage 3/4 goals and timestamped observations below are retained
 as history and are superseded by this scope decision where they describe future
 JAM-64 requirements. The stale-write guarantee itself is not superseded.
