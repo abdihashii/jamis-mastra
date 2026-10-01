@@ -39,6 +39,7 @@ const {
 	OPENAI_LOGIN_SUCCESS,
 	OPENAI_LOGIN_TIMEOUT,
 	proposeOperatorTimeZoneChange,
+	requireSendbluePostAcceptance,
 	SENDBLUE_CHANNEL_SPAN_NAME,
 	SENDBLUE_CORRELATION_KEY,
 } = await import('./sendblue.js');
@@ -46,6 +47,20 @@ const {
 const { consumePendingOperatorTimeZoneChange } = await import('../../lib/operator-time-zone.js');
 
 const operatorNumber = process.env.JAMIS_ALLOWED_NUMBER!;
+
+test('Sendblue posting requires a known accepted status and matching nonempty handle', () => {
+	for (const status of ['QUEUED', 'SENT', 'DELIVERED'])
+		expect(() => requireSendbluePostAcceptance({ id: 'outbound', raw: { message_handle: 'outbound', status } })).not.toThrow();
+	for (const value of [
+		{},
+		{ id: '', raw: { message_handle: '', status: 'SENT' } },
+		{ id: 'outbound', raw: { message_handle: 'other', status: 'SENT' } },
+		{ id: 'outbound', raw: { message_handle: 'outbound', status: 'ERROR', error_message: 'private upstream text' } },
+		{ id: 'outbound', raw: { message_handle: 'outbound' } },
+		{ id: 'outbound', raw: { message_handle: 'outbound', status: 'SENT', error_code: 1 } },
+	])
+		expect(() => requireSendbluePostAcceptance(value)).toThrow('Sendblue posting unavailable.');
+});
 
 const directThreadId = 'sendblue:test-line:test-operator';
 let messageSequence = 0;

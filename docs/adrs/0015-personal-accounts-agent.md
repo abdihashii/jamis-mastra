@@ -5,7 +5,7 @@ Jamis gains its first personal-account integration (read-only Gmail; Calendar pe
 ## Decisions
 
 - One internal subagent owns the account class. Never registered on the root Mastra instance; only Jamis delegates; delegation prompt carries only the task (research-agent messageFilter precedent).
-- v1 is read-only Gmail via a single `gmail-search` tool: plain `fetch` against the Gmail REST API, no googleapis dependency. Sending requires an ADR 0012 text-check and is a follow-up.
+- v1 is read-only Gmail via a single `gmail-search` tool: plain `fetch` against the Gmail REST API, no googleapis dependency. Sending remains a follow-up requiring its own enforceable confirmation design; an [ADR 0012](0012-jamis-hitl-as-text-checks.md) clarification check does not authorize a write.
 - OAuth: Google Desktop-app client, consent screen published to Production (Testing expires refresh tokens in 7 days), scopes pinned to known members of the granted set (superset membership, per plan 012; was exact-equality to `gmail.readonly` when only Gmail existed; unverified-app warning accepted for the single operator; each granted scope is either restricted like Gmail or sensitive like Calendar). Headless capture: `login:google` script over SSH with a 127.0.0.1 loopback listener reached via `ssh -L` from the Mac (Google's device flow does not support Gmail scopes; OOB copy-paste is deprecated). Credential is a 0600 gitignored JSON in `data/` per the Google credential term; missing or dead credential fails with a generic channel message, recovery detail only in server logs.
 - Data policy: accept existing retention defaults. Full tool results persist in private Postgres message records; ClickHouse spans truncate strings at 1024 chars. The credential never enters any exported record; a post-deploy scan (ADR 0013 pattern) verifies.
 
@@ -23,3 +23,7 @@ Jamis gains its first personal-account integration (read-only Gmail; Calendar pe
 
 - Gmail-scoped refresh tokens die if the operator changes their Google account password; also on revocation, 6-month disuse, or the 100-token-per-client limit. Recovery is always re-running `login:google`.
 - Email content persistence follows the no-TTL reality of the current storage configuration (ADR 0011 consequence), now for a higher sensitivity class, accepted here.
+
+## JAM-64 extension
+
+Linear access stays with `personal-accounts-agent` even though its app identity has separate credentials from Google. The shared boundary is Operator-controlled account data and one isolated delegation path, not one OAuth credential. Use a distinct Jamis Linear app actor with OAuth `client_credentials`, keep the client ID and secret on the box, and mint access tokens as needed without persisting or logging them. Configure access for the `jamis` team and enforce its pinned team ID for every issue read and mutation, including every referenced issue in a relationship. Jamis still owns the Operator conversation; Linear issue writes follow [ADR 0022](0022-confirm-linear-issue-writes-in-text.md). Linear events do not invoke Jamis.
