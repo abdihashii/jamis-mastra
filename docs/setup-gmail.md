@@ -64,16 +64,42 @@ operator time zone. Calendar pool zones remain provider metadata only; see plan
 
 **VPS (prod):** the box has no browser, and Google requires a loopback
 redirect, so the trick is: the consent flow runs in your Mac's browser, the
-redirect is forwarded over SSH. The script runs inside a throwaway `oven/bun`
-container on the box, mounted on the running checkout (same pattern as plan
-009's Codex login).
+redirect is forwarded over SSH.
+
+On your Mac, connect with the loopback tunnel first:
+
+```bash
+ssh -o ExitOnForwardFailure=yes -L 53682:127.0.0.1:53682 vps
+```
+
+Replace `vps` with your usual SSH hostname. Keep this connection open.
 
 On the VPS:
 
 ```bash
-cd /root/jamis-mastra
+builtin cd /root/jamis-mastra
 install -d -m 700 -o 1000 -g 1000 data   # data/ owned by the app's uid 1000
 set -a && . ./.env.prod && set +a        # exports GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
+```
+
+If Bun is installed (`bun --version`), run directly:
+
+```bash
+bun run login:google
+```
+
+Open the printed URL in your Mac's browser, complete consent, then pick the
+calendars in the VPS terminal. After the script exits, fix ownership if you
+ran it as root so the app's uid 1000 can read the 0600 credential:
+
+```bash
+chown 1000:1000 data/google-oauth.json
+```
+
+If Bun is not installed, use a throwaway container instead (it writes as uid
+1000, so no ownership fix is needed):
+
+```bash
 docker run --rm -it --network host \
   --user 1000:1000 \
   -v /root/jamis-mastra:/repo -w /repo \
@@ -81,18 +107,21 @@ docker run --rm -it --network host \
   oven/bun:1.3.14-alpine bun --bun scripts/google-login.ts
 ```
 
-On your Mac, forward the loopback port and open the printed URL:
-
-```bash
-ssh -L 53682:127.0.0.1:53682 vps
-# then open the printed consent URL in your browser
-```
-
 Complete consent in the browser. The redirect reaches the script through the
 tunnel, and the script writes `/root/jamis-mastra/data/google-oauth.json`
 directly (mounted at `/app/data/` in the running app container). Keep mode
 0600 and owner uid 1000; the script prints the mode at the end, and a `stat
-data/google-oauth.json` on the box confirms the owner.
+data/google-oauth.json` on the box confirms the owner:
+
+```bash
+stat -c '%a %u:%g' data/google-oauth.json   # expect 600 1000:1000 on Linux
+jq '{scope, calendars: [.calendars[]? | .summary]}' data/google-oauth.json
+```
+
+Expect all three scopes and your selected calendars. This prints no tokens.
+After the script exits, browser retries can produce SSH `connect failed:
+Connection refused` messages because the callback listener has closed. Close
+the callback tab; these messages do not undo a successful login.
 
 Optional: override the port with `GOOGLE_LOGIN_PORT` and a matching
 `ssh -L` mapping.
