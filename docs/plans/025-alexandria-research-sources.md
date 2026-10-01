@@ -1,6 +1,6 @@
 # 025: Alexandria research sources (JAM-74)
 
-Status: Stage 1 committed as `7e84cca` after operator sign-off. Stage 2 implementation, behavioral checks, and independent reviews are complete locally. The incident-triage review finding is fixed and verified. Awaiting commit sign-off; nothing pushed or deployed.
+Status: implemented, reviewed, committed, and deployed on the JAM-74 feature branch. Stage 1: `7e84cca`; Stage 2: `6c3848b`. Both production iMessage smokes and trace inspections passed on 2026-10-01 UTC. All acceptance criteria met; pending PR review and merge.
 
 ## Resolved scope
 
@@ -10,7 +10,7 @@ Status: Stage 1 committed as `7e84cca` after operator sign-off. Stage 2 implemen
 - Research search may return ten papers. Developer search initially returns at most three records, with up to three matched passages per record. At most three sources may be cited.
 - The operator authorizes automatic Developer executions whose verified maximum cost is at most six credits per call. Block unknown, unbounded, or higher costs. Do not assume the operator's approximate 5,000-credit subscription establishes remaining credits.
 - Use one discovery route per task and at most one additional contract inspection if necessary. At most three record-fetching calls total, including index search and webpage scrapes. Tools remain sequential. A paper search leaves two further reads. Retain instruction-based task budgets and verify actual counts in traces.
-- No automatic cross-provider fallback, application retry loop, arbitrary provider execution, writes, terms acceptance, new dependencies, agent hierarchy, or production deployment.
+- No automatic cross-provider fallback, application retry loop, arbitrary provider execution, writes, terms acceptance, new dependencies, agent hierarchy, or unapproved production deployment. Production deployment was subsequently authorized after Stage 2 sign-off, as recorded below.
 
 ## Fresh evidence (2026-10-01 UTC)
 
@@ -55,7 +55,7 @@ Stop after verification and show the diff summary. Commit only after explicit si
 
 ### Stage 1 results (2026-10-01 UTC)
 
-- Added `research-source-discover` and `research-source-retrieve` in one module, using the installed SDK with no dependency changes. Neither tool is attached to an agent yet. Discovery accepts only `papers` or `developer`; retrieval accepts only paper search/read or Developer search. Counts and provider routes remain internal constants.
+- Added `research-source-discover` and `research-source-retrieve` in one module, using the installed SDK with no dependency changes. At Stage 1 verification, neither tool was attached to an agent. Discovery accepts only `papers` or `developer`; retrieval accepts only paper search/read or Developer search. Counts and provider routes remain internal constants.
 - Inspected contracts belong to the exact Mastra request-context instance. Installed Mastra 1.71.0 delegates by shallow-copying entries (`listAgentTools`); the fixture reproduces that copy and proves inherited contracts cannot authorize retrieval, new discovery cannot mutate the parent's state, and runtime contract state is absent from serialized context. Updates replace state and retain execution identities before sending requests.
 - Developer search uses a conservative six-credit maximum for three records, without discounting the catalogue's ten-record billing unit. Actual returned charges remain separate. Papers require a verified zero-credit contract. Unknown prices, unsupported contracts, or bounds above the permitted maximum block execution.
 - Normalized evidence includes original IDs/canonical URLs, content, evidence kind, UTC retrieval time, and available dates/license/attribution. Missing or ambiguous dates remain null. `web:` records contain no evidence content and explicitly require scraping. Unsupported original provenance produces a gap.
@@ -76,7 +76,7 @@ Direct tool demos, using separate paper and Developer contexts:
 
 Paper citation: `https://arxiv.org/abs/2005.11401`. Developer citation: `https://github.com/firecrawl/firecrawl/blob/33c042fd1e3c61f103b40dce41bd0381ff70e287/apps/go-sdk/README.md`. An earlier Developer query returned two supported records and one unsupported-provenance gap; the cap was not widened. These tool demos establish protocol behavior, not agent answer quality or index freshness.
 
-Ignored demo artifacts: `.firecrawl/jam-74-stage1-tools-smoke.ts` and `.firecrawl/jam-74-stage1-tools-smoke-result.json`. Existing glossary definitions already cover Stage 1. Agent routing, sequential task budgets, and answer quality remain Stage 2 work. Stage 1 committed as `7e84cca` after operator sign-off. No terms accepted, push, or deployment performed.
+Ignored demo artifacts: `.firecrawl/jam-74-stage1-tools-smoke.ts` and `.firecrawl/jam-74-stage1-tools-smoke-result.json`. Existing glossary definitions already cover Stage 1. These isolated demos preceded Stage 2 routing/budget/quality verification below. Stage 1 committed as `7e84cca` after operator sign-off; pushing and deployment were authorized later. No terms were accepted.
 
 ## 2. Connect the research subagent and verify quality
 
@@ -102,7 +102,7 @@ Stop after verification for explicit commit sign-off. Close with repository-wide
 - Kept the model, reasoning effort, and `maxSteps: 5`. Set native `toolCallConcurrency: 1`. Jamis's existing delegation hook surface clears parent-added instructions and pins the research run to five steps, retaining the subagent's own policy. The installed SDK adds parent instructions to the original policy; its execution path omits an empty addition, preserving that policy. A runtime fixture proves an attempted instruction override and three-step limit cannot truncate a four-step discovery/search/read/memo flow. Separate delegations retain isolated contracts and exclude unrelated parent conversation.
 - Jamis accepts citations from retrieved structured evidence as well as scraped webpages, labels abstract-only findings, and permits only the validated admin URL as access metadata on a terms-required refusal. It explicitly prohibits redelegating the same research question to bypass the task budget. New incident component mappings preserve historical webpage IDs.
 - Read version-matched Mastra documentation for subagent request-context copying, delegation hooks, generation/concurrency options, and exported spans; checked installed source for instruction merging and the five-step hook behavior. No new dependency, agent hierarchy, retry loop, or budget framework.
-- Final standard gates pass: typecheck, lint, 377 tests across 31 files with disposable Postgres, build, and whitespace checks. No channel message or deployment was performed. Live research used disposable local storage and unique smoke threads, with captured private artifacts only.
+- Final standard gates pass: typecheck, lint, 377 tests across 31 files with disposable Postgres, build, and whitespace checks. Initial agent comparisons used disposable local storage and unique smoke threads, with captured private artifacts only. Subsequent authorized production/channel verification is recorded below.
 
 Fixed questions, same model/reasoning settings, comparing current specialized routing against a smoke-only copy of the Stage 1 webpage agent:
 
@@ -119,8 +119,39 @@ Controlled source failures with the real Jamis model also passed: terms-required
 
 The first Developer answer omitted a sentence-level citation on an imperative SDK usage step; the clarified instruction and rerun fixed it. An earlier webpage comparison redelegated the same question and exceeded the total budget before its five-minute smoke deadline. The explicit no-redelegation instruction fixed that path: the final comparison stopped at one delegation/three reads and refused correctly. No cap was widened; the specialized path verified the SDK answer within the existing three-read cap.
 
-Ignored evidence: `.firecrawl/jam-74-stage2-jamis-smoke.ts`, the controlled-failure wrapper, `jam-74-stage2-evidence-check.ts`, and `jam-74-stage2-*.json`/logs. The final webpage Developer artifact is `jam-74-stage2-web-developer-final.json`; earlier failed runs remain separate historical observations. Stage 2 remains uncommitted.
+Ignored evidence: `.firecrawl/jam-74-stage2-jamis-smoke.ts`, the controlled-failure wrapper, `jam-74-stage2-evidence-check.ts`, and `jam-74-stage2-*.json`/logs. The final webpage Developer artifact is `jam-74-stage2-web-developer-final.json`; earlier failed runs remain separate historical observations. Stage 2 committed as `6c3848b` after operator sign-off.
 
 Requested independent reviews completed after code/testing: correctness, contracts/Mastra lifecycle, security, and ponytail/module boundaries. Security found no exploitable issues; ponytail found no worthwhile cuts. Review found that safe failure outputs ended as successful spans and therefore bypassed error-filtered incident triage. Fixed the shared source operation wrapper: upstream/access/unknown-outcome/invalid-response failures record a fixed safe span error without ending the span or changing its neutral output. Success, partial, empty, blocked, and terms-required outcomes remain normal results.
 
-The regression failed before the fix and now passes through local HTTP source responses, real Mastra tool execution/export, storage-equivalent error-derived status, and status-filtered incident triage. It covers both source components, all four hard-failure categories, normal gaps, and absence of raw provider diagnostics. Final gates still pass (377 tests across 31 files). A real-model controlled timeout rerun retained the exact refusal, unknown cost, and exactly two source calls without retry/fallback. Fresh code/security/ponytail re-reviews found no remaining issues or worthwhile cuts. Stage 2 is ready for commit sign-off.
+The regression failed before the fix and now passes through local HTTP source responses, real Mastra tool execution/export, storage-equivalent error-derived status, and status-filtered incident triage. It covers both source components, all four hard-failure categories, normal gaps, and absence of raw provider diagnostics. Final gates still pass (377 tests across 31 files). A real-model controlled timeout rerun retained the exact refusal, unknown cost, and exactly two source calls without retry/fallback. Fresh code/security/ponytail re-reviews found no remaining issues or worthwhile cuts. The operator approved the Stage 2 commit, branch push, and deployment; completion evidence follows.
+
+
+## Deployment and production channel acceptance (2026-10-01 UTC)
+
+- Implementation commits: `239ac8f` (plan/vocabulary), `7e84cca` (bounded tools), and `6c3848b` (agent wiring, evidence policy, triage integration).
+- After explicit commit/push/deployment approval, pushed `abdirahman/jam-74-add-firecrawl-alexandria-sources-to-jamis-online-research` and deployed it using `infra/deploy.sh`. Production revision `6c3848b2aa89257dfb19c1c359e08ed127aedf4d` was verified at `2026-10-01T03:29:38Z`. All four services were running; authenticated API returned 200; researchAgent exposed exactly webSearch, webScrape, researchSourceDiscover, and researchSourceRetrieve. Compiled modules contained the structured tools and safe span-error fix. No main-branch merge was performed.
+- The operator sent both public questions through iMessage and provided the visible replies. The corresponding agent and channel traces were inspected, not inferred from reply text alone.
+
+| Production question | Agent trace | Retrievals / limit | Research steps / limit | Reported credits | End-to-end latency |
+| --- | --- | --- | --- | --- | --- |
+| RAG abstract comparison | `7415b4350d94ba99914fa2b3b5cd9ac8` | 1 / 3 | 3 / 5 | 0 | 31.7s |
+| Firecrawl JS SDK request identity | `bd159863f6fab1020749da2d4f0db48d` | 3 / 3 | 5 / 5 | 2 index; page costs unknown | 81.9s |
+
+Both traces had exactly one research delegation and one catalogue discovery, no error spans, no repeated search/delegation or provider fallback, and sequential calls. The subagent's initial model context contained its system policy and one user message with only the current public research prompt. Each returned factual sentence had an adjacent citation. The abstract finding matched the retrieved abstract and was explicitly labeled abstract-only. The SDK guidance matched the actually scraped original README at its pinned commit. Channel spans matched by the existing digest recorded reply acceptance; the operator also supplied the received text.
+
+Research-operation metadata contained only the established operation fields. Broader model-step telemetry still retains response headers, including cookie/turn-state fields; that predates JAM-74 and is tracked separately in [JAM-78](https://linear.app/abdirahman-haji/issue/JAM-78/restrict-model-response-headers-retained-in-traces). No exploitable credential leak was established. No header values or raw private traces are committed. The sanitized inspection summary is ignored at `.firecrawl/jam-74-imessage-trace-report.json`; full trace artifacts remain private and ignored.
+
+## Acceptance criteria completion
+
+- [x] JAM-63 neutral web contracts/defaults retained.
+- [x] Discovery never treated as evidence; only finite read-only capabilities execute.
+- [x] Contracts, provenance/attribution, counts, access behavior, and bounded pricing checked.
+- [x] Original provenance/content retained; abstract-only and full-text passages distinguished.
+- [x] Web citations require scrapes; structured citations require retrieved evidence; refusal/privacy/source-quality policies retained.
+- [x] One discovery route and combined three-retrieval budget documented and trace-verified; sequential execution and five-step limit retained.
+- [x] No automatic provider fallback, application retry, or new-identity repeat after an uncertain outcome.
+- [x] Empty/malformed/failed sources cannot support answers; terms URL and timeout refusal verified.
+- [x] New operation telemetry stays allowlisted; hard failures reach triage with fixed safe errors.
+- [x] Focused contracts, direct source smokes, agent comparisons, and production channel traces verified.
+- [x] CONTEXT, ADR 0011, and this plan updated.
+- [x] Final repository gates pass: typecheck, lint, 377 tests across 31 files, build, and whitespace checks.
