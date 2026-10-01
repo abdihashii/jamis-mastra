@@ -1,6 +1,6 @@
 # 026: Confirmed Linear issue access (JAM-64)
 
-Status: Stages 1 and 2 approved for local commits. Stage 3 narrowed by operator decision to confirmed creation only; updates and comment creation blocked by the strict stale-write requirement. Handset smoke remains deferred until separately authorized deployment.
+Status: Create-only delivery is deployed at `2f58c3d` and handset-verified, including capitalized confirmation, replay protection, and actual invalid-input validation-failure handling. Retained-store inspection found no exact Linear credential matches or Linear/Bearer token-pattern hits; historical current Sendblue credential exposure is tracked in JAM-82. Updates/comments remain blocked by strict stale-write requirements; relationships/sequencing remain unavailable. Broad composite write/security ACs remain open.
 
 Linear: [JAM-64](https://linear.app/abdirahman-haji/issue/JAM-64/give-jamis-confirmed-access-to-jamis-linear-issues).
 
@@ -856,3 +856,76 @@ history. Both resulting statuses were verified. This manual, operator-authorized
 cleanup does not add update/delete/archive capabilities to Jamis or relax the
 create-only implementation's stale-write and confirmation guarantees. JAM-64
 was not edited. No implementation changes were needed.
+
+JAM-64 checklist and progress synchronization (2026-10-01 UTC): the operator
+requested checking completed ACs and keeping stage progress in comments. Checked
+the two handset read and pagination/clarification ACs, preserving the existing
+credential/team check (three checked total). Broad composite write/security ACs
+remain unchecked and the issue remains `In Progress`; no original requirement
+was removed or re-scoped.
+
+Historical Stage 1 and Stage 2 body notes were preserved in comments
+`6e3d5ca3-6cdd-4cbf-8d30-9b9fe50dc476` and
+`bd1105f2-f88c-428d-b7e8-06ce01aa09f7`, with clear historical-state labels.
+Current create-only delivery, release/gate/handset/cleanup evidence, and remaining
+verification/blockers are recorded in comment
+`e79e45a6-9e73-42e5-8e76-d5bebb4996f4`. Comment content was verified before
+removing the progress sections from the body. A final read verified unchanged
+body content outside those sections and the intended checklist edits, all three
+comments, and the issue status. Future stage-progress updates belong in comments.
+
+## Post-smoke verification and retained credential inspection (2026-10-01 UTC)
+
+Read-only inspection continued from repository HEAD `b4c6085`; production remains
+at the previously verified `2f58c3d`. Existing uncommitted synchronization notes
+above were preserved. No completed test or handset smoke was repeated.
+
+The VPS `.env.prod` is root-owned, mode `0600`; the three required Linear settings
+are present, with no configured Linear access-token key. Inspection requested no
+new OAuth token and did not change scopes. Comparisons and classification ran
+on-box; only safe counts, categories, and correlation evidence were returned.
+
+The retained-store scan covered all public PostgreSQL base tables, including
+1,389 messages, 140 observational-memory rows, and seven proposals; ClickHouse
+span/root/branch/log/metric/score/feedback/discovery stores; and retained app logs.
+It found zero exact current Linear client ID/secret matches and zero Linear or
+Bearer token-pattern hits. Scan completion: `2026-10-01T21:24:03.643504Z`.
+This does not establish absence of every historical or differently encoded token.
+Three older assistant messages and older trace copies contained expired JWT
+candidates whose origin was not established as Linear.
+
+The audit also found 120 historical span rows with serialized channel context.
+Independent exact-leaf comparisons verified the currently configured Sendblue
+API key, API secret, and webhook secret in adapter objects in 95 span rows,
+plus overlapping copies in 19 root and 62 branch rows. Matching records range
+from `2026-08-23T02:24:11.560Z` through `2026-08-24T04:34:47.313Z`.
+These are retained copies, not independent incidents. No unauthorized access or
+misuse was established. The operator authorized the separate High-priority
+[JAM-82](https://linear.app/abdirahman-haji/issue/JAM-82/rotate-sendblue-credentials-exposed-in-retained-channel-context-traces)
+ticket, linked to JAM-78; creation and relation were verified. Credential rotation,
+runtime changes, deployment, and trace cleanup remain separately approval-gated.
+No secret value or raw private trace belongs in this plan or either ticket.
+
+The operator then sent the designated empty-title handset request with description
+`JAM-64 invalid-input smoke.` and reported the safe reply: "Linear create proposal
+could not be posted. Nothing is authorized. Please request a fresh proposal with
+a title, description of at most 2,000 characters, and optional exact status."
+Correlated trace `25a54b993c181b029cb74b2c8d7198bc`, starting at
+`2026-10-01T21:25:58.010Z`, shows `linearCreateProposalTool` receiving a zero-length
+title and the exact 27-character description. Tool span `ee0bbeb7195f735a`
+returned an input-validation error; mapping span `3324f408abfcd180` returned the
+safe failure reply. This establishes actual native tool validation failure and
+handset failure handling, not only model clarification. Proposal totals before
+and after remained five canceled and two succeeded, with none pending or claimed.
+The smoke added receipt ordinal 26 and no proposal or execution; no issue creation
+was authorized or performed.
+
+The operator authorized a JAM-64 progress comment and this local plan update.
+Comment `5b05e7f7-b782-4098-b85f-fd4e038a96c7` records the verification and audit
+findings, superseding the earlier comment's pending observations. The issue body,
+its three checked ACs, and `In Progress` status remain unchanged. Broad composite
+write/security ACs remain unchecked. Strict confirmation and stale-write guarantees
+are unchanged; updates/comment creation remain blocked, and remaining fields,
+relationships, and ordered sequencing remain unavailable. Restart, rollover,
+uncertain-outcome, and authority fixtures are not relabeled as live demonstrations.
+No code change, new test gate, commit, push, deployment, or remediation mutation ran.
