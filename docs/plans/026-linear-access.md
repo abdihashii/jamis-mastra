@@ -805,3 +805,46 @@ The operator approved both the capitalization commit and its push/deployment on
 questions identified the exact correction. Commit message:
 `fix: accept case-insensitive Linear confirmation`. Follow release verification
 with one handset step at a time. Ticket updates remain unauthorized.
+
+Capitalization correction released as
+`2f58c3d0b4a7d88e2b81a95bea32e29ad9c3c4f1`
+(`fix: accept case-insensitive Linear confirmation`) on 2026-10-01 UTC.
+Push/deployment resumed after the operator paused to ask about negative-command
+capitalization and then explicitly said to continue. `decline` was already
+case-insensitive; no negative-command policy change was necessary. VPS checkout
+was clean at the exact released revision. All four Compose services were running;
+app started at `2026-10-01T18:48:35.058611699Z`, with zero restarts and the
+newly built image. Inspection of the actual running `/app/mastra.mjs` verified
+the case-insensitive confirmation check and preserved reply parser. API auth
+checks returned 401 without authentication and 200 with the runtime token; no
+credential was printed. Capitalized-confirm handset smoke is next. No test
+issue or ticket mutation ran during deployment verification. These release
+observations remain local and uncommitted.
+
+At `2f58c3d`, the operator received the fresh capitalized-confirmation smoke
+proposal with exact title `JAM-64 capitalized confirmation smoke (2026-10-01)`,
+description `Operator-authorized test of capitalized confirmation and repeated-confirmation protection.`,
+and `Backlog`. Read-only inspection verified proposal
+`7d142777-c345-4313-9f86-93bea33eec39` is uniquely active and pending, with no
+outcome, exact content/pinned team, latest recorded source receipt, matching
+active Jamis session, and no conflicting time-zone proposal. Capitalized
+confirmation is the next operator step; creation remains unobserved for this
+proposal.
+
+The operator supplied the handset transcript showing capitalized `Confirm`
+followed by `Created JAM-81` at `2f58c3d`. Independent Linear read verified UUID
+`7d142777-c345-4313-9f86-93bea33eec39`, exact capitalization-test title and
+description, `Backlog`, pinned `jamis` team, and the intended Jamis app creator.
+Creation timestamp: `2026-10-01T18:52:10.368Z`. This observes successful live
+capitalized confirmation, not yet its replay check. Ticket unchanged.
+
+The operator repeated capitalized `Confirm` and supplied the handset transcript:
+“There is no pending action to confirm.” A complete pinned-team Linear listing
+since `2026-10-01T18:50:00.000Z`, including archived issues, found only one exact
+capitalization-test match: JAM-81 (`hasNextPage: false`). This observes capitalized
+confirmation creation and no duplicate on capitalized replay at `2f58c3d`.
+The verified issue/proposal UUID remains
+`7d142777-c345-4313-9f86-93bea33eec39`. Production validation-failure handset
+handling and the broader credential/trace-leak audit remain unobserved; original
+blocked updates/comments/relationships/sequencing remain unavailable. No ticket
+update, cleanup mutation, or additional commit ran.
