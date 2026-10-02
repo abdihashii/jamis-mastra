@@ -28,6 +28,7 @@ const {
 	CODEX_AUTH_CHANNEL_ERROR,
 	formatSendblueError,
 	GENERIC_CHANNEL_ERROR,
+	EMPTY_REPLY_CHANNEL_ERROR,
 	getSendblueChannelCapability,
 	handleSendblueDirectMessage,
 	hashSendblueMessageHandle,
@@ -275,6 +276,37 @@ describe('Sendblue error formatting', () => {
 });
 
 describe('Sendblue request correlation', () => {
+	test('a completed silent run gets one safe fallback and a recorded reply-generation failure', async () => {
+		const fixture = memorySql();
+		const spans: AnyExportedSpan[] = [];
+		const observability = captureObservability(spans);
+		const replies: string[] = [];
+		const incoming = makeMessage('private smoke request');
+		await handleSendblueDirectMessage(makeThread(replies), incoming, async () => {}, makeHandlerContext(observability), fixture.sql);
+		await observability.flush();
+		expect(replies).toEqual([EMPTY_REPLY_CHANNEL_ERROR]);
+		const channel = spans.find(span => span.name === SENDBLUE_CHANNEL_SPAN_NAME)!;
+		expect(channel.metadata).toEqual({ [SENDBLUE_CORRELATION_KEY]: hashSendblueMessageHandle(incoming.id), stage: 'reply_generation', classification: 'failed' });
+		expect(channel.errorInfo).toBeDefined();
+		expect(JSON.stringify(channel)).not.toContain('private smoke request');
+		const failedContext = makeHandlerContext(observability);
+		const failed = makeMessage('another private smoke', operatorNumber, 'failed-fallback');
+		const failedReplies: string[] = [];
+		await expect(handleSendblueDirectMessage(
+			makeThread(failedReplies, async () => { throw new Error('private provider diagnostic'); }),
+			failed,
+			async () => {},
+			failedContext,
+			fixture.sql,
+		)).rejects.toThrow('private provider diagnostic');
+		await observability.flush();
+		expect(failedReplies).toEqual([EMPTY_REPLY_CHANNEL_ERROR]);
+		expect(getSendblueChannelCapability(failedContext.requestContext)).toBeUndefined();
+		const failedSpan = spans.find(span => span.metadata?.[SENDBLUE_CORRELATION_KEY] === hashSendblueMessageHandle(failed.id))!;
+		expect(failedSpan.metadata).toMatchObject({ stage: 'reply_delivery', classification: 'failed' });
+		expect(JSON.stringify(failedSpan)).not.toMatch(/private provider diagnostic|another private smoke/);
+		await observability.shutdown();
+	});
 	test('hashes provider handles deterministically without sharing correlation', () => {
 		const first = hashSendblueMessageHandle('provider-message-1');
 
@@ -731,7 +763,7 @@ describe('OpenAI login command routing', () => {
 			fixture.sql,
 		);
 
-		expect(messages).toEqual([]);
+		expect(messages).toEqual([EMPTY_REPLY_CHANNEL_ERROR]);
 		expect(defaultCalls).toBe(1);
 	});
 });
