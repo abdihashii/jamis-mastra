@@ -14,6 +14,7 @@ import { researchAgent } from './research-agent';
 import { weatherAgent } from './weather-agent';
 
 const projectWorkspace = createProjectWorkspace();
+const maxSteps = 5;
 
 export const jamis = new Agent({
 	id: 'jamis',
@@ -83,7 +84,17 @@ export const jamis = new Agent({
 		},
 	}),
 	defaultOptions: {
-		maxSteps: 5,
+		maxSteps,
+		prepareStep: ({ stepNumber, systemMessages }) => stepNumber >= maxSteps - 1
+			? {
+					activeTools: [],
+					toolChoice: 'none',
+					systemMessages: [...systemMessages, {
+						role: 'system',
+						content: 'This is your final step. Tools are unavailable. Return only the answer to the operator from the evidence already retrieved, preserving all existing response contracts and authorization requirements. If the task is incomplete, label the partial result and state what remains unknown. Do not invent missing evidence. Do not attempt, simulate, or narrate tool calls, or output tool-call arguments, tool_uses, recipient_name, or functions.* requests.',
+					}],
+				}
+			: undefined,
 		providerOptions: {
 			openai: { reasoningEffort: 'max' },
 		},
