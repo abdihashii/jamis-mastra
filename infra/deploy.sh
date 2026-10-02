@@ -60,6 +60,13 @@ export JAMIS_SOCKET_GID="$(id -g jamis)"
 
 # No TAILSCALE_IP guard: the app binds 127.0.0.1 and tailscale serve publishes it
 # to the tailnet, so there is no variable left whose value could expose the box.
-docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Prepare from the current checkout using the same dependency-free command as dev.
+docker run --rm --mount "type=bind,source=$PWD,target=/checkout" -w /checkout \
+  oven/bun:1.3.14-alpine bun scripts/prepare-project-view.ts
+
+docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml build app
+docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d postgres clickhouse
+docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --force-recreate app
+docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps cloudflared
 docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml ps
 EOF
