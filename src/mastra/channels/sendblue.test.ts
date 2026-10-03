@@ -1,6 +1,6 @@
 import type { ChannelHandlerContext } from '@mastra/core/channels';
 import type { AnyExportedSpan } from '@mastra/core/observability';
-import type { Message, Thread } from 'chat';
+import type { AdapterPostableMessage, Message, Thread } from 'chat';
 import type { SqlLike } from '../../lib/operator-time-zone';
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
@@ -14,6 +14,8 @@ import { TracingEventType } from '@mastra/core/observability';
 import { RequestContext } from '@mastra/core/request-context';
 import { InMemoryStore } from '@mastra/core/storage';
 import { Observability } from '@mastra/observability';
+import { parseMarkdown } from 'chat';
+import { createSendblueAdapter, toPlainText } from 'chat-adapter-sendblue';
 import { MODEL_AUTH_FAILURE } from '../gateways/openai-codex-auth.js';
 import { clearDeploymentSnapshot, getDeploymentSnapshot, settleDeploymentSnapshotReply, stageDeploymentSnapshot } from '../tools/deployment-monitoring';
 
@@ -48,6 +50,61 @@ const {
 const { consumePendingOperatorTimeZoneChange } = await import('../../lib/operator-time-zone.js');
 
 const operatorNumber = process.env.JAMIS_ALLOWED_NUMBER!;
+
+test('Sendblue outbound payloads preserve literal code, paths, URLs, and prose formatting', async () => {
+	const path = 'src/mastra/channels/__tests__/fixtures/';
+	const payloads: unknown[] = [];
+	const response = { message_handle: 'outbound', status: 'QUEUED' as const };
+	const fetch = spyOn(globalThis, 'fetch').mockImplementation((async (_url, init) => {
+		payloads.push(JSON.parse(String(init?.body)));
+		return Response.json(response);
+	}) as typeof globalThis.fetch);
+	try {
+		const adapter = createSendblueAdapter({ apiKey: 'test-api-key', apiSecret: 'test-api-secret' });
+		for (const [input, expected] of [
+			[`\`${path}\``, path],
+			[`\`\`\`ts\n"__tests__"; **literal**; *star*; _name_; ~~keep~~\n\`\`\``, '"__tests__"; **literal**; *star*; _name_; ~~keep~~'],
+			[`\`\`\`\n${path}\n\`\`\``, path],
+			[`Read ${path} and /src/__tests__/file_name.ts.`, `Read ${path} and /src/__tests__/file_name.ts.`],
+			['`**one** _two_` and `*three* __four__`', '**one** _two_ and *three* __four__'],
+			['`[keep](https://example.com/a_b)` https://example.com/__one__ https://example.com/a*b', '[keep](https://example.com/a_b) https://example.com/__one__ https://example.com/a*b'],
+			['%%URLPH0%% %%LITERAL0%% %%LITERAL%0%% `%%LITERAL0%%` https://example.com/a_b', '%%URLPH0%% %%LITERAL0%% %%LITERAL%0%% %%LITERAL0%% https://example.com/a_b'],
+			['%%LIT**ERAL**0%% `keep`', '%%LITERAL0%% keep'],
+			['# Heading\n**bold** *italic* _emphasis_ ~~strike~~\n- first\n+ second\n---\n[docs](https://example.com/a_b)', 'Heading\nbold italic emphasis strike\n• first\n• second\n\ndocs (https://example.com/a_b)'],
+			['`# literal\n- item\n___`', '# literal\n- item\n___'],
+			['***strong***\nline two', 'strong\nline two'],
+		]) {
+			expect(toPlainText(input)).toBe(expected);
+			for (const coordinates of [{ fromNumber: '+15555550100', contactNumber: operatorNumber }, { fromNumber: '+15555550100', groupId: 'test-group' }]) {
+				const threadId = adapter.encodeThreadId(coordinates);
+				for (const message of [input, { markdown: input }, { text: input }]) {
+					// The pinned adapter also accepts its legacy text form at runtime.
+					const result = await adapter.postMessage(threadId, message as AdapterPostableMessage);
+					expect(payloads.pop()).toMatchObject({ content: expected, from_number: coordinates.fromNumber, ...('groupId' in coordinates ? { group_id: coordinates.groupId } : { number: coordinates.contactNumber }) });
+					expect(result).toMatchObject({ id: 'outbound', raw: response, threadId });
+					requireSendbluePostAcceptance(result);
+				}
+			}
+		}
+		const ast = parseMarkdown(`Read \`${path}\` and **reply**.`);
+		expect(adapter.renderFormatted(ast)).toBe(`Read ${path} and reply.`);
+		for (const coordinates of [{ fromNumber: '+15555550100', contactNumber: operatorNumber }, { fromNumber: '+15555550100', groupId: 'test-group' }]) {
+			const threadId = adapter.encodeThreadId(coordinates);
+			await adapter.postMessage(threadId, { ast });
+			expect(payloads.pop()).toMatchObject({ content: `Read ${path} and reply.` });
+			async function* chunks() {
+				yield `Read \`src/mastra/`;
+				yield { type: 'markdown_text' as const, text: `channels/__tests__/fixtures/\`\n\n` };
+				yield '**reply**.';
+			}
+			requireSendbluePostAcceptance(await adapter.stream(threadId, chunks()));
+			expect(payloads.splice(0)).toMatchObject([{ content: `Read ${path}` }, { content: 'reply.' }]);
+		}
+	}
+	finally {
+		fetch.mockRestore();
+	}
+});
 
 test('Sendblue posting requires a known accepted status and matching nonempty handle', () => {
 	for (const status of ['QUEUED', 'SENT', 'DELIVERED'])

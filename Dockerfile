@@ -3,6 +3,7 @@ WORKDIR /app
 
 # Manifest first so a source-only change reuses the install layer.
 COPY package.json bun.lock ./
+COPY patches patches
 
 RUN bun install --frozen-lockfile
 
