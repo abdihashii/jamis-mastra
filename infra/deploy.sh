@@ -67,6 +67,9 @@ docker run --rm --mount "type=bind,source=$PWD,target=/checkout" -w /checkout \
 docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml build app
 docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d postgres clickhouse
 docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --force-recreate app
+# A failed build or recreation must leave the running app's mounted generation intact.
+docker run --rm --mount "type=bind,source=$PWD,target=/checkout" -w /checkout \
+  oven/bun:1.3.14-alpine bun scripts/prepare-project-view.ts --cleanup
 docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps cloudflared
 docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml ps
 EOF

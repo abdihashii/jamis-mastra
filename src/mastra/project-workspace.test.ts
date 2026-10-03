@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 
 import { createWorkspaceTools } from '@mastra/core/workspace';
 
-import { prepareProjectView } from '../../scripts/prepare-project-view';
+import { cleanupProjectViews, prepareProjectView } from '../../scripts/prepare-project-view';
 import { createProjectWorkspace } from './project-workspace';
 
 let root: string;
@@ -139,6 +139,23 @@ test('prepared view enforces the approved native read boundary and refreshes wit
 	expect(await createProjectWorkspace(refreshed.path)).toBeUndefined();
 }, 15000);
 
+test('failed deployment preparations and retries preserve the running workspace', async () => {
+	const initial = await prepareProjectView(root);
+	const initialPath = await realpath(initial.path);
+	const running = (await createProjectWorkspace(initial.path))!.filesystem!;
+	await put(join(root, 'src/handler.ts'), 'replacement handler');
+	const failed = await prepareProjectView(root); // Build fails before the app is recreated.
+	const failedPath = await realpath(failed.path);
+	const retry = await prepareProjectView(root);
+	expect(await running.readFile('src/handler.ts', { encoding: 'utf8' })).toContain('approved handler');
+	const replacement = (await createProjectWorkspace(retry.path))!.filesystem!;
+	expect(await replacement.readFile('src/handler.ts', { encoding: 'utf8' })).toBe('replacement handler');
+	await cleanupProjectViews(root); // The replacement app now owns the current generation.
+	await expect(lstat(initialPath)).rejects.toThrow();
+	await expect(lstat(failedPath)).rejects.toThrow();
+	expect(await replacement.readFile('src/handler.ts', { encoding: 'utf8' })).toBe('replacement handler');
+});
+
 test.skipIf(!process.env.PROJECT_VIEW_DOCKER_SMOKE)('Linux mount rejects non-root writes and app-only recreation sees replaced content', async () => {
 	const project = `jam79-${crypto.randomUUID().slice(0, 8)}`;
 	const composePath = join(root, 'smoke.yml');
@@ -186,12 +203,18 @@ test.skipIf(!process.env.PROJECT_VIEW_DOCKER_SMOKE)('Linux mount rejects non-roo
 		await put(join(root, 'src/atomic.ts'), 'replacement handler');
 		await rename(join(root, 'src/atomic.ts'), join(root, 'src/handler.ts'));
 		await run(prepare);
+		// Simulate a failed build, then retry preparation without replacing the healthy app.
+		await run(prepare);
 		expect(await run([...compose, 'exec', '-T', 'app', 'cat', '/project/src/handler.ts'])).toContain('approved handler');
 		const deploy = await readFile(new URL('../../infra/deploy.sh', import.meta.url), 'utf8');
+		expect(deploy.indexOf('--cleanup')).toBeGreaterThan(deploy.indexOf('--force-recreate app'));
 		const commands = [...deploy.matchAll(/^docker compose .* (up .+)$/gm)].map(match => match[1].split(' '));
 		expect(commands).toHaveLength(3);
-		for (const args of commands)
+		for (const args of commands) {
 			await run([...compose, ...args]);
+			if (args.includes('--force-recreate'))
+				await run([...prepare, '--cleanup']);
+		}
 		const appAfter = await run([...compose, 'ps', '-q', 'app']);
 		expect(appAfter).not.toBe(appBefore);
 		expect(await run(['docker', 'inspect', '--format', '{{.Image}}', appAfter])).toBe(imageBefore);

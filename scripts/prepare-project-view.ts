@@ -75,15 +75,9 @@ export async function prepareProjectView(checkout = process.cwd()) {
 		await writeFile(join(fresh, '.prepared-at'), `${preparedAt}\n`, { mode: 0o644 });
 		await chmod(join(fresh, '.prepared-at'), 0o644);
 		const current = join(store, 'current');
-		const previous = await readlink(current).catch(() => undefined);
 		await symlink(basename(fresh), pointer);
 		await rename(pointer, current);
 		published = true;
-		// ponytail: retain one retired view for existing bind mounts; deploy recreates app.
-		for (const entry of await readdir(store)) {
-			if (entry.startsWith('view-') && entry !== basename(fresh) && entry !== previous)
-				await rm(join(store, entry), { recursive: true, force: true });
-		}
 		return { path: current, preparedAt };
 	}
 	catch (error) {
@@ -95,7 +89,22 @@ export async function prepareProjectView(checkout = process.cwd()) {
 	}
 }
 
+// Call only after the app has been recreated against current; preparation cannot retire live mounts.
+export async function cleanupProjectViews(checkout = process.cwd()) {
+	const store = join(await realpath(checkout), '.project-view');
+	const current = await readlink(join(store, 'current'));
+	for (const entry of await readdir(store)) {
+		if (entry.startsWith('view-') && entry !== current)
+			await rm(join(store, entry), { recursive: true, force: true });
+	}
+}
+
 if (import.meta.main) {
-	const view = await prepareProjectView(resolve(process.argv[2] ?? '.'));
-	console.log(`Project view prepared at ${view.preparedAt}\nPROJECT_VIEW_PATH=${view.path}`);
+	if (process.argv[2] === '--cleanup') {
+		await cleanupProjectViews(resolve(process.argv[3] ?? '.'));
+	}
+	else {
+		const view = await prepareProjectView(resolve(process.argv[2] ?? '.'));
+		console.log(`Project view prepared at ${view.preparedAt}\nPROJECT_VIEW_PATH=${view.path}`);
+	}
 }

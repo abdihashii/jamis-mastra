@@ -24,6 +24,8 @@ Use one preparation command and fixed selection for both environments. Apply exp
 
 Refresh the view whenever the supported workflow changes the checkout, including manual source edits before inspection. After publishing a replacement view during deployment, force recreation of the `app` container without forcing recreation of the databases or other services. A file or directory bind can retain an old inode after replacement; ordinary `compose up -d --build` does not guarantee recreation when image/configuration is unchanged. The view is prepared from current checkout files, not from a source snapshot tied to the running build. Record its preparation time and do not claim an unrefreshed view proves the latest checkout contents. Avoid a watcher or custom filesystem provider.
 
+Preparation retains published generations so a failed build or recreation cannot delete the running app's files on retry. Deployment cleans up retired generations only after app recreation succeeds. Preparation, recreation, and cleanup run serially. Local preparation also retains generations; run `bun --bun scripts/prepare-project-view.ts --cleanup` only after restarting or stopping the old application process.
+
 Create a small Workspace configuration module using existing Mastra imports, an absolute view path, `readOnly: true`, and `contained: true`. Configure no sandbox, indexing service, custom file tools, or new dependency. A missing or unconfigured view must not silently become an unrestricted repository filesystem or prevent unrelated Jamis requests.
 
 ## 1. Establish and prove the file boundary
