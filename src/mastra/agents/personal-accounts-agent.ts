@@ -56,6 +56,11 @@ export const personalAccountsAgent = new Agent({
           else; anything else ("rate-limited", "unreachable", "failed", "unusable") → say the
           corresponding service (Gmail or Calendar) is having trouble and to try again later.
 `,
-	model: 'neuralwatt/deepseek-v4-flash',
+	model: 'openai/gpt-6-luna',
+	defaultOptions: {
+		providerOptions: {
+			openai: { reasoningEffort: 'max' },
+		},
+	},
 	tools: { gmailSearchTool, calendarEventsTool, linearReadTool, linearCreateProposalTool },
 });
