@@ -77,7 +77,7 @@ export const jamis = new Agent({
 			semanticRecall: false,
 			workingMemory: { enabled: false },
 			observationalMemory: {
-				model: 'neuralwatt/deepseek-v4-flash',
+				model: 'openai/gpt-6-luna',
 				scope: 'thread',
 				retrieval: false,
 			},
