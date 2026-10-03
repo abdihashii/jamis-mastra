@@ -127,6 +127,7 @@ export type IncidentFailureStage
 		| 'scheduled_job'
 		| 'application_storage'
 		| 'reply_delivery'
+		| 'reply_generation'
 		| 'app_container'
 		| 'postgres_container'
 		| 'clickhouse_container'
@@ -215,7 +216,7 @@ export type IncidentResult
 			classification: IncidentClassification;
 			scope: 'single_request' | 'single_execution' | 'current' | 'current_and_recent_5m';
 			impact: 'request_failed' | 'execution_failed' | 'execution_degraded' | 'reply_not_delivered' | 'delivery_unconfirmed' | 'component_unavailable' | 'component_degraded';
-			cause?: 'reply_delivery_failed' | 'codex_auth_failure';
+			cause?: 'reply_delivery_failed' | 'reply_not_generated' | 'codex_auth_failure';
 			codexAuthReason?: CodexAuthFailureReason;
 			traceReference?: { traceId: string; spanId: string };
 		};
@@ -243,6 +244,7 @@ const incidentFailureStageSchema = z.enum([
 	'scheduled_job',
 	'application_storage',
 	'reply_delivery',
+	'reply_generation',
 	'app_container',
 	'postgres_container',
 	'clickhouse_container',
@@ -330,7 +332,7 @@ const foundIncidentBaseSchema = incidentCandidateBaseSchema.extend({
 	classification: incidentClassificationSchema,
 	scope: z.enum(['single_request', 'single_execution', 'current', 'current_and_recent_5m']),
 	impact: z.enum(['request_failed', 'execution_failed', 'execution_degraded', 'reply_not_delivered', 'delivery_unconfirmed', 'component_unavailable', 'component_degraded']),
-	cause: z.enum(['reply_delivery_failed', 'codex_auth_failure']).optional(),
+	cause: z.enum(['reply_delivery_failed', 'reply_not_generated', 'codex_auth_failure']).optional(),
 	codexAuthReason: codexAuthFailureReasonSchema.optional(),
 	traceReference: z.object({ traceId: z.string(), spanId: z.string() }).strict().optional(),
 });
@@ -440,13 +442,15 @@ function stageOf(spanType: SpanType): IncidentFailureStage {
 	}
 }
 
-function channelFailure(row: TraceRow): 'channel_intake' | 'reply_delivery' | undefined {
+function channelFailure(row: TraceRow): 'channel_intake' | 'reply_delivery' | 'reply_generation' | undefined {
 	if (row.name !== SENDBLUE_CHANNEL_SPAN_NAME || row.metadata?.classification !== 'failed')
 		return;
 	if (row.metadata.stage === 'channel_intake')
 		return 'channel_intake';
 	if (row.metadata.stage === 'reply_delivery')
 		return 'reply_delivery';
+	if (row.metadata.stage === 'reply_generation')
+		return 'reply_generation';
 }
 
 function deepestFailedSpan(structure: GetStructureResponse, anchorSpanId: string): TraceRow | undefined {
@@ -557,7 +561,9 @@ function found(
 	const codexAuthReason = exact ? inspected.codexAuthReason : undefined;
 	const cause = delivery && exact
 		? 'reply_delivery_failed' as const
-		: codexAuthReason ? 'codex_auth_failure' as const : undefined;
+		: candidate.stage === 'reply_generation' && exact
+			? 'reply_not_generated' as const
+			: codexAuthReason ? 'codex_auth_failure' as const : undefined;
 	return {
 		status: 'found',
 		targetKind: target.kind,
@@ -709,19 +715,21 @@ function snapshotCandidate(finding: DeploymentSnapshotFinding, observedAtUtc: st
 		: item.subject === 'fantasy_recaps' ? 'fantasy-weekly-recap' : item.subject;
 	const stage: IncidentFailureStage = item.fact === 'reply_acceptance_failed'
 		? 'reply_delivery'
-		: item.fact === 'intake_failed'
-			? 'channel_intake'
-			: item.fact === 'top_level_execution_failed'
-				? 'agent'
-				: item.fact === 'recap_failed' || item.fact === 'recap_delivery_unknown'
-					? finding.fantasyStage ?? 'unknown'
-					: item.fact === 'recap_execution_failed' || item.fact === 'recap_expired_active'
-						? 'scheduled_job'
-						: item.fact === 'tunnel_local_error'
-							? 'tunnel_diagnostic'
-							: item.fact === 'container_not_running' && item.container
-								? dockerStages[item.container]
-								: 'unknown';
+		: item.fact === 'reply_not_generated'
+			? 'reply_generation'
+			: item.fact === 'intake_failed'
+				? 'channel_intake'
+				: item.fact === 'top_level_execution_failed'
+					? 'agent'
+					: item.fact === 'recap_failed' || item.fact === 'recap_delivery_unknown'
+						? finding.fantasyStage ?? 'unknown'
+						: item.fact === 'recap_execution_failed' || item.fact === 'recap_expired_active'
+							? 'scheduled_job'
+							: item.fact === 'tunnel_local_error'
+								? 'tunnel_diagnostic'
+								: item.fact === 'container_not_running' && item.container
+									? dockerStages[item.container]
+									: 'unknown';
 	const base = { component, stage, ...(item.week ? { humanDomainReference: `week ${item.week}` } : {}) };
 	return item.boundary === 'current' || item.boundary === 'current_instance' || item.boundary === 'current_and_recent_5m' || !item.at
 		? { ...base, observedAtUtc: item.at ?? observedAtUtc }
@@ -774,13 +782,13 @@ async function readMonitoringFinding(
 				? finding.fantasyClassification ?? 'unknown'
 				: item.fact === 'recap_expired_active'
 					? 'unknown'
-					: item.fact === 'top_level_execution_failed' || item.fact === 'recap_execution_failed'
+					: item.fact === 'top_level_execution_failed' || item.fact === 'reply_not_generated' || item.fact === 'recap_execution_failed'
 						? 'execution_failed'
 						: item.fact === 'tunnel_local_error' ? 'component_error' : 'component_not_running';
 	const provenFantasyDeliveryFailure = item.fact === 'recap_failed' && finding.fantasyStage === 'reply_delivery' && finding.fantasyClassification === 'delivery_failed';
 	const impact: Extract<IncidentResult, { status: 'found' }>['incident']['impact'] = item.fact === 'reply_acceptance_failed' || provenFantasyDeliveryFailure
 		? 'reply_not_delivered'
-		: item.fact === 'intake_failed'
+		: item.fact === 'intake_failed' || item.fact === 'reply_not_generated'
 			? 'request_failed'
 			: item.fact === 'recap_delivery_unknown'
 				? 'delivery_unconfirmed'
@@ -796,7 +804,9 @@ async function readMonitoringFinding(
 		gaps.push('occurrence_time_unknown');
 	if (candidate.stage === 'unknown')
 		gaps.push('failure_stage_unknown');
-	const cause = (item.fact === 'reply_acceptance_failed' && finding.traceReference) || provenFantasyDeliveryFailure ? 'reply_delivery_failed' as const : undefined;
+	const cause = (item.fact === 'reply_acceptance_failed' && finding.traceReference) || provenFantasyDeliveryFailure
+		? 'reply_delivery_failed' as const
+		: item.fact === 'reply_not_generated' && finding.traceReference ? 'reply_not_generated' as const : undefined;
 	if (!cause)
 		gaps.push('cause_unproven');
 	return {

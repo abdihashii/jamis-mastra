@@ -97,7 +97,7 @@ describe('Deployment monitoring Stage 1', () => {
 			currentDigest: digest,
 			getStore: async () => ({ listTracesLight: async (args: any) => ({
 				spans: args.filters.spanType === SpanType.GENERIC
-					? [channel('channel_intake', 'accepted', digest), channel('reply_delivery', 'delivered', 'b'.repeat(64)), channel('reply_delivery', 'failed', 'c'.repeat(64)), channel('channel_intake', 'failed', 'd'.repeat(64))]
+					? [channel('channel_intake', 'accepted', digest), channel('reply_delivery', 'delivered', 'b'.repeat(64)), channel('reply_delivery', 'failed', 'c'.repeat(64)), channel('reply_generation', 'failed', 'e'.repeat(64)), channel('channel_intake', 'failed', 'd'.repeat(64))]
 					: [
 							{ spanType: SpanType.AGENT_RUN, entityId: 'jamis', startedAt: new Date(now - 30_000), status: TraceStatus.ERROR, metadata: { sendblue_message_digest: 'c'.repeat(64), injected: raw } },
 							{ spanType: SpanType.TOOL_CALL, entityId: 'jamis', startedAt: new Date(now - 30_000), status: TraceStatus.ERROR, metadata: { sendblue_message_digest: 'b'.repeat(64), injected: raw } },
@@ -112,9 +112,9 @@ describe('Deployment monitoring Stage 1', () => {
 			] as never,
 		});
 		const result = await readDeploymentMonitoring(fixture as never, 24, now);
-		expect(result.serviceOutcomes[0]).toMatchObject({ currentRequest: 'intake_accepted_reply_pending', historicalActivity: 'requests_observed', completedHistoricalRequests: 2, replyAccepted: 1, replyFailed: 1, intakeFailed: 1, topLevelExecutionFailed: 1, topLevelExecutionSucceeded: 0 });
+		expect(result.serviceOutcomes[0]).toMatchObject({ currentRequest: 'intake_accepted_reply_pending', historicalActivity: 'requests_observed', completedHistoricalRequests: 3, replyAccepted: 1, replyFailed: 2, intakeFailed: 1, topLevelExecutionFailed: 1, topLevelExecutionSucceeded: 0 });
 		expect(result.serviceOutcomes[1].counts).toEqual({ sent: 1, failed: 1, deliveryUnknown: 1, active: 0, expiredActive: 1 });
-		expect(result.needsAttention.map(item => item.fact)).toEqual(['reply_acceptance_failed', 'intake_failed', 'top_level_execution_failed', 'recap_failed', 'recap_delivery_unknown', 'recap_expired_active']);
+		expect(result.needsAttention.map(item => item.fact)).toEqual(['reply_acceptance_failed', 'reply_not_generated', 'intake_failed', 'top_level_execution_failed', 'recap_failed', 'recap_delivery_unknown', 'recap_expired_active']);
 		expect(result.recentRecoveredEvents).toEqual([]);
 		expect(JSON.stringify(result)).not.toMatch(/secret|15551234567|injected|inputPreview|finalText|lastError/);
 	});

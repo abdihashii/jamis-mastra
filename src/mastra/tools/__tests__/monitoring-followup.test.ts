@@ -86,13 +86,13 @@ function evidence(stopped: Array<'app' | 'postgres' | 'clickhouse' | 'cloudflare
 async function snapshot(
 	requestContext: RequestContext,
 	thread: Thread,
-	options: { stopped?: Array<'app' | 'postgres' | 'clickhouse' | 'cloudflared'>; replyFailure?: boolean; fantasyFailure?: boolean; currentEvidence?: ReturnType<typeof evidence> } = {},
+	options: { stopped?: Array<'app' | 'postgres' | 'clickhouse' | 'cloudflared'>; replyFailure?: boolean; replyGenerationFailure?: boolean; fantasyFailure?: boolean; currentEvidence?: ReturnType<typeof evidence> } = {},
 ) {
 	const capability = getSendblueChannelCapability(requestContext);
 	const digest = capability && hashSendblueMessageHandle(capability.message.id);
 	return await readDeploymentMonitoring({
 		getStore: async () => ({ listTracesLight: async (args: { filters: { spanType: SpanType } }) => ({
-			spans: options.replyFailure && args.filters.spanType === SpanType.GENERIC
+			spans: (options.replyFailure || options.replyGenerationFailure) && args.filters.spanType === SpanType.GENERIC
 				? [{
 						name: 'sendblue.channel',
 						spanType: SpanType.GENERIC,
@@ -100,7 +100,7 @@ async function snapshot(
 						spanId: 'span-reply',
 						startedAt: new Date(now),
 						endedAt: new Date(now),
-						metadata: { stage: 'reply_delivery', classification: 'failed', sendblue_message_digest: 'older', raw },
+						metadata: { stage: options.replyGenerationFailure ? 'reply_generation' : 'reply_delivery', classification: 'failed', sendblue_message_digest: 'older', raw },
 					}]
 				: [],
 			pagination: { hasMore: false },
@@ -121,6 +121,18 @@ async function followup(requestContext: RequestContext, finding?: Record<string,
 }
 
 describe('authenticated Deployment Monitoring follow-up', () => {
+	test('triages a missing-reply Monitoring finding without claiming a delivery failure', async () => {
+		const conversation = thread('thread-a');
+		await dispatch(conversation.value, operatorMessage('thread-a', 'request-1', 'Status?'), async (context, observed) => {
+			const summary = await snapshot(context, observed, { replyGenerationFailure: true });
+			expect(summary.needsAttention).toContainEqual({ subject: 'operator_conversation', fact: 'reply_not_generated', boundary: 'recent_history', at });
+			await observed.post('A reply was not generated.');
+		});
+		const result = await dispatch(conversation.value, operatorMessage('thread-a', 'request-2', 'What happened?'), async context => await followup(context));
+		expect(result).toMatchObject({ status: 'found', targetKind: 'monitoring_finding', incident: { stage: 'reply_generation', classification: 'execution_failed', impact: 'request_failed', cause: 'reply_not_generated', traceReference: { traceId: 'trace-reply', spanId: 'span-reply' } } });
+		expect((triageIncidentTool.outputSchema as z.ZodTypeAny).safeParse(result).success).toBe(true);
+		expect(JSON.stringify(result)).not.toContain(raw);
+	});
 	test('allows only safe finding clues and requires the live channel capability', async () => {
 		const schema = triageIncidentTool.inputSchema as z.ZodTypeAny;
 		expect(schema.parse({ kind: 'monitoring_finding', finding: { subject: 'docker', container: 'postgres' } })).toMatchObject({ kind: 'monitoring_finding' });

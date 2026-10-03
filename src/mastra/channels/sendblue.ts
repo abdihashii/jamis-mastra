@@ -27,6 +27,7 @@ import { clearDeploymentSnapshot, settleDeploymentSnapshotReply } from '../tools
 
 export const CODEX_AUTH_CHANNEL_ERROR = 'JAMIS lost access to ChatGPT and did not complete your request. Re-authentication is required.';
 export const GENERIC_CHANNEL_ERROR = 'JAMIS could not complete that request. The error was logged.';
+export const EMPTY_REPLY_CHANNEL_ERROR = 'JAMIS did not finish a reply. Ask "what happened?" to triage this request.';
 export const OPENAI_LOGIN_IN_PROGRESS = 'OpenAI login is already in progress.';
 export const OPENAI_LOGIN_SUCCESS = 'OpenAI login complete.';
 export const OPENAI_LOGIN_TIMEOUT = 'OpenAI login timed out. Send "login openai" to try again.';
@@ -411,6 +412,8 @@ export async function handleSendblueDirectMessage(
 	const correlation = context && hasSource && messageAt ? { context, messageAt } : undefined;
 	let defaultHandlerStarted = false;
 	let deliveryFailed = false;
+	let replyPosted = false;
+	let replyMissing = false;
 	let spanEndedLater = false;
 	let span: Span<SpanType.GENERIC> | undefined;
 	let observedThread = thread;
@@ -423,29 +426,32 @@ export async function handleSendblueDirectMessage(
 			requestContext: correlation.context.requestContext,
 			metadata: { stage: 'channel_intake', classification: 'accepted' },
 		});
-		const boundarySpan = span;
-		observedThread = new Proxy(thread, {
-			get(target, property, receiver) {
-				if (property !== 'post')
-					return Reflect.get(target, property, receiver);
-				return async (postable: unknown) => {
-					try {
-						const result = await Reflect.apply(target.post, target, [postable]);
-						if (!deliveryFailed) {
-							boundarySpan?.update({ metadata: { stage: 'reply_delivery', classification: 'delivered' } });
-							settleDeploymentSnapshotReply(thread.id, message.id, postable !== GENERIC_CHANNEL_ERROR && postable !== CODEX_AUTH_CHANNEL_ERROR);
-						}
-						return result;
+	}
+	const boundarySpan = span;
+	observedThread = new Proxy(thread, {
+		get(target, property, receiver) {
+			if (property !== 'post')
+				return Reflect.get(target, property, receiver);
+			return async (postable: unknown) => {
+				try {
+					const result = await Reflect.apply(target.post, target, [postable]);
+					replyPosted = true;
+					if (!deliveryFailed && !replyMissing) {
+						boundarySpan?.update({ metadata: { stage: 'reply_delivery', classification: 'delivered' } });
+						settleDeploymentSnapshotReply(thread.id, message.id, postable !== GENERIC_CHANNEL_ERROR && postable !== CODEX_AUTH_CHANNEL_ERROR);
 					}
-					catch (error) {
-						deliveryFailed = true;
-						boundarySpan?.update({ metadata: { stage: 'reply_delivery', classification: 'failed' } });
-						settleDeploymentSnapshotReply(thread.id, message.id, false);
-						throw error;
-					}
-				};
-			},
-		});
+					return result;
+				}
+				catch (error) {
+					deliveryFailed = true;
+					boundarySpan?.update({ metadata: { stage: 'reply_delivery', classification: 'failed' } });
+					settleDeploymentSnapshotReply(thread.id, message.id, false);
+					throw error;
+				}
+			};
+		},
+	});
+	if (correlation) {
 		const capability: SendblueChannelCapabilityInternal = {
 			message,
 			messageId: message.id,
@@ -455,6 +461,15 @@ export async function handleSendblueDirectMessage(
 			used: false,
 		};
 		sendblueChannelCapabilities.set(correlation.context.requestContext, capability);
+	}
+	async function ensureReply() {
+		if (replyPosted || deliveryFailed)
+			return;
+		replyMissing = true;
+		span?.update({ metadata: { stage: 'reply_generation', classification: 'failed' } });
+		span?.error({ error: new Error(EMPTY_REPLY_CHANNEL_ERROR), endSpan: false });
+		settleDeploymentSnapshotReply(thread.id, message.id, false);
+		await observedThread.post(EMPTY_REPLY_CHANNEL_ERROR);
 	}
 
 	try {
@@ -555,6 +570,7 @@ export async function handleSendblueDirectMessage(
 			const capability = correlation && sendblueChannelCapabilities.get(correlation.context.requestContext);
 			if (!capability || !freshLinearTurn) {
 				await defaultHandler(observedThread, message);
+				await ensureReply();
 				return;
 			}
 			const turn = { capability, requestContext: correlation!.context.requestContext, sql, active: true, proposalAttempted: false, proposalPosted: false };
@@ -587,6 +603,7 @@ export async function handleSendblueDirectMessage(
 				await linearTurns.run(turn, () => defaultHandler(replyThread, message));
 				if (turn.proposalAttempted && !turn.proposalPosted)
 					await observedThread.post(LINEAR_PROPOSAL_FAILURE);
+				await ensureReply();
 			}
 			finally {
 				turn.active = false;

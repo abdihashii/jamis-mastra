@@ -13,6 +13,9 @@ _Avoid_: master agent, main agent (use "Jamis")
 **Subagent**:
 An internal agent that accepts bounded delegated work from Jamis. Jamis owns the operator conversation and turns a subagent result into the final response.
 
+**Project understanding**:
+Jamis's read-only capability to explain a project's behavior from approved source code, documentation, and configuration. Credentials and private runtime data are outside its scope.
+
 **Online research**:
 Jamis's capability to discover and read relevant public webpages or specialized research records from a question, then answer the operator with traceable sources. It excludes whole-site crawling and interactive browser work.
 _Avoid_: web browsing, web search

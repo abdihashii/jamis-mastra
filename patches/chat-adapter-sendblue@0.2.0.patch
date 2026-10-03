@@ -1,0 +1,31 @@
+diff --git a/dist/index.js b/dist/index.js
+index 3c8c8d8cff337f1520b79ca76d0e48422c746707..0c7dd0b665149314014d36ce9557f4c3816e3b92 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -5,13 +5,19 @@ import SendblueAPI from "sendblue";
+ // src/format-converter.ts
+ function toPlainText(text) {
+-  const urlPlaceholders = [];
+-  let result = text.replace(/https?:\/\/[^\s)>\]]+/g, (url) => {
+-    urlPlaceholders.push(url);
+-    return `%%URLPH${urlPlaceholders.length - 1}%%`;
+-  }).replace(/```[\s\S]*?```/g, (m) => m.replace(/```(\w*\n?)?/g, "").trim()).replace(/`([^`]+)`/g, "$1").replace(/\*\*\*(.+?)\*\*\*/g, "$1").replace(/\*\*(.+?)\*\*/g, "$1").replace(/\*(.+?)\*/g, "$1").replace(/(?<!\w)_(.+?)_(?!\w)/g, "$1").replace(/~~(.+?)~~/g, "$1").replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)").replace(/^#{1,6}\s+/gm, "").replace(/^[-*_]{3,}$/gm, "").replace(/^[\s]*[-*+]\s+/gm, "\u2022 ").trim();
++  const literals = [];
++  // Protect input percent signs too, so prose cannot forge a restoration token.
++  let result = text.replace(/```[\s\S]*?```|`[^`]+`|https?:\/\/[^\s)>\]]+|\/?(?:[\w.@-]+\/)+[\w.@-]*|%/g, (literal) => {
++    if (literal.startsWith("```")) {
++      literal = literal.replace(/```(\w*\n?)?/g, "").trim();
++    } else if (literal.startsWith("`")) {
++      literal = literal.slice(1, -1);
++    }
++    literals.push(literal);
++    return `%%LITERAL${literals.length - 1}%%`;
++  }).replace(/\*\*\*(.+?)\*\*\*/g, "$1").replace(/\*\*(.+?)\*\*/g, "$1").replace(/\*(.+?)\*/g, "$1").replace(/(?<!\w)_(.+?)_(?!\w)/g, "$1").replace(/~~(.+?)~~/g, "$1").replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)").replace(/^#{1,6}\s+/gm, "").replace(/^[-*_]{3,}$/gm, "").replace(/^[\s]*[-*+]\s+/gm, "\u2022 ").trim();
+   result = result.replace(
+-    /%%URLPH(\d+)%%/g,
+-    (_, idx) => urlPlaceholders[Number(idx)]
++    /%%LITERAL(\d+)%%/g,
++    (_, idx) => literals[Number(idx)]
+   );
+   return result;
+ }

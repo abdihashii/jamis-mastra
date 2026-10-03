@@ -658,6 +658,25 @@ describe('bounded incident reader', () => {
 		expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
 	});
 
+	test('finds an empty-reply failure even when the agent run succeeded', async () => {
+		const agent = traceRow({ status: TraceStatus.SUCCESS, error: undefined });
+		const channel = traceRow({
+			name: SENDBLUE_CHANNEL_SPAN_NAME,
+			spanType: SpanType.GENERIC,
+			traceId: 'trace-empty-reply',
+			spanId: 'span-empty-reply',
+			metadata: { stage: 'reply_generation', classification: 'failed', planted: rawDiagnostic },
+		});
+		const result = await withPrecedingCapability(storeFixture({ roots: [agent, channel], structures: new Map([[agent.traceId, structure(agent)]]) }));
+		expect(result).toMatchObject({
+			status: 'found',
+			incident: { component: 'sendblue-channel', stage: 'reply_generation', classification: 'execution_failed', impact: 'request_failed', cause: 'reply_not_generated', traceReference: { traceId: channel.traceId, spanId: channel.spanId } },
+			evidenceGaps: [],
+		});
+		expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
+		expect((triageIncidentTool.outputSchema as z.ZodTypeAny).safeParse(result).success).toBe(true);
+	});
+
 	test('fails closed without the trusted capability or message history', async () => {
 		let flushed = 0;
 		const forged = new MastraRequestContext();

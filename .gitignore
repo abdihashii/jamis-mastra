@@ -16,6 +16,7 @@ src/mastra/public/dist
 
 .firecrawl
 .pplx
+.project-view/
 
 # Codex subscription credential (data/openai-codex-auth.json lives here)
 data/

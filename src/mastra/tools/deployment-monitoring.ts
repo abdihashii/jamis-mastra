@@ -24,6 +24,7 @@ const fact = z.enum([
 	'tailscale_observed',
 	'intake_failed',
 	'reply_acceptance_failed',
+	'reply_not_generated',
 	'top_level_execution_failed',
 	'recap_failed',
 	'recap_delivery_unknown',
@@ -274,16 +275,17 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 			const rows = response.spans.filter(row => row.name === 'sendblue.channel'
 				&& (!sources.currentDigest || row.metadata?.sendblue_message_digest !== sources.currentDigest));
 			historicalActivity = rows.length ? 'requests_observed' : response.pagination?.hasMore ? 'unavailable' : 'no_recent_activity';
-			const completed = rows.filter(row => row.metadata?.stage === 'reply_delivery'
-				&& (row.metadata.classification === 'delivered' || row.metadata.classification === 'failed'));
+			const completed = rows.filter(row => (row.metadata?.stage === 'reply_delivery'
+				&& (row.metadata.classification === 'delivered' || row.metadata.classification === 'failed'))
+			|| (row.metadata?.stage === 'reply_generation' && row.metadata.classification === 'failed'));
 			const intakeFailures = rows.filter(row => row.metadata?.stage === 'channel_intake' && row.metadata.classification === 'failed');
 			completedHistoricalRequests = completed.length;
 			replyAccepted = completed.filter(row => row.metadata?.stage === 'reply_delivery' && row.metadata.classification === 'delivered').length;
-			replyFailed = completed.filter(row => row.metadata?.stage === 'reply_delivery' && row.metadata.classification === 'failed').length;
+			replyFailed = completed.filter(row => row.metadata?.classification === 'failed').length;
 			intakeFailed = intakeFailures.length;
 			for (const row of completed) {
-				if (row.metadata?.stage === 'reply_delivery' && row.metadata.classification === 'failed')
-					add(needsAttention, 'operator_conversation', 'reply_acceptance_failed', 'recent_history', row.endedAt ?? row.startedAt, undefined, undefined, exactTraceReference(row));
+				if (row.metadata?.classification === 'failed')
+					add(needsAttention, 'operator_conversation', row.metadata.stage === 'reply_generation' ? 'reply_not_generated' : 'reply_acceptance_failed', 'recent_history', row.endedAt ?? row.startedAt, undefined, undefined, exactTraceReference(row));
 			}
 			for (const row of intakeFailures)
 				add(needsAttention, 'operator_conversation', 'intake_failed', 'recent_history', row.endedAt ?? row.startedAt, undefined, undefined, exactTraceReference(row));

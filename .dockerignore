@@ -27,6 +27,7 @@ node_modules
 data
 
 .git
+.project-view
 .github
 docs
 infra
