@@ -38,6 +38,6 @@ export const weatherAgent = new Agent({
         anything else ("rate-limited", "unreachable", "failed", "unusable") → say the weather
         service is having trouble and to try again later.
 `,
-	model: 'neuralwatt/deepseek-v4-flash',
+	model: 'openai/gpt-6-luna',
 	tools: { weatherTool, forecastTool },
 });
