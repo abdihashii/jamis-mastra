@@ -20,7 +20,7 @@ export const fantasyBroadcastAgent = new Agent({
 	name: 'Fantasy Broadcast Agent',
 	description: 'Use when the operator asks to draft or send a one-off message to the fantasy league group chat.',
 	instructions: INSTRUCTIONS,
-	model: 'openai-codex/gpt-5.6-sol',
+	model: 'openai/gpt-6.1-sol',
 	defaultOptions: {
 		providerOptions: { openai: { reasoningEffort: 'xhigh' } },
 	},
