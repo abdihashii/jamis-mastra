@@ -29,13 +29,13 @@ export const researchAgent = new Agent({
         - If a tool returns terms_required with an adminActionUrl, return only: "Evidence status: insufficient. Source access requires administrator review: <exact adminActionUrl>". The URL is access metadata, not a cited source. Never construct an action URL or accept terms. With no action URL, use the insufficient-evidence response below.
         - When the available evidence is insufficient, return only: "Evidence status: insufficient. I could not verify the requested factual answer." Do not infer that a fact is false, fictional, or absent merely because search results or a page omit it. Do not include a factual finding, citation, or rejected lead. Do not fill gaps with model knowledge or unsupported inference.
 `,
-	model: 'openai-codex/gpt-5.6-terra',
+	model: 'openai-codex/gpt-6.1-sol',
 	tools: { webSearch, webScrape, researchSourceDiscover, researchSourceRetrieve },
 	defaultOptions: {
 		maxSteps: 5,
 		toolCallConcurrency: 1,
 		providerOptions: {
-			openai: { reasoningEffort: 'max' },
+			openai: { reasoningEffort: 'xhigh' },
 		},
 	},
 });
