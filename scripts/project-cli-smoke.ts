@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -45,6 +45,8 @@ try {
 	await symlink(join(root, 'private'), join(checkout, 'docs/links/escape'));
 	const view = await prepareProjectView(checkout);
 	const generation = await realpath(view.path);
+	// Make DAC permit the synthetic write, so the read-only mount is the enforcing control.
+	await chmod(join(generation, 'src/send.ts'), 0o666);
 	const context = join(root, 'image');
 	await mkdir(join(context, 'src/mastra'), { recursive: true });
 	for (const name of ['project-cli-contract.ts', 'project-cli-worker.ts']) await cp(new URL(`../src/mastra/${name}`, import.meta.url), join(context, 'src/mastra', name));
@@ -52,7 +54,7 @@ try {
 	await docker(['build', '--tag', image, context]);
 	await cp(new URL('./project-cli-fault-fixture.ts', import.meta.url), join(context, 'fault.ts'));
 	await writeFile(join(context, 'wrapper'), '#!/bin/sh\nexec /usr/local/bin/bun --no-env-file /fault.ts "$@"\n');
-	await writeFile(join(context, 'Dockerfile.fault'), `FROM ${image}\nUSER root\nRUN mv /usr/bin/rg /usr/bin/rg-real\nCOPY fault.ts /fault.ts\nCOPY wrapper /usr/bin/rg\nRUN chmod 755 /usr/bin/rg\nUSER bun\n`);
+	await writeFile(join(context, 'Dockerfile.fault'), `FROM ${image}\nUSER root\nRUN mv /usr/bin/rg /usr/bin/rg-real\nCOPY fault.ts /fault.ts\nCOPY wrapper /usr/bin/rg\nRUN chmod 755 /usr/bin/rg && touch /worker/write-probe /usr/bin/write-probe && chmod 666 /worker/write-probe /usr/bin/write-probe\nUSER bun\n`);
 	await docker(['build', '-f', join(context, 'Dockerfile.fault'), '--tag', faultImage, context]);
 	const proof = join(root, 'proof');
 	await mkdir(join(proof, 'src/mastra'), { recursive: true });

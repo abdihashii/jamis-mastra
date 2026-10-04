@@ -43,7 +43,7 @@ if (fault === '__jam86_boundary') {
 		category = 'inherited descriptors';
 		await noControlDescriptors([process.pid]);
 		category = 'read-only filesystems';
-		for (const path of ['/project/src/send.ts', '/worker/new', '/usr/bin/new'])
+		for (const path of ['/project/src/send.ts', '/worker/write-probe', '/usr/bin/write-probe'])
 			await assert.rejects(writeFile(path, 'changed'), (e: NodeJS.ErrnoException) => e.code === 'EROFS');
 		category = 'network';
 		await new Promise<void>((resolve, reject) => {
