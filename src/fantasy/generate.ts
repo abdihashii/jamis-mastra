@@ -14,7 +14,7 @@ import { z } from 'zod';
 export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v7';
 
 /** Shipped recap model. One constant; edit this line to swap generators. */
-export const DEFAULT_RECAP_MODEL = 'openai/gpt-6.1-sol';
+export const DEFAULT_RECAP_MODEL = 'openai-codex/gpt-6.1-sol';
 
 /** One chat line the model may callback into. */
 export interface ChatContextMessage {

@@ -68,7 +68,7 @@ export const jamis = new Agent({
        - Follow weatherAgent's existing response contract for weather-only answers. Every response containing weather, including a combined response, must name the resolved weather place. When an answer also contains claims from online research, follow both the weather and citation contracts.
        - Do not narrate routing, tool calls, or internal agent names unless the operator asks.
 `,
-	model: 'openai/gpt-6.1-sol',
+	model: 'openai-codex/gpt-6.1-sol',
 	workspace: () => projectWorkspace,
 	agents: { weatherAgent, researchAgent, personalAccountsAgent, fantasyBroadcastAgent },
 	tools: { checkMonitoring: checkMonitoringTool, currentTime: currentTimeTool, proposeOperatorTimeZoneChange: operatorTimeZoneChangeTool, triageIncident: triageIncidentTool },
@@ -77,7 +77,7 @@ export const jamis = new Agent({
 			semanticRecall: false,
 			workingMemory: { enabled: false },
 			observationalMemory: {
-				model: 'openai/gpt-6-luna',
+				model: 'openai-codex/gpt-6-luna',
 				scope: 'thread',
 				retrieval: false,
 			},
