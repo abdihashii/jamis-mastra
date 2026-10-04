@@ -1,6 +1,6 @@
 # 028: Project CLI inspection
 
-Status: scope resolved; implementation stages proposed. [JAM-86](https://linear.app/abdirahman-haji/issue/JAM-86/let-jamis-query-approved-project-files-with-bounded-rg-and-jq) created in the jamis team as Backlog, related to completed JAM-79. Planning only; no implementation authorized. Decisions recorded 2026-10-03 UTC.
+Status: stage 1 authorized and started; namespace preflight blocked under local production-like Docker defaults. [JAM-86](https://linear.app/abdirahman-haji/issue/JAM-86/let-jamis-query-approved-project-files-with-bounded-rg-and-jq) created in the jamis team as Backlog, related to completed JAM-79. Stage 2 remains blocked. Decisions recorded 2026-10-03 UTC.
 
 ## Accepted scope
 
@@ -62,7 +62,7 @@ Accepted focus remains read-only queries over the existing approved project view
 
 ## Proposed implementation stages
 
-The feature introduces CLI packages, execution isolation, a new tool contract, and a test surface. Separate the highest-risk proof from agent integration. Do not implement either stage in this planning session. Each stage requires its own verification and explicit commit sign-off; pushing/deployment require separate authorization.
+The feature introduces CLI packages, execution isolation, a new tool contract, and a test surface. Separate the highest-risk proof from agent integration. Stage 1 was authorized on 2026-10-03 UTC. Each stage requires its own verification and explicit commit sign-off; pushing/deployment require separate authorization.
 
 ### 1. Prove bounded, isolated execution before agent exposure
 
@@ -89,6 +89,14 @@ The feature introduces CLI packages, execution isolation, a new tool contract, a
 **Proposed commit:** `feat: let Jamis query approved project files with rg and jq`.
 
 ## Documentation and remaining feasibility work
+
+Stage 1 feasibility evidence (2026-10-03 UTC): an initial disposable `oven/bun:1.3.14-alpine` container installed real Bubblewrap/rg/jq, then ran Bubblewrap as UID 1000 under Docker's default seccomp/capabilities. It failed with `No permissions to create a new namespace`. Local Docker is OrbStack 29.4.0, Linux `7.0.14-orbstack-00380-ga7e0a2dc9535`, aarch64, with the builtin seccomp profile. This is local compatibility evidence, not evidence about the production host kernel.
+
+`bun run smoke:project-cli` now reproduces the namespace gate using installed Mastra 1.71.0's explicit native Bubblewrap execution: its generated read-only policy for rg and a custom selected-input-only mount for jq. It builds a disposable fixture image from the production Bun base and pinned dependency manifests, prepares a synthetic view using the existing owner, and runs as `bun` with init, supplementary group 1000, a read-only project bind and unchanged Docker defaults. It removes its container, image and temporary fixtures. No actual credentials, private data, evidence socket, production containers or agent tools are involved.
+
+Recorded smoke result: UID/binary checks passed (Bubblewrap 0.12.0, ripgrep 14.1.1, jq 1.8.2); both actual Mastra invocations exited 1 with the same namespace-permission denial. Typecheck, lint and build passed. Existing `bun run smoke:project` passed all three regressions, including the Linux read-only mount and failed-preparation/app-recreation behavior. The full test gate with local listener access reported 402 pass, 12 skip, 4 fail; the failures are three Fantasy broadcast database tests and Calendar tool wiring, all with PostgreSQL connection failures. No application source changed in this preflight.
+
+The smoke is a **preflight**, deliberately exits nonzero even if namespace creation succeeds, and labels the remaining boundary/resource/lifecycle categories unproven. Stop at this gate if either invocation fails. The executor, production image packages, memory enforcement, deadline/process-group cleanup, jq import denial, and full negative probes remain unimplemented pending replanning or separately authorized target-host evidence. Production Docker/Compose and the agent tool set remain unchanged. Do not treat this partial stage as the proposed feature commit.
 
 Project understanding remains the canonical capability; no new glossary term or ADR is needed for these reversible tooling choices. The glossary wording now includes inspection as well as explanation. No additional scope questions remain for ticket creation. Effective production isolation, memory enforcement, and deployment/active-query lifecycle are proof obligations of stage 1, not facts established by this planning session.
 
