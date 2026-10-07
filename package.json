@@ -12,6 +12,7 @@
 		"prepare:project": "bun --bun scripts/prepare-project-view.ts",
 		"smoke:project": "PROJECT_VIEW_DOCKER_SMOKE=1 bun test src/mastra/project-workspace.test.ts",
 		"smoke:project-cli": "bun --bun scripts/project-cli-smoke.ts",
+		"smoke:project-cli-deploy": "bun --bun scripts/project-cli-deploy-smoke.ts",
 		"build": "bun run --bun mastra build --studio",
 		"typecheck": "bun run --bun tsc --noEmit",
 		"lint": "bun run --bun eslint",

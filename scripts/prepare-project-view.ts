@@ -95,10 +95,12 @@ export async function prepareProjectView(checkout = process.cwd()) {
 	}
 }
 
-// Call only after the app has been recreated against current; preparation cannot retire live mounts.
-export async function cleanupProjectViews(checkout = process.cwd()) {
+// Call only after app and workers have switched; preparation cannot retire live mounts.
+export async function cleanupProjectViews(checkout = process.cwd(), generation?: string) {
 	const store = join(await realpath(checkout), '.project-view');
 	const current = await readlink(join(store, 'current'));
+	if (generation !== undefined && current !== generation)
+		throw new Error('Prepared view changed during deployment; retain all generations');
 	for (const entry of await readdir(store)) {
 		if (entry.startsWith('view-') && entry !== current)
 			await rm(join(store, entry), { recursive: true, force: true });
@@ -107,7 +109,7 @@ export async function cleanupProjectViews(checkout = process.cwd()) {
 
 if (import.meta.main) {
 	if (process.argv[2] === '--cleanup') {
-		await cleanupProjectViews(resolve(process.argv[3] ?? '.'));
+		await cleanupProjectViews(resolve(process.argv[3] ?? '.'), process.argv[4]);
 	}
 	else {
 		const view = await prepareProjectView(resolve(process.argv[2] ?? '.'));

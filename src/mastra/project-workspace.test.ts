@@ -154,6 +154,8 @@ test('failed deployment preparations and retries preserve the running workspace'
 	expect(await running.readFile('src/handler.ts', { encoding: 'utf8' })).toContain('approved handler');
 	const replacement = (await createProjectWorkspace(retry.path))!.filesystem!;
 	expect(await replacement.readFile('src/handler.ts', { encoding: 'utf8' })).toBe('replacement handler');
+	await expect(cleanupProjectViews(root, initial.generation)).rejects.toThrow('changed during deployment');
+	expect(await lstat(initialPath)).toBeDefined();
 	await cleanupProjectViews(root); // The replacement app now owns the current generation.
 	await expect(lstat(initialPath)).rejects.toThrow();
 	await expect(lstat(failedPath)).rejects.toThrow();
@@ -233,10 +235,10 @@ test.skipIf(!process.env.PROJECT_VIEW_DOCKER_SMOKE)('Linux mount rejects non-roo
 		// Simulate a failed build, then retry preparation without replacing the healthy app.
 		await run(prepare);
 		expect(await run([...compose, 'exec', '-T', 'app', 'cat', '/project/src/handler.ts'])).toContain('approved handler');
-		const deploy = await readFile(new URL('../../infra/deploy.sh', import.meta.url), 'utf8');
+		const deploy = await readFile(new URL('../../infra/deploy-project-cli.sh', import.meta.url), 'utf8');
 		expect(deploy.indexOf('--cleanup')).toBeGreaterThan(deploy.indexOf('--force-recreate app'));
-		const commands = [...deploy.matchAll(/^docker compose .* (up .+)$/gm)].map(match => match[1].split(' '));
-		expect(commands).toHaveLength(3);
+		const commands = [...deploy.matchAll(/^compose (up .+)$/gm)].map(match => match[1].split(' ')).filter(args => !args.includes('project-rg'));
+		expect(commands).toHaveLength(2);
 		for (const args of commands) {
 			await run([...compose, ...args]);
 			if (args.includes('--force-recreate'))

@@ -5,13 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-test('project CLI smoke removes temporary fixtures when Docker is missing', async () => {
+test.each(['project-cli-smoke', 'project-cli-deploy-smoke'])('%s removes temporary fixtures when Docker is missing', async (script) => {
 	const root = await mkdtemp(join(tmpdir(), 'jam86-cleanup-'));
 	try {
 		const child = Bun.spawn([
 			process.execPath,
 			'--no-env-file',
-			fileURLToPath(new URL('./project-cli-smoke.ts', import.meta.url)),
+			fileURLToPath(new URL(`./${script}.ts`, import.meta.url)),
 		], {
 			env: { PATH: '', TMPDIR: root },
 			stdout: 'pipe',

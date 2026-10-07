@@ -1,4 +1,5 @@
 /* eslint-disable antfu/no-top-level-await -- Fixed worker process entrypoint. */
+import type { Socket } from 'node:net';
 import type { Failure, Operation, ProjectView, Result } from './project-cli-contract';
 import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
@@ -20,6 +21,9 @@ if (mode === 'rg' && (await readFile('/project/.prepared-at', 'utf8')).trim() !=
 	throw new Error('Pinned view mismatch');
 const instance = crypto.randomUUID();
 let active = false;
+let draining = false;
+let activeSocket: Socket | undefined;
+const sockets = new Set<Socket>();
 
 async function scope(path: string, deadline: number, signal: AbortSignal) {
 	const root = '/project';
@@ -153,13 +157,18 @@ await unlink(socketPath).catch((e) => {
 		throw e;
 });
 const server = createServer((socket) => {
+	sockets.add(socket);
 	let bytes = 0;
 	let parts: Buffer[] = [];
 	let received = false;
 	const disconnected = new AbortController();
 	socket.setTimeout(limits.wallMs + 2000, () => socket.destroy());
 	socket.on('error', () => socket.destroy());
-	socket.on('close', () => disconnected.abort());
+	socket.on('close', () => {
+		sockets.delete(socket);
+		disconnected.abort();
+		finishDrain();
+	});
 	const reply = (result: unknown) => {
 		if (!socket.destroyed)
 			socket.end(`${JSON.stringify(result)}\n`);
@@ -196,13 +205,17 @@ const server = createServer((socket) => {
 			return;
 		}
 		if (request && request.type === 'status' && Object.keys(request).length === 1) {
-			reply({ instance, mode, view, idle: !active });
+			reply({ instance, mode, view, idle: !active && !draining });
 			return;
 		}
 		const input = mode === 'jq' ? decodeInput(request?.input) : undefined;
 		if (!request || Object.keys(request).some(k => !['type', 'instance', 'view', 'op', 'input'].includes(k)) || request.type !== 'query' || request.instance !== instance || !isView(request.view) || !sameView(request.view, view as ProjectView) || !validOperation(request.op) || (mode === 'jq') !== (request.op.operation === 'jq')
 			|| (mode === 'rg' ? request.input !== undefined : !input)) {
 			reply({ ok: false, error: 'denied' });
+			return;
+		}
+		if (draining) {
+			reply({ ok: false, error: 'unavailable' });
 			return;
 		}
 		if (active) {
@@ -213,13 +226,36 @@ const server = createServer((socket) => {
 			return;
 		}
 		active = true;
+		activeSocket = socket;
 		try {
 			reply(await execute(request.op, input, disconnected.signal));
 		}
 		catch { process.exit(1); } // Unconfirmed cleanup requires container restart, never an idle acknowledgement.
-		finally { active = false; }
+		finally {
+			active = false;
+			activeSocket = undefined;
+			finishDrain();
+		}
 	});
 });
 server.maxConnections = 8;
 process.umask(0o117);
 server.listen(socketPath);
+
+// Stop admission first, preserving only the active query's connection and deadline.
+function finishDrain() {
+	if (draining && !active && sockets.size === 0)
+		process.exit(0);
+}
+function drain() {
+	if (draining)
+		return;
+	draining = true;
+	server.close(finishDrain);
+	for (const socket of sockets) {
+		if (socket !== activeSocket)
+			socket.destroy();
+	}
+}
+process.on('SIGTERM', drain);
+process.on('SIGINT', drain);

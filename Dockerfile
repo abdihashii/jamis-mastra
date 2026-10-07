@@ -24,6 +24,9 @@ WORKDIR /app
 # node_modules, and the studio assets. No MASTRA_STUDIO_PATH needed: it defaults
 # to <dir of index.mjs>/studio, which is /app/studio.
 COPY --from=build --chown=bun:bun /app/.mastra/output ./
+# A dependency-free direct owner check for host-controlled deployment readiness.
+COPY src/mastra/project-cli.ts src/mastra/project-cli-contract.ts src/mastra/project-workspace.ts ./project-cli/src/mastra/
+COPY scripts/project-cli-check.ts ./project-cli/scripts/
 
 USER bun
 EXPOSE 4111

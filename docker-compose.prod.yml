@@ -43,11 +43,13 @@ services:
       - ./data:/app/data
       - /run/jamis-evidence:/run/jamis-evidence:ro
       - type: bind
-        source: ./.project-view/current
+        source: ${PROJECT_VIEW_HOST_PATH:-./.project-view/current}
         target: /project
         read_only: true
         bind:
           create_host_path: false
+      - project-rg-ipc:/run/project-rg:ro
+      - project-jq-ipc:/run/project-jq:ro
     restart: unless-stopped
     logging:
       driver: json-file
@@ -63,3 +65,47 @@ services:
     command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
     depends_on: [app]
     restart: unless-stopped
+
+  project-rg: &project-worker
+    image: jamis-project-cli
+    build:
+      context: .
+      dockerfile: Dockerfile.project-cli
+    command: [rg]
+    init: true
+    read_only: true
+    network_mode: none
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 64
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=8m
+    stop_grace_period: 15s
+    restart: unless-stopped
+    volumes:
+      - project-rg-ipc:/ipc
+      - type: bind
+        source: ${PROJECT_VIEW_HOST_PATH:-./.project-view/current}
+        target: /project
+        read_only: true
+        bind:
+          create_host_path: false
+    logging:
+      driver: json-file
+      options:
+        max-size: 1m
+        max-file: '2'
+
+  project-jq:
+    <<: *project-worker
+    command: [jq]
+    environment:
+      PROJECT_CLI_VIEW: '${PROJECT_CLI_VIEW:-}'
+    volumes:
+      - project-jq-ipc:/ipc
+
+volumes:
+  project-rg-ipc:
+  project-jq-ipc:
