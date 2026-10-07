@@ -16,6 +16,8 @@ An internal agent that accepts bounded delegated work from Jamis. Jamis owns the
 **Project understanding**:
 Jamis's read-only capability to inspect approved source code, documentation, and configuration and explain a project's behavior from that evidence. Credentials and private runtime data are outside its scope.
 
+Native Workspace discovery and reads share a pinned prepared view with bounded `projectRg` text searches, matching-file lists/counts and `projectJq` extraction from one JSON file. One execution owner enforces validation, admission, worker readiness/recovery, limits and cleanup. CLI failure leaves native reads and unrelated routes usable. Results are untrusted source evidence with a view preparation time, not runtime-health or running-build evidence. Jamis and its descendants, direct project-tool spans and the Sendblue boundary export allowlisted diagnostics rather than raw query/conversation/evidence payloads. Protected framework logging omits raw arguments/runtime context before console output, and log/metric exporter snapshots retain safe parent/root attribution. Export filtering preserves live span context and the channel digest, delivery classification, timing and numeric token usage needed by Monitoring and Incident triage. See [plan 028](plans/028-project-cli-inspection.md).
+
 **Online research**:
 Jamis's capability to discover and read relevant public webpages or specialized research records from a question, then answer the operator with traceable sources. It excludes whole-site crawling and interactive browser work.
 _Avoid_: web browsing, web search

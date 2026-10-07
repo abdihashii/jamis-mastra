@@ -35,6 +35,10 @@ try {
 		await cp(new URL(`../${path}`, import.meta.url), join(root, path));
 	for (const name of ['project-cli.ts', 'project-cli-contract.ts', 'project-cli-worker.ts', 'project-workspace.ts'])
 		await cp(new URL(`../src/mastra/${name}`, import.meta.url), join(root, 'src/mastra', name));
+	// Bundle only the actual tool entrypoint for this disposable client. Workers
+	// still use the same dependency-free production image and visibility split.
+	const bundle = await Bun.build({ entrypoints: [new URL('../src/mastra/tools/project-query.ts', import.meta.url).pathname], target: 'bun', outdir: root, naming: 'project-query.js' });
+	assert.ok(bundle.success, `Tool fixture bundle failed: ${bundle.logs.join('\n')}`);
 	await writeFile(join(root, '.env.prod'), 'TUNNEL_TOKEN=synthetic\nOPERATOR_TIMEZONE=UTC\n');
 	await writeFile(join(root, 'src/send.ts'), 'Sendblue\n');
 	await writeFile(join(root, 'src/other.ts'), 'sendblue\n');
@@ -76,7 +80,7 @@ try {
 	// Named volumes stay project-scoped; the fixture never touches real production resources.
 	await writeFile(join(root, 'docker-compose.yml'), JSON.stringify({ name: id, services: {} }));
 	await writeFile(join(root, 'docker-compose.prod.yml'), JSON.stringify({ name: id, services, volumes: { 'project-rg-ipc': {}, 'project-jq-ipc': {} } }));
-	await writeFile(join(root, 'Dockerfile'), 'FROM oven/bun:1.3.14-alpine\nWORKDIR /app\nCOPY src/mastra/project-cli.ts src/mastra/project-cli-contract.ts src/mastra/project-workspace.ts ./project-cli/src/mastra/\nCOPY scripts/project-cli-check.ts scripts/project-cli-deploy-client.ts ./project-cli/scripts/\nUSER bun\n');
+	await writeFile(join(root, 'Dockerfile'), 'FROM oven/bun:1.3.14-alpine\nWORKDIR /app\nCOPY src/mastra/project-cli.ts src/mastra/project-cli-contract.ts src/mastra/project-workspace.ts ./project-cli/src/mastra/\nCOPY scripts/project-cli-check.ts scripts/project-cli-deploy-client.ts ./project-cli/scripts/\nCOPY project-query.js ./project-cli/\nUSER bun\n');
 	// Stage 1's resistant-descendant fixture overlays only the disposable worker image.
 	await writeFile(join(root, 'wrapper'), '#!/bin/sh\nexec /usr/local/bin/bun --no-env-file /fault.ts "$@"\n');
 	await writeFile(join(root, 'Dockerfile.project-cli'), `${await readFile(join(root, 'Dockerfile.project-cli'), 'utf8')}\nUSER root\nRUN mv /usr/bin/rg /usr/bin/rg-real\nCOPY scripts/project-cli-fault-fixture.ts /fault.ts\nCOPY wrapper /usr/bin/rg\nRUN chmod 755 /usr/bin/rg\nUSER bun\n`);

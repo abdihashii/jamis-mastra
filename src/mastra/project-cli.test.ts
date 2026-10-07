@@ -48,10 +48,11 @@ test('owner fails closed on mismatched identities, oversized IPC and malformed q
 		assert.ok(await owner.ready());
 		bad = 'result';
 		assert.deepEqual(await owner.query(op), { ok: false, error: 'unavailable' });
+		bad = 'active';
 		assert.deepEqual(await owner.query(op), { ok: false, error: 'unavailable' });
 		assert.equal(queries, 1);
 		bad = '';
-		assert.ok(await owner.ready());
+		assert.deepEqual(await owner.query(op), { ok: true, operation: 'count', path: '.', view, output: 0 });
 		bad = 'slow';
 		const checking = owner.ready();
 		assert.deepEqual(await owner.query(op), { ok: false, error: 'busy' });

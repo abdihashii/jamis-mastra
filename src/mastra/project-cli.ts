@@ -92,11 +92,13 @@ export async function createProjectCli(path: string | undefined, sockets = { rg:
 			return { ok: false, error: 'denied' };
 		if (active)
 			return { ok: false, error: 'busy' };
-		if (!pinned || !identities || signal?.aborted)
+		if (!pinned || signal?.aborted)
 			return unavailable;
 		active = true;
 		const op: Operation = value;
 		try {
+			// Recovery uses the same admission slot and both workers' idle proof.
+			identities ??= await status();
 			let input: string | undefined;
 			if (op.operation === 'jq') {
 				let resolved: string;
