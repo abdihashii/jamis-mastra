@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { createWorkspaceTools } from '@mastra/core/workspace';
 
 import { cleanupProjectViews, prepareProjectView } from '../../scripts/prepare-project-view';
-import { createProjectWorkspace } from './project-workspace';
+import { createProjectWorkspace, pinProjectView } from './project-workspace';
 
 let root: string;
 const denied = [
@@ -142,18 +142,47 @@ test('prepared view enforces the approved native read boundary and refreshes wit
 test('failed deployment preparations and retries preserve the running workspace', async () => {
 	const initial = await prepareProjectView(root);
 	const initialPath = await realpath(initial.path);
+	const pinned = (await pinProjectView(initial.path))!;
+	expect(pinned).toEqual({ basePath: initialPath, view: { generation: initial.generation, preparedAt: initial.preparedAt } });
 	const running = (await createProjectWorkspace(initial.path))!.filesystem!;
 	await put(join(root, 'src/handler.ts'), 'replacement handler');
 	const failed = await prepareProjectView(root); // Build fails before the app is recreated.
 	const failedPath = await realpath(failed.path);
 	const retry = await prepareProjectView(root);
+	expect(retry.generation).not.toBe(initial.generation);
+	expect(pinned.basePath).toBe(initialPath);
 	expect(await running.readFile('src/handler.ts', { encoding: 'utf8' })).toContain('approved handler');
 	const replacement = (await createProjectWorkspace(retry.path))!.filesystem!;
 	expect(await replacement.readFile('src/handler.ts', { encoding: 'utf8' })).toBe('replacement handler');
+	await expect(cleanupProjectViews(root, initial.generation)).rejects.toThrow('changed during deployment');
+	expect(await lstat(initialPath)).toBeDefined();
 	await cleanupProjectViews(root); // The replacement app now owns the current generation.
 	await expect(lstat(initialPath)).rejects.toThrow();
 	await expect(lstat(failedPath)).rejects.toThrow();
 	expect(await replacement.readFile('src/handler.ts', { encoding: 'utf8' })).toBe('replacement handler');
+});
+
+test('missing or mismatched CLI descriptors leave native reads available', async () => {
+	const view = await prepareProjectView(root);
+	await writeFile(join(view.path, '.project-view.json'), JSON.stringify({ generation: view.generation, preparedAt: '2020-01-01T00:00:00.000Z' }));
+	expect(await pinProjectView(view.path)).toBeUndefined();
+	expect(await createProjectWorkspace(view.path)).toBeDefined();
+	await rm(join(view.path, '.project-view.json'));
+	expect(await pinProjectView(view.path)).toBeUndefined();
+	expect(await createProjectWorkspace(view.path)).toBeDefined();
+});
+
+test('preparation avoids symlink cycles and publishes a readable descriptor under a strict umask', async () => {
+	await symlink('.', join(root, 'data/cycle'));
+	const originalMask = process.umask(0o077);
+	let view: Awaited<ReturnType<typeof prepareProjectView>>;
+	try {
+		view = await prepareProjectView(root);
+	}
+	finally { process.umask(originalMask); }
+	expect(await readlink(join(view.path, 'src/outside-directory'))).toBe(join(root, 'data'));
+	expect((await lstat(join(view.path, '.project-view.json'))).mode & 0o777).toBe(0o644);
+	expect(await pinProjectView(view.path)).toBeDefined();
 });
 
 test.skipIf(!process.env.PROJECT_VIEW_DOCKER_SMOKE)('Linux mount rejects non-root writes and app-only recreation sees replaced content', async () => {
@@ -206,10 +235,10 @@ test.skipIf(!process.env.PROJECT_VIEW_DOCKER_SMOKE)('Linux mount rejects non-roo
 		// Simulate a failed build, then retry preparation without replacing the healthy app.
 		await run(prepare);
 		expect(await run([...compose, 'exec', '-T', 'app', 'cat', '/project/src/handler.ts'])).toContain('approved handler');
-		const deploy = await readFile(new URL('../../infra/deploy.sh', import.meta.url), 'utf8');
+		const deploy = await readFile(new URL('../../infra/deploy-project-cli.sh', import.meta.url), 'utf8');
 		expect(deploy.indexOf('--cleanup')).toBeGreaterThan(deploy.indexOf('--force-recreate app'));
-		const commands = [...deploy.matchAll(/^docker compose .* (up .+)$/gm)].map(match => match[1].split(' '));
-		expect(commands).toHaveLength(3);
+		const commands = [...deploy.matchAll(/^compose (up .+)$/gm)].map(match => match[1].split(' ')).filter(args => !args.includes('project-rg'));
+		expect(commands).toHaveLength(2);
 		for (const args of commands) {
 			await run([...compose, ...args]);
 			if (args.includes('--force-recreate'))

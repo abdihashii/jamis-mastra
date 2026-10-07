@@ -63,22 +63,28 @@ export async function prepareProjectView(checkout = process.cwd()) {
 			});
 		}
 		// Validate the staged tree without following symlinks or reading file contents.
-		for (const path of await readdir(fresh, { recursive: true })) {
+		const entries = await readdir(fresh);
+		for (const path of entries) {
 			const stat = await lstat(join(fresh, path));
 			if (excluded(path) || !(stat.isFile() || stat.isDirectory() || stat.isSymbolicLink()))
 				throw new Error(`Invalid prepared entry: ${path}`);
 			if (!stat.isSymbolicLink())
 				await chmod(join(fresh, path), stat.isDirectory() ? 0o755 : 0o644);
+			if (stat.isDirectory())
+				entries.push(...(await readdir(join(fresh, path))).map(entry => join(path, entry)));
 		}
 		await chmod(fresh, 0o755);
 		const preparedAt = new Date().toISOString();
 		await writeFile(join(fresh, '.prepared-at'), `${preparedAt}\n`, { mode: 0o644 });
 		await chmod(join(fresh, '.prepared-at'), 0o644);
+		const generation = basename(fresh);
+		await writeFile(join(fresh, '.project-view.json'), `${JSON.stringify({ generation, preparedAt })}\n`, { mode: 0o644 });
+		await chmod(join(fresh, '.project-view.json'), 0o644);
 		const current = join(store, 'current');
 		await symlink(basename(fresh), pointer);
 		await rename(pointer, current);
 		published = true;
-		return { path: current, preparedAt };
+		return { path: current, generation, preparedAt };
 	}
 	catch (error) {
 		await rm(pointer, { force: true });
@@ -89,10 +95,12 @@ export async function prepareProjectView(checkout = process.cwd()) {
 	}
 }
 
-// Call only after the app has been recreated against current; preparation cannot retire live mounts.
-export async function cleanupProjectViews(checkout = process.cwd()) {
+// Call only after app and workers have switched; preparation cannot retire live mounts.
+export async function cleanupProjectViews(checkout = process.cwd(), generation?: string) {
 	const store = join(await realpath(checkout), '.project-view');
 	const current = await readlink(join(store, 'current'));
+	if (generation !== undefined && current !== generation)
+		throw new Error('Prepared view changed during deployment; retain all generations');
 	for (const entry of await readdir(store)) {
 		if (entry.startsWith('view-') && entry !== current)
 			await rm(join(store, entry), { recursive: true, force: true });
@@ -101,7 +109,7 @@ export async function cleanupProjectViews(checkout = process.cwd()) {
 
 if (import.meta.main) {
 	if (process.argv[2] === '--cleanup') {
-		await cleanupProjectViews(resolve(process.argv[3] ?? '.'));
+		await cleanupProjectViews(resolve(process.argv[3] ?? '.'), process.argv[4]);
 	}
 	else {
 		const view = await prepareProjectView(resolve(process.argv[2] ?? '.'));

@@ -1,0 +1,6 @@
+FROM oven/bun:1.3.14-alpine
+RUN apk add --no-cache ripgrep jq && mkdir /ipc && chown bun:bun /ipc && chmod 770 /ipc
+WORKDIR /worker
+COPY src/mastra/project-cli-contract.ts src/mastra/project-cli-worker.ts ./
+USER bun
+ENTRYPOINT ["bun", "--no-env-file", "/worker/project-cli-worker.ts"]
