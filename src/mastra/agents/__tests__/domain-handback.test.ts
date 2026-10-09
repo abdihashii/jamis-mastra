@@ -2,10 +2,9 @@ import type { z } from 'zod';
 
 import type { personalAccountsResultSchema } from '../personal-accounts-handback';
 
-import type { researchResultSchema } from '../research-handback';
 import { describe, expect, test } from 'bun:test';
 import { validatePersonalAccountsHandback } from '../personal-accounts-handback';
-import { insufficientResearchReason, validateResearchHandback } from '../research-handback';
+import { insufficientResearchReason, researchResultSchema, validateResearchHandback } from '../research-handback';
 import { createResearchQuestionProjector, publicFareLabels, researchQuestionSchema } from '../research-question';
 import { validateWeatherHandback, weatherResultSchema } from '../weather-handback';
 
@@ -29,12 +28,22 @@ describe('Research handback provenance', () => {
 	test('accepts only a cited page that was actually read with its original title and passage', () => {
 		const result = researchResult();
 		expect(() => validateResearchHandback({ case: 'completed', result }, { toolResults: webReads })).not.toThrow();
-		for (const toolResults of [webReads.slice(0, 1), [webReads[0]!, tool('webScrape', { markdown: page.evidence }, { url: 'https://other.example/page' })], [webReads[0]!, tool('webScrape', { markdown: page.evidence }, { url: page.url }, true)]])
-			expect(() => validateResearchHandback({ case: 'completed', result }, { toolResults })).toThrow();
+		for (const toolResults of [webReads.slice(0, 1), [webReads[0]!, tool('webScrape', { markdown: page.evidence }, { url: `${page.url}/` })], [webReads[0]!, tool('webScrape', { markdown: page.evidence }, { url: page.url }, true)]])
+			expect(() => validateResearchHandback({ case: 'completed', result }, { toolResults })).toThrow(/^Research source was not read at its cited URL\.$/);
 		result.sources[0]!.title = 'Invented source title';
-		expect(() => validateResearchHandback({ case: 'completed', result }, { toolResults: webReads })).toThrow();
-		result.sources[0] = { ...page, evidence: 'An unread claim.' };
-		expect(() => validateResearchHandback({ case: 'completed', result }, { toolResults: webReads })).toThrow();
+		expect(() => validateResearchHandback({ case: 'completed', result }, { toolResults: webReads })).toThrow(/^Research title does not match the returned source title\.$/);
+		for (const evidence of ['An unread claim.', page.evidence.toLowerCase(), page.evidence.replace('.', '!'), page.evidence.replace(' ', '  '), `Official guidance ${page.evidence}`]) {
+			result.sources[0] = { ...page, evidence };
+			expect(() => validateResearchHandback({ case: 'completed', result }, { toolResults: webReads })).toThrow(/^Research evidence does not match a verbatim passage from its cited URL\.$/);
+		}
+	});
+
+	test('compares trimmed discovery titles and uses the source URL for blank titles', () => {
+		for (const title of [` \n${page.title}\t `, ' \n\t ', '', null]) {
+			const result = researchResultSchema.parse({ ...researchResult(), sources: [{ ...page, title: title?.trim() ? title : page.url }] });
+			const toolResults = [tool('webSearch', { results: [{ title, url: page.url }] }), webReads[1]!];
+			expect(() => validateResearchHandback({ case: 'completed', result }, { toolResults })).not.toThrow();
+		}
 	});
 
 	test('structured candidates cannot substitute for retrieved content', () => {

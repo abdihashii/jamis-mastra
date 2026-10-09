@@ -6,10 +6,10 @@ const text = z.string().trim().min(1);
 export const researchResultSchema = z.object({
 	findings: z.array(z.object({ text, sourceNumbers: z.array(z.number().int().min(1).max(3)).min(1).max(3) }).strict()).min(1).max(10),
 	sources: z.array(z.object({
-		title: text,
-		url: z.string().url(),
+		title: text.describe('Exact returned discovery or retrieval title, trimmed. Use the source URL only when no nonblank title was returned; never substitute a page heading.'),
+		url: z.string().url().describe('Exact URL from the successful read input or returned provenance. Do not canonicalize or rewrite it.'),
 		evidenceKind: z.enum(['scraped-webpage', 'abstract-only', 'full-text-passage', 'developer-passage']),
-		evidence: text,
+		evidence: text.describe('Short contiguous verbatim substring of the actual read. Preserve case, punctuation, Markdown, and whitespace. Never summarize or stitch passages.'),
 		limitations: z.array(text).max(10),
 	}).strict()).min(1).max(3),
 	limitations: z.array(text).max(10),
@@ -69,16 +69,19 @@ export function validateResearchHandback(
 	for (const payload of payloads.filter(payload => payload.toolName === 'webSearch' && !payload.isError)) {
 		const parsed = z.object({ results: z.array(z.object({ title: z.string().nullable(), url: z.string().url() })) }).safeParse(payload.result);
 		if (parsed.success)
-			candidates.push(...parsed.data.results.map(candidate => ({ ...candidate, title: candidate.title || candidate.url })));
+			candidates.push(...parsed.data.results.map(candidate => ({ ...candidate, title: candidate.title?.trim() || candidate.url })));
 	}
 	const evidence = retrieved.filter(result => result.toolName === 'researchSourceRetrieve' && ['success', 'partial'].includes(result.status)).flatMap(result => result.evidence);
 	for (const source of handback.result.sources) {
 		if (source.evidenceKind === 'scraped-webpage') {
+			const reads = scrapes.filter(scrape => scrape.args.url === source.url);
 			const titles = candidates.filter(candidate => candidate.url === source.url).map(candidate => candidate.title);
-			if (!scrapes.some(scrape => scrape.args.url === source.url && scrape.result.markdown.includes(source.evidence))
-				|| !(titles.length ? titles : [source.url]).includes(source.title)) {
+			if (!reads.length)
 				throw new Error('Research source was not read at its cited URL.');
-			}
+			if (!reads.some(read => read.result.markdown.includes(source.evidence)))
+				throw new Error('Research evidence does not match a verbatim passage from its cited URL.');
+			if (!(titles.length ? titles : [source.url]).includes(source.title))
+				throw new Error('Research title does not match the returned source title.');
 			continue;
 		}
 		const read = evidence.find(read => read.url === source.url && read.title === source.title && read.evidenceKind === source.evidenceKind && read.content.includes(source.evidence));
