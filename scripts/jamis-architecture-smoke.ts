@@ -7,7 +7,9 @@ import { Mastra } from '@mastra/core';
 import { Observability } from '@mastra/observability';
 import { PostgresStore } from '@mastra/pg';
 
+import { runJamisChannelFixture, runJamisDelegationFixture, runJamisNestedResearchFixture, runJamisResearchFixture, runJamisWeatherValidationFixture } from '../src/mastra/agents/__tests__/jamis-delegation.fixture';
 import { runSpecialistBoundaryFixture } from '../src/mastra/agents/__tests__/specialist-boundary.fixture';
+import { runSpecialistClarificationFixture } from '../src/mastra/agents/__tests__/specialist-clarification.fixture';
 import { openAICodexGateway } from '../src/mastra/gateways/openai-codex-gateway';
 import { createProjectLogger, filterProjectTrace, protectProjectSignals, spanOutputProcessors } from '../src/mastra/observability';
 import { runLinearReplyFixture } from '../src/mastra/workflows/__tests__/linear-reply.fixture';
@@ -44,11 +46,13 @@ try {
 	await storage.init();
 	console.log(JSON.stringify({ typed: await runSpecialistBoundaryFixture(mastra) }));
 	console.log(JSON.stringify({ durable: await runLinearReplyFixture(mastra, sql) }));
+	console.log(JSON.stringify({ migrated: await runJamisDelegationFixture(mastra), composition: await runJamisResearchFixture(mastra), nested: await runJamisNestedResearchFixture(mastra), invalidWeather: await runJamisWeatherValidationFixture(mastra), channel: await runJamisChannelFixture(mastra, sql) }));
+	console.log(JSON.stringify({ clarification: await runSpecialistClarificationFixture(mastra, sql) }));
 	if (process.argv.includes('--live'))
 		console.log(JSON.stringify({ live: await runArchitectureLiveModelFixture(mastra) }));
 	await observability.getInstance('smoke')!.flush();
 	assert(!JSON.stringify(events).includes('PRIVATE_ARCHITECTURE_SENTINEL'), 'Private context entered exported signals.');
-	console.log('PASS: native typed handback, nested public isolation, stored outcome recovery; no live mutations or outbound messages.');
+	console.log('PASS: native typed handback, migrated DM clarification/composition, nested public isolation, stored outcome recovery; no live mutations or outbound messages.');
 }
 finally {
 	await observability.getInstance('smoke')!.shutdown();

@@ -10,7 +10,7 @@ import {
 import { PostgresStore } from '@mastra/pg';
 
 import { createFantasyAgent, DEFAULT_RECAP_MODEL } from '../fantasy/generate';
-import { jamis } from './agents/jamis';
+import { createJamisAgent } from './agents/jamis';
 import { SENDBLUE_CORRELATION_KEY } from './channels/sendblue';
 import { requireEnv, requireOperatorTimeZone } from './env';
 import { openAICodexGateway } from './gateways/openai-codex-gateway.js';
@@ -22,10 +22,6 @@ requireOperatorTimeZone();
 
 export const mastra = new Mastra({
 	logger: createProjectLogger(),
-	// 'fantasy' has no channels wired; it exists only for the weekly recap workflow.
-	// Jamis keeps its own delegation agents (including fantasy-broadcast) on its agent config.
-	agents: { jamis, fantasy: createFantasyAgent(DEFAULT_RECAP_MODEL) },
-	workflows: { fantasyWeeklyRecap: fantasyWeeklyRecapWorkflow },
 	gateways: { 'openai-codex': openAICodexGateway },
 	tools: { deploymentEvidence: deploymentEvidenceTool },
 	server: {
@@ -65,3 +61,8 @@ export const mastra = new Mastra({
 		},
 	}),
 });
+
+mastra.addAgent(createJamisAgent({ mastra }), 'jamis');
+// 'fantasy' has no channels wired; it exists only for the weekly recap workflow.
+mastra.addAgent(createFantasyAgent(DEFAULT_RECAP_MODEL), 'fantasy');
+mastra.addWorkflow(fantasyWeeklyRecapWorkflow, 'fantasyWeeklyRecap');

@@ -8,6 +8,7 @@ import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
 import type { linearCreateInputSchema } from '../../lib/linear';
 
 import type { SqlLike } from '../../lib/operator-time-zone';
+import type { SpecialistClarification } from '../specialist-clarification';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 
@@ -18,12 +19,14 @@ import { createSendblueAdapter } from 'chat-adapter-sendblue';
 
 import { z } from 'zod';
 import { createLinearClient, linearCreateOperationSchema } from '../../lib/linear';
-import { cancelLinearConversation, claimLinearCreate, finishLinearCreate, notifyLinearOutcome, postLinearCreateProposal, readLinearProposal, receiveLinearMessage } from '../../lib/linear-proposals';
+import { cancelLinearConversation, claimLinearCreate, finishLinearCreate, isImmediatelyFollowingLinearMessage, notifyLinearOutcome, postLinearCreateProposal, readLinearProposal, receiveLinearMessage } from '../../lib/linear-proposals';
 import { clearOperatorTimeZoneConversation, clearPendingOperatorTimeZoneNotification, consumePendingOperatorTimeZoneChange, readPendingOperatorTimeZoneNotification, readPendingOperatorTimeZoneProposal, saveOperatorTimeZoneProposal, withOperatorTimeZoneTransaction } from '../../lib/operator-time-zone';
 import { isIanaTimeZone } from '../../lib/time';
 import { requireEnv, requireOperatorTimeZone } from '../env';
 import { DEVICE_LOGIN_TIMEOUT_ERROR, MODEL_AUTH_FAILURE, runDeviceLogin } from '../gateways/openai-codex-auth';
+import { saveSpecialistClarification, takeSpecialistClarification } from '../specialist-clarification';
 import { clearDeploymentSnapshot, settleDeploymentSnapshotReply } from '../tools/deployment-monitoring';
+import { revokeSpecialistAuthority } from '../tools/invoke-specialist';
 
 export const CODEX_AUTH_CHANNEL_ERROR = 'JAMIS lost access to ChatGPT and did not complete your request. Re-authentication is required.';
 export const GENERIC_CHANNEL_ERROR = 'JAMIS could not complete that request. The error was logged.';
@@ -142,6 +145,12 @@ interface SendblueChannelCapabilityInternal extends SendblueChannelCapability {
 }
 
 const sendblueChannelCapabilities = new WeakMap<RequestContext, SendblueChannelCapabilityInternal>();
+const specialistClarificationTurns = new WeakMap<RequestContext, {
+	context: ChannelHandlerContext;
+	thread: Thread;
+	messageId: string;
+	clarification?: SpecialistClarification;
+}>();
 const linearTurns = new AsyncLocalStorage<{
 	capability: SendblueChannelCapabilityInternal;
 	requestContext: RequestContext;
@@ -149,7 +158,18 @@ const linearTurns = new AsyncLocalStorage<{
 	active: boolean;
 	proposalAttempted: boolean;
 	proposalPosted: boolean;
+	proposalOperationId?: string;
 }>();
+
+export function currentLinearProposalId(): string | undefined {
+	const turn = linearTurns.getStore();
+	return turn?.active && turn.proposalPosted ? turn.proposalOperationId : undefined;
+}
+
+/** Research has neither channel capabilities nor the ambient private proposal turn. */
+export function withoutLinearProposalTurn<T>(run: () => Promise<T>): Promise<T> {
+	return linearTurns.exit(run);
+}
 
 const linearOtherAnswersSchema = z.object({ otherAnswers: z.array(z.string().trim().min(1)) });
 
@@ -162,7 +182,7 @@ export function linearProposalModelOutput(output: unknown): { type: 'text'; valu
 		turn.proposalAttempted = true;
 	const result = z.object({ status: z.enum(['denied', 'proposed', 'unavailable']) }).safeParse(output);
 	return { type: 'text', value: result.success && result.data.status === 'proposed' && turn?.active && turn.proposalPosted
-		? 'The exact proposal was posted to the operator. Do not repeat the proposal or claim creation succeeded. Preserve evidence for other requested tasks.'
+		? `The exact proposal was posted to the operator. Pending operation: ${turn.proposalOperationId}. Do not repeat the proposal or claim creation succeeded. Preserve evidence for other requested tasks.`
 		: LINEAR_PROPOSAL_FAILURE };
 }
 
@@ -192,6 +212,8 @@ export async function proposeLinearCreate(raw: z.input<typeof linearCreateInputS
 			return { status: 'denied' };
 		const saved = await postLinearCreateProposal(op, turn.capability.threadId, session.data.thread.id, turn.capability.messageId, text => postLinearText(turn.capability.thread, text), turn.sql);
 		turn.proposalPosted = saved;
+		if (saved)
+			turn.proposalOperationId = op.id;
 		return { status: saved ? 'proposed' : 'denied' };
 	}
 	catch {
@@ -209,6 +231,33 @@ async function activeJamisSession(context: ChannelHandlerContext, thread: Thread
 		return owned.threads[0].id;
 	const legacy = await memory.listThreads({ filter: { metadata: coordinates }, perPage: 10, orderBy: { field: 'createdAt', direction: 'ASC' } });
 	return legacy.threads.find(candidate => !('channel_ownerId' in (candidate.metadata ?? {})))?.id ?? null;
+}
+
+async function beginSpecialistClarificationTurn(context: ChannelHandlerContext, thread: Thread, messageId: string, sql?: SqlLike) {
+	const memory = await context.mastra?.getStorage()?.getStore('memory');
+	const sessionId = memory ? await activeJamisSession(context, thread) : null;
+	const pending = memory && sessionId ? await takeSpecialistClarification(memory, sessionId) : undefined;
+	const clarification = pending && await isImmediatelyFollowingLinearMessage(thread.id, messageId, pending.sourceMessageId, sql)
+		? pending.clarification
+		: undefined;
+	specialistClarificationTurns.set(context.requestContext, { context, thread, messageId, clarification });
+}
+
+export function currentSpecialistClarification(requestContext: RequestContext): SpecialistClarification | undefined {
+	const turn = specialistClarificationTurns.get(requestContext);
+	const clarification = turn?.clarification;
+	if (turn)
+		turn.clarification = undefined;
+	return clarification;
+}
+
+export async function retainSpecialistClarification(requestContext: RequestContext, clarification: SpecialistClarification): Promise<void> {
+	const turn = specialistClarificationTurns.get(requestContext);
+	const memory = await turn?.context.mastra?.getStorage()?.getStore('memory');
+	const session = z.object({ thread: z.object({ id: z.string().min(1) }) }).safeParse(requestContext.getRaw('MastraMemory'));
+	if (!turn || !memory || !session.success || session.data.thread.id !== await activeJamisSession(turn.context, turn.thread))
+		throw new Error('The current specialist clarification could not be retained.');
+	await saveSpecialistClarification(memory, session.data.thread.id, turn.messageId, clarification);
 }
 
 async function handleLinearConfirmation(thread: Thread, message: Message, context: ChannelHandlerContext, fresh: boolean, sql?: SqlLike): Promise<boolean> {
@@ -476,8 +525,10 @@ export async function handleSendblueDirectMessage(
 		if (isOpenAILoginCommand(message)) {
 			return await enqueueDirectMessage(async () => {
 				try {
-					if (linearContext && await receiveLinearMessage(thread.id, message.id, sql))
+					if (linearContext && await receiveLinearMessage(thread.id, message.id, sql)) {
+						await beginSpecialistClarificationTurn(linearContext, thread, message.id, sql);
 						await cancelLinearConversation(thread.id, sql);
+					}
 				}
 				catch {
 					// Later confirmations still require durable intake and provider-history adjacency.
@@ -503,8 +554,8 @@ export async function handleSendblueDirectMessage(
 			if (message.text.trim() === '/new') {
 				let result: Awaited<ReturnType<typeof startJamisDmSession>>;
 				try {
-					if (linearContext)
-						await receiveLinearMessage(thread.id, message.id, sql);
+					if (linearContext && await receiveLinearMessage(thread.id, message.id, sql))
+						await beginSpecialistClarificationTurn(linearContext, thread, message.id, sql);
 					await deliverPendingOperatorTimeZoneNotification(observedThread, sql);
 					const memory = await context?.mastra?.getStorage()?.getStore('memory');
 					if (!memory)
@@ -537,6 +588,8 @@ export async function handleSendblueDirectMessage(
 				return;
 			}
 			const freshLinearTurn = linearContext ? await receiveLinearMessage(thread.id, message.id, sql) : false;
+			if (linearContext && freshLinearTurn)
+				await beginSpecialistClarificationTurn(linearContext, thread, message.id, sql);
 			await deliverPendingOperatorTimeZoneNotification(observedThread, sql);
 			if (linearContext && await handleLinearConfirmation(observedThread, message, linearContext, freshLinearTurn, sql)) {
 				// Never allow one confirm to authorize both kinds of proposal.
@@ -616,8 +669,11 @@ export async function handleSendblueDirectMessage(
 		throw error;
 	}
 	finally {
-		if (correlation)
+		if (correlation) {
 			sendblueChannelCapabilities.delete(correlation.context.requestContext);
+			specialistClarificationTurns.delete(correlation.context.requestContext);
+			revokeSpecialistAuthority(correlation.context.requestContext);
+		}
 		if (!spanEndedLater)
 			span?.end();
 	}

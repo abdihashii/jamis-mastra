@@ -115,6 +115,12 @@ export async function isLatestLinearMessage(dmId: string, messageId: string, sql
 	return rows[0]?.message_id === messageId;
 }
 
+export async function isImmediatelyFollowingLinearMessage(dmId: string, messageId: string, sourceMessageId: string, sql: SqlLike = getSql()): Promise<boolean> {
+	await ensureTables(sql);
+	const rows = await sql`SELECT message_id FROM linear_dm_receipts WHERE dm_id = ${dmId} ORDER BY ordinal DESC LIMIT 2` as { message_id: string }[];
+	return messageId !== sourceMessageId && rows[0]?.message_id === messageId && rows[1]?.message_id === sourceMessageId;
+}
+
 export function formatLinearCreateProposal(op: LinearCreateOperation): string {
 	return `Create Linear issue in jamis?\n\nTitle: ${JSON.stringify(op.title).slice(1, -1)}\nDescription: ${JSON.stringify(op.description).slice(1, -1)}\nStatus: ${JSON.stringify(op.stateName).slice(1, -1)}\n\nNext reply: confirm | decline. Any other reply cancels.`;
 }

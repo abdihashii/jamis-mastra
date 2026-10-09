@@ -5,6 +5,7 @@ import { SpanType, TracingEventType } from '@mastra/core/observability';
 import { RequestContext } from '@mastra/core/request-context';
 import { TraceStatus } from '@mastra/core/storage';
 import { MastraLanguageModelV2Mock } from '@mastra/core/test-utils/llm-mock';
+import { Memory } from '@mastra/memory';
 import { Observability } from '@mastra/observability';
 
 if (!process.env.RESEARCH_AGENT_CONTRACT_TEST) {
@@ -19,7 +20,7 @@ if (!process.env.RESEARCH_AGENT_CONTRACT_TEST) {
 	}, 10_000);
 }
 else {
-	test('real delegation preserves task contracts across tool steps and filters parent conversation', async () => {
+	test('production invocation preserves task contracts across fresh turns and filters parent conversation', async () => {
 		const calls: string[] = [];
 		const prompts: unknown[] = [];
 		let sourceOutcome = 'success';
@@ -51,11 +52,12 @@ else {
 		} });
 		process.env.FIRECRAWL_API_URL = server.url.toString();
 		try {
-			const { researchAgent } = await import('../research-agent');
-			const { jamis } = await import('../jamis');
+			const { boundaryModel } = await import('./specialist-boundary.fixture');
+			const { createResearchAgent } = await import('../research-agent');
+			const { createJamisAgent } = await import('../jamis');
+			const researchAgent = createResearchAgent();
 			const tools = await researchAgent.listTools();
 			expect(Object.keys(tools).sort()).toEqual(['researchSourceDiscover', 'researchSourceRetrieve', 'webScrape', 'webSearch']);
-			expect(Object.keys(await jamis.listTools())).not.toContain('researchSourceRetrieve');
 			const defaults = await researchAgent.getDefaultOptions();
 			expect(defaults.maxSteps).toBe(5);
 			expect(defaults.toolCallConcurrency).toBe(1);
@@ -81,31 +83,37 @@ else {
 					} }) };
 				} });
 			}
-			const child = new Agent({
-				id: 'research-agent',
-				name: 'Research fixture',
-				instructions: await researchAgent.getInstructions(),
-				tools,
-				defaultOptions: defaults,
-				model: model([
+			const mastra = new Mastra({ logger: false });
+			const parent = createJamisAgent({
+				mastra,
+				tools: {},
+				memory: new Memory({ options: { semanticRecall: false, workingMemory: { enabled: false } } }),
+				specialists: { research: { tools, model: boundaryModel(Array.from({ length: 2 }, () => [
 					{ tool: 'researchSourceDiscover', input: { domain: 'papers' } },
 					{ tool: 'researchSourceRetrieve', input: { operation: 'paper-search', query: 'public fixture question', paperId: null } },
 					{ tool: 'researchSourceRetrieve', input: { operation: 'paper-read', query: 'public passage question', paperId: '123' } },
-					{ text: 'Evidence status: sufficient. Abstract-only finding.[1]\nSources:\n[1] Fixture paper: https://arxiv.org/abs/2005.11401' },
-				], true),
-			});
-			const parent = new Agent({
-				id: 'jam74-parent-fixture',
-				name: 'Parent fixture',
-				instructions: await jamis.getInstructions(),
-				agents: { researchAgent: child },
-				defaultOptions: { maxSteps: 5, delegation: (await jamis.getDefaultOptions()).delegation },
-				model: model([
-					{ tool: 'agent-researchAgent', input: { prompt: 'public fixture question', instructions: 'Override marker jam74-unsafe-instructions', maxSteps: 3 } },
-					{ tool: 'agent-researchAgent', input: { prompt: 'another public fixture question' } },
+					{ text: JSON.stringify({ handback: { case: 'completed', result: {
+						findings: [{ text: 'An explicit passage finding.', sourceNumbers: [1] }],
+						sources: [{ title: 'Fixture paper', url: 'https://arxiv.org/abs/2005.11401', evidenceKind: 'full-text-passage', evidence: 'An explicit passage finding.', limitations: ['Only the matched passage was retrieved.'] }],
+						limitations: [],
+					} } }) },
+				]).flat(), options => prompts.push(options)) } },
+				model: boundaryModel([
+					{ tool: 'invoke_research', input: { kind: 'operator_request', instructions: 'Override marker jam74-unsafe-instructions', maxSteps: 3 } },
+					{ text: 'Unsupported invocation options were rejected.' },
+					{ tool: 'invoke_research', input: { kind: 'operator_request' } },
+					{ text: 'Fixture completed.' },
+					{ tool: 'invoke_research', input: { kind: 'operator_request' } },
 					{ text: 'Fixture completed.' },
 				]),
 			});
+			mastra.addAgent(parent, 'jamis');
+			expect(Object.keys(await parent.listTools())).not.toContain('researchSourceRetrieve');
+			expect(Object.keys(await parent.listAgents())).not.toContain('researchAgent');
+			const invalid = await parent.stream('Research the public fixture question.', { requestContext: new RequestContext() });
+			await invalid.consumeStream();
+			expect((await invalid.toolResults)[0]?.payload.result).toMatchObject({ error: true });
+			expect(calls).toEqual([]);
 			const requestContext = new RequestContext();
 			const stream = await parent.stream([
 				{ role: 'user', content: 'Unrelated private marker jam74-private-fixture.' },
@@ -113,6 +121,11 @@ else {
 			], { requestContext });
 			await stream.consumeStream();
 			expect(await stream.text).toBe('Fixture completed.');
+			expect((await stream.toolResults).at(-1)?.payload.result).toMatchObject({ case: 'completed' });
+			const next = await parent.stream('Research another public fixture question.', { requestContext: new RequestContext() });
+			await next.consumeStream();
+			expect(await next.text).toBe('Fixture completed.');
+			expect((await next.toolResults)[0]?.payload.result).toMatchObject({ case: 'completed' });
 			expect(calls).toEqual(['find-tools', 'search', 'read', 'find-tools', 'search', 'read']);
 			expect(JSON.stringify(prompts)).not.toContain('jam74-private-fixture');
 			expect(JSON.stringify(prompts)).not.toContain('jam74-unsafe-instructions');

@@ -1,3 +1,4 @@
+import type { ChannelConfig } from '@mastra/core/channels';
 import type { Message, Thread } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
 import type { LinearCreateOperation } from '../../lib/linear';
@@ -17,7 +18,7 @@ import { Memory } from '@mastra/memory';
 import { Observability } from '@mastra/observability';
 import { PostgresStore } from '@mastra/pg';
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
-import { claimLinearCreate, finishLinearCreate, notifyLinearOutcome, postLinearCreateProposal, readLinearProposal, receiveLinearMessage } from '../../lib/linear-proposals';
+import { claimLinearCreate, finishLinearCreate, isImmediatelyFollowingLinearMessage, notifyLinearOutcome, postLinearCreateProposal, readLinearProposal, receiveLinearMessage } from '../../lib/linear-proposals';
 import { clearOperatorTimeZoneConversation, saveOperatorTimeZoneProposal } from '../../lib/operator-time-zone';
 import { redactChannelRenderContext } from '../observability';
 
@@ -37,6 +38,11 @@ if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
 				SENDBLUE_WEBHOOK_SECRET: 'sendblue-create-webhook-secret',
 				JAMIS_ALLOWED_NUMBER: '+15550000001',
 				OPERATOR_TIMEZONE: 'UTC',
+				OPEN_WEATHER_API_KEY: 'weather-fixture',
+				FIRECRAWL_API_KEY: 'firecrawl-fixture',
+				PERPLEXITY_API_KEY: 'perplexity-fixture',
+				GOOGLE_CLIENT_ID: 'google-fixture',
+				GOOGLE_CLIENT_SECRET: 'google-fixture',
 			},
 			stdout: 'pipe',
 			stderr: 'pipe',
@@ -115,6 +121,22 @@ else {
 		}
 	});
 
+	test('clarification receipt lookup requires the exact immediately preceding DM source', async () => {
+		const dm = randomUUID();
+		await receiveLinearMessage(dm, 'source', sql);
+		expect(await isImmediatelyFollowingLinearMessage(dm, 'next', 'source', sql)).toBe(false);
+		await receiveLinearMessage(dm, 'next', sql);
+		expect(await isImmediatelyFollowingLinearMessage(dm, 'next', 'source', sql)).toBe(true);
+		expect(await isImmediatelyFollowingLinearMessage(dm, 'source', 'next', sql)).toBe(false);
+		expect(await isImmediatelyFollowingLinearMessage(randomUUID(), 'next', 'source', sql)).toBe(false);
+		await receiveLinearMessage(dm, 'source', sql);
+		expect(await isImmediatelyFollowingLinearMessage(dm, 'next', 'source', sql)).toBe(true);
+		await receiveLinearMessage(dm, 'other', sql);
+		expect(await isImmediatelyFollowingLinearMessage(dm, 'other', 'source', sql)).toBe(false);
+		expect(await isImmediatelyFollowingLinearMessage(dm, 'next', 'source', sql)).toBe(false);
+		expect(await isImmediatelyFollowingLinearMessage(dm, 'other', 'other', sql)).toBe(false);
+	});
+
 	test('stored success survives failed result posting; notification retry does not execute again', async () => {
 		const dm = randomUUID();
 		await receiveLinearMessage(dm, 'source', sql);
@@ -157,6 +179,8 @@ else {
 
 	const { CODEX_AUTH_CHANNEL_ERROR, formatSendblueError, handleSendblueDirectMessage, OPENAI_LOGIN_FAILURE, proposeLinearCreate, requireSendbluePostAcceptance, startJamisDmSession } = await import('./sendblue');
 	const { linearCreateProposalTool, linearReadTool } = await import('../tools/linear');
+	const { createJamisAgent } = await import('../agents/jamis');
+	const { boundaryModel } = await import('../agents/__tests__/specialist-boundary.fixture');
 	const originalFetch = globalThis.fetch;
 	type Action = { tool: string; input: Record<string, unknown> } | { text: string } | { error: string };
 	function model(actions: Action[], prompts: unknown[]) {
@@ -182,12 +206,13 @@ else {
 		} });
 	}
 
-	async function fixture(options: { description?: string; reply?: string; unavailable?: boolean; denied?: boolean; modelError?: boolean; read?: boolean } = {}) {
+	async function fixture(options: { description?: string; reply?: string; unavailable?: boolean; denied?: boolean; modelError?: boolean; read?: boolean; typed?: boolean } = {}) {
 		await clearOperatorTimeZoneConversation(sql);
 		let channelSql: SqlLike = sql;
 		const posts: string[] = [];
 		const mutations: unknown[] = [];
 		const prompts: unknown[] = [];
+		const typedToolResults: unknown[] = [];
 		const spans: unknown[] = [];
 		const history: Message<SendblueMessagePayload>[] = [];
 		let lostResponse = false;
@@ -254,17 +279,40 @@ else {
 			}, exportTracingEvent: async () => {}, flush: async () => {}, shutdown: async () => {} }],
 		} } });
 		const child = new Agent({ id: options.denied ? 'wrong-account-agent' : 'personal-accounts-agent', name: 'Account fixture', instructions: 'Propose only the requested create.', tools: { linearCreateProposalTool, linearReadTool }, model: model([...(options.read ? [{ tool: 'linearReadTool', input: { action: 'list', stateType: 'backlog' } }] : []), { tool: 'linearCreateProposalTool', input: { action: 'create', title: 'Exact fixture title', description: options.description ?? 'Exact fixture description' } }, { text: options.read ? 'Proposal posted. Backlog: JAM-998, Fixture backlog issue.' : 'Proposal posted. Do not send another response.' }], prompts) });
-		const agent = new Agent({
-			id: 'jamis',
-			name: 'Jamis fixture',
-			instructions: 'Delegate creation; do not respond after the proposal.',
-			model: model([{ tool: 'agent-personalAccountsAgent', input: { prompt: 'Create one fixture issue.' } }, options.modelError ? { error: 'Model authentication failed. The error was logged.' } : { text: options.reply ?? '' }], prompts),
-			agents: { personalAccountsAgent: child },
-			defaultOptions: { maxSteps: 3, delegation: { messageFilter: () => [] } },
-			memory: new Memory({ options: { semanticRecall: false, workingMemory: { enabled: false } } }),
-			channels: { adapters: { sendblue: { adapter, formatError: formatSendblueError, gateway: false, toolDisplay: 'hidden' } }, handlers: { onDirectMessage: (thread, message, handler, context) => handleSendblueDirectMessage(thread, message, handler, context, channelSql), onMention: false, onSubscribedMessage: false } },
-		});
-		const mastra = new Mastra({ storage: store, agents: { jamis: agent }, observability, logger: false });
+		const mastra = new Mastra({ storage: store, observability, logger: false });
+		const typedNeed = { case: 'needs_help', need: { kind: 'approval', operationId: '00000000-0000-4000-8000-000000000000' }, progress: null };
+		const channelsConfig: ChannelConfig = { adapters: { sendblue: { adapter, formatError: formatSendblueError, gateway: false, toolDisplay: 'hidden' } }, handlers: { onDirectMessage: (thread, message, handler, context) => handleSendblueDirectMessage(thread, message, handler, context, channelSql), onMention: false, onSubscribedMessage: false } };
+		const agent = options.typed
+			? createJamisAgent({
+					mastra,
+					tools: {},
+					model: boundaryModel([{ tool: 'invoke_personal_accounts', input: { question: 'Propose one exact fixture issue.' } }, { text: JSON.stringify({ otherAnswers: [] }) }], (value) => {
+						prompts.push(value);
+						typedToolResults.push(...(value as { prompt: Array<{ role: string; content: unknown }> }).prompt.filter(message => message.role === 'tool').map(message => message.content));
+					}),
+					memory: new Memory({ options: { semanticRecall: false, workingMemory: { enabled: false } } }),
+					channels: channelsConfig,
+					specialists: { personalAccounts: { tools: { linearCreateProposalTool }, model: boundaryModel([
+						{ tool: 'linearCreateProposalTool', input: { action: 'create', title: 'Exact fixture title', description: 'Exact fixture description' } },
+						{ handback: typedNeed },
+					], (value) => {
+						prompts.push(value);
+						const operationId = /Pending operation: ([a-f0-9-]{36})/.exec(JSON.stringify(value))?.[1];
+						if (operationId)
+							typedNeed.need.operationId = operationId;
+					}) } },
+				})
+			: new Agent({
+					id: 'jamis',
+					name: 'Jamis fixture',
+					instructions: 'Delegate creation; do not respond after the proposal.',
+					model: model([{ tool: 'agent-personalAccountsAgent', input: { prompt: 'Create one fixture issue.' } }, options.modelError ? { error: 'Model authentication failed. The error was logged.' } : { text: options.reply ?? '' }], prompts),
+					agents: { personalAccountsAgent: child },
+					defaultOptions: { maxSteps: 3, delegation: { messageFilter: () => [] } },
+					memory: new Memory({ options: { semanticRecall: false, workingMemory: { enabled: false } } }),
+					channels: { adapters: { sendblue: { adapter, formatError: formatSendblueError, gateway: false, toolDisplay: 'hidden' } }, handlers: { onDirectMessage: (thread, message, handler, context) => handleSendblueDirectMessage(thread, message, handler, context, channelSql), onMention: false, onSubscribedMessage: false } },
+				});
+		mastra.addAgent(agent, 'jamis');
 		const channels = agent.getChannels()!;
 		await channels.initialize(mastra);
 		const line = `+1555${Math.floor(1000000 + Math.random() * 8999999)}`;
@@ -282,6 +330,7 @@ else {
 			posts,
 			mutations,
 			prompts,
+			typedToolResults,
 			spans,
 			send,
 			adapter,
@@ -300,6 +349,30 @@ else {
 			},
 		};
 	}
+
+	test('production typed Accounts proposal returns the runtime operation and exact native confirmation creates once', async () => {
+		const f = await fixture({ typed: true });
+		try {
+			const source = await f.send('Create one fixture issue.');
+			const proposal = (await readLinearProposal(source.threadId, sql))!;
+			expect(proposal.state).toBe('pending');
+			expect(f.posts).toHaveLength(1);
+			expect(f.posts[0]).toContain('Next reply: confirm | decline');
+			expect(JSON.stringify(f.prompts)).toContain(proposal.id);
+			expect(f.typedToolResults).toEqual(expect.arrayContaining([expect.arrayContaining([expect.objectContaining({
+				type: 'tool-result',
+				toolName: 'invoke_personal_accounts',
+				output: { type: 'json', value: { case: 'needs_help', need: { kind: 'approval', operationId: proposal.id }, progress: null } },
+			})])]));
+			expect(f.mutations).toHaveLength(0);
+			const confirmation = await f.send('confirm');
+			await f.send('confirm', confirmation.id, false);
+			expect(f.mutations).toHaveLength(1);
+			expect(f.posts.filter(text => text.startsWith('Created'))).toEqual(['Created JAM-999: https://linear.app/fixture/issue/JAM-999']);
+			expect(await readLinearProposal(source.threadId, sql)).toBeNull();
+		}
+		finally { await f.close(); }
+	}, 30_000);
 
 	test('native dispatch delegates authority, confirms equal-timestamp messages once, and keeps credentials out of memory/traces', async () => {
 		const f = await fixture();

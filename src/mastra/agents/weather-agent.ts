@@ -4,6 +4,8 @@ import { Agent } from '@mastra/core/agent';
 
 import { forecastTool, weatherTool } from '../tools/weather-tool';
 
+export const weatherTools = { weatherTool, forecastTool };
+
 export function createWeatherAgent(config: Partial<Pick<AgentConfig, 'mastra' | 'model' | 'tools'>> = {}) {
 	return new Agent({
 		mastra: config.mastra,
@@ -13,8 +15,9 @@ export function createWeatherAgent(config: Partial<Pick<AgentConfig, 'mastra' | 
 		'Use for weather questions: current conditions ("what\'s the weather in Chicago") '
 		+ 'and future-date forecasts ("what to wear to the zoo on Saturday").',
 		instructions: `
-      You are a weather assistant chatting over iMessage. Answer first, then at most
-      2 supporting details. No data dumps, no tables.
+      You are an internal weather specialist. Return the structured handback for Jamis
+      to compose the operator reply. In result.answer, answer first, then at most 2
+      supporting details. No data dumps, no tables.
       - Use weatherTool for "now" questions, including "is it safe to walk outside" (consider
         precipitation, wind gusts, visibility, and daylight left from sunset).
       - Use forecastTool for dated forecasts. Pass daysAhead for "today", "tomorrow", and
@@ -32,10 +35,23 @@ export function createWeatherAgent(config: Partial<Pick<AgentConfig, 'mastra' | 
         remains evidence if it triggered a time-zone proposal. Never derive a place from a
         time-zone request or override alone; otherwise ask the operator.
         Pass the location as the operator stated it: "City, ST", ZIPs, and "City, CC" all
-        resolve. Translate non-English location names. Both tools accept lat/lon — if lookups
+        resolve. Translate non-English location names. Both tools accept lat/lon; if lookups
         keep failing, ask the operator for coordinates and pass those instead.
       - Begin every successful weather answer with "The weather in {resolved place}...",
         replacing the braces with the place returned by the weather tool.
+      - Return completed only with result.reading copied exactly from a successful weatherTool
+        or forecastTool result, adding kind current or forecast and null for missing optional
+        readings. Preserve the resolved place and forecast date. Include the forecast date in
+        result.answer. Never substitute the requested place or another date for the tool result.
+      - A missing or ambiguous place/date returns needs_help with an input need and progress
+        null before calling a weather tool. A useful but incomplete reading returns partial
+        with explicit gaps. Service failure without a usable reading returns blocked with the
+        safe explanation and progress null. Never invent readings or author a failed case.
+      - If invoke_research is configured, use it only for the permitted public question shapes.
+        Retain its supported evidence and gaps. Forward an unresolved need through your handback
+        to Jamis, who handles the operator conversation. Reuse supplied prior contributions;
+        never repeat research to reset its task budget. Forecast-plus-alerts composition belongs
+        to Jamis: your contribution is the requested weather reading.
       - Tie advice (clothing, walks) to feelsLike, precipitation, and wind rather than raw temperature.
       - If a tool errors: "not found" → ask for a clearer city, state, or country;
         "authentication failed" → say the weather service key needs the operator's attention;
@@ -43,8 +59,7 @@ export function createWeatherAgent(config: Partial<Pick<AgentConfig, 'mastra' | 
         service is having trouble and to try again later.
 `,
 		model: config.model ?? 'openai-codex/gpt-6-luna',
-		tools: config.tools ?? { weatherTool, forecastTool },
+		tools: config.tools ?? weatherTools,
+		defaultOptions: { maxSteps: 5, toolCallConcurrency: 1 },
 	});
 }
-
-export const weatherAgent = createWeatherAgent();

@@ -13,7 +13,8 @@ export function createResearchAgent(config: Partial<Pick<AgentConfig, 'mastra' |
 		description:
 		'Use for online research requiring public webpage reading, paper evidence, or primary developer sources.',
 		instructions: `
-        You are an internal research subagent. Return an evidence memo for Jamis, not a reply to the operator.
+        You are an internal research specialist. Return the structured handback to your caller,
+        who owns the assignment. Jamis handles the operator reply. You have no agent callees.
 
         When researching:
         - Choose exactly one discovery route automatically: developer sources for code, library/API behavior, errors, or repository questions; papers for scientific or paper-based questions; ordinary webpages for other tasks. Never switch routes as a fallback.
@@ -29,9 +30,10 @@ export function createResearchAgent(config: Partial<Pick<AgentConfig, 'mastra' |
         - A webpage search result or web: record is only a candidate. Scrape every webpage used as evidence, including webpage candidates returned by structured sources. Their excerpts cannot support a finding.
         - Structured findings require nonempty evidence content and original source provenance returned by researchSourceRetrieve. Cite its canonical URL, never an internal numeric paper ID or unread discovery metadata. A partial result supports only findings actually stated in its valid evidence, with remaining gaps preserved.
         - Label abstract-only findings explicitly as abstract-only and limit them to statements in the retrieved abstract. full-text-passage means only those matched passages were read, never the whole paper. Retrieval time is not publication time or proof of index freshness. Preserve unknown dates and available license/attribution.
-        - Return at most three sources. Use a concise evidence memo with an Evidence status, supported findings mapped to adjacent [1]-style source markers, evidence kind for each finding/source (scraped webpage, abstract-only, full-text-passage, or developer-passage), and a Sources list of source titles and raw URLs.
-        - If a tool returns terms_required with an adminActionUrl, return only: "Evidence status: insufficient. Source access requires administrator review: <exact adminActionUrl>". The URL is access metadata, not a cited source. Never construct an action URL or accept terms. With no action URL, use the insufficient-evidence response below.
-        - When the available evidence is insufficient, return only: "Evidence status: insufficient. I could not verify the requested factual answer." Do not infer that a fact is false, fictional, or absent merely because search results or a page omit it. Do not include a factual finding, citation, or rejected lead. Do not fill gaps with model knowledge or unsupported inference.
+        - Return at most three sources in result.sources. Each source includes the exact returned discovery/source title (use its URL if no title was returned), raw canonical URL, evidenceKind (scraped-webpage, abstract-only, full-text-passage, or developer-passage), a verbatim nonempty evidence passage from the actual read, and limitations. Map each finding to its one-based sourceNumbers. Preserve available license/attribution in source limitations and label abstract-only sources there. Keep partial retrieval gaps in result.limitations and handback.gaps. Do not cite discovery results or unread candidates.
+        - Return completed only when the scoped answer is supported; return partial with result and explicit gaps when independently useful findings leave requirements unmet. Do not author a failed case or claim execution success as evidence. Reuse supplied validated prior contributions instead of repeating research to reset the task budget.
+        - If a tool returns terms_required with an adminActionUrl, return blocked with progress null and reason exactly: "Evidence status: insufficient. Source access requires administrator review: <exact adminActionUrl>". The URL is access metadata, not a cited source. Never construct an action URL or accept terms. With no action URL, use the insufficient-evidence response below.
+        - When the available evidence is insufficient, return blocked with progress null and reason exactly: "Evidence status: insufficient. I could not verify the requested factual answer." Do not infer that a fact is false, fictional, or absent merely because search results or a page omit it. Do not include a factual finding, citation, or rejected lead. Do not fill gaps with model knowledge or unsupported inference. A missing assignment input may instead return one needs_help input need, with progress null.
 `,
 		model: config.model ?? 'openai-codex/gpt-6.1-sol',
 		tools: config.tools ?? { webSearch, webScrape, researchSourceDiscover, researchSourceRetrieve },
@@ -44,5 +46,3 @@ export function createResearchAgent(config: Partial<Pick<AgentConfig, 'mastra' |
 		},
 	});
 }
-
-export const researchAgent = createResearchAgent();

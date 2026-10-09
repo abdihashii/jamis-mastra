@@ -326,6 +326,19 @@ describe('bounded incident reader', () => {
 		expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
 	});
 
+	test('triages typed invocation failures while retaining historical specialist identities', async () => {
+		for (const component of ['invoke_weather', 'invoke_research', 'invoke_personal_accounts', 'weather-agent', 'research-agent', 'personal-accounts-agent'] as const) {
+			const spanType = component.startsWith('invoke_') ? SpanType.TOOL_CALL : SpanType.AGENT_RUN;
+			const row = traceRow({ entityId: component, spanType });
+			const result = await readIncident({ kind: 'application', component, window: { start, end } }, {
+				flush: async () => {},
+				getStore: async () => storeFixture({ branches: [row], structures: new Map([[row.traceId, structure(row)]]) }),
+			});
+			expect(result).toMatchObject({ status: 'found', incident: { component, stage: spanType === SpanType.TOOL_CALL ? 'tool' : 'agent', classification: 'execution_failed' } });
+			expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
+		}
+	});
+
 	test('directly triages a fixed Deployment component from current evidence', async () => {
 		const evidence = deploymentEvidenceFixture();
 		const result = await triageDeployment('docker', {
