@@ -12,3 +12,9 @@ Mastra generates one webhook route per agent and adapter. Registering the same S
 - Passive persistence must be idempotent by Sendblue message handle.
 - The custom handler must catch and log persistence failures because Mastra acknowledges channel webhooks before background handlers finish.
 - Phone numbers and raw group text remain private Postgres data and must not enter ClickHouse logs or Fantasy group output. A private operator alert may identify an unmapped sender so the mapping can be corrected.
+
+## Architecture amendment: Operator-requested broadcast confirmation
+
+Status: accepted target design, not implemented. During the [Jamis architecture session](../jamis-agent-architecture.md#existing-execution-gaps-to-address-in-the-eventual-plan), the Operator selected an application-enforced next-message gate for one-off requested broadcasts. Jamis shows the exact saved draft in the Operator DM; only the immediately following trimmed, case-insensitive `confirm` in that DM and active session authorizes sending those exact bytes to the configured Fantasy group. `decline`, any other next reply, and `/new` cancel the pending send. Changed text requires fresh review and confirmation. A draft ID or model-written approval does not authorize sending, and one confirmation cannot authorize multiple actions.
+
+The current send tool enforces draft claiming but does not check that authorization. Its prompt-only approval examples remain current implementation, not the target policy. The existing broadcast record must own durable decision/claim/outcome facts; no separate approval ledger is selected. Passive group ingestion and scheduled weekly recap delivery keep their existing policies. No application change or live broadcast is authorized by this amendment.

@@ -11,7 +11,31 @@ Just A Mostly Intelligent System. The channel-facing personal agent (`id: 'jamis
 _Avoid_: master agent, main agent (use "Jamis")
 
 **Subagent**:
-An internal agent that accepts bounded delegated work from Jamis. Jamis owns the operator conversation and turns a subagent result into the final response.
+An internal agent that accepts bounded delegated work from a permitted caller through a contract defining its responsibility, required inputs, possible outcomes, and escalation conditions. Jamis owns the operator conversation and turns specialist results into the final response in its own voice.
+
+**Supervisor**:
+Jamis's role in owning the Operator conversation, handling requests directly or assigning task owners, coordinating their work, and presenting questions, approval requests, and final responses in its own voice.
+_Example_: Jamis relays Weather's location question to the Operator, coordinates the requested work, and presents the final plan.
+
+**Task**:
+A bounded assignment with a goal, scope, and completion conditions. A task may contain delegated tasks with narrower scopes.
+_Example_: Prepare tomorrow's plan using the selected calendar's events and Chicago's forecast.
+
+**Task owner**:
+The agent accountable for achieving an assigned task's goal and reporting its overall outcome, even when it delegates parts of the work.
+_Example_: Jamis owns a calendar-plus-weather plan even when Personal Accounts retrieves the events and Weather provides the forecast.
+
+**Domain specialist**:
+An internal subagent with expertise in a subject area that can act as task owner, using permitted tools and capability specialists to complete tasks within that domain.
+_Example_: Personal Accounts owns the calendar portion of the plan and uses its Calendar tool to interpret and report the relevant events.
+
+**Capability specialist**:
+An internal subagent that provides a reusable skill, such as research, for a focused contribution while the task owner retains responsibility for the overall task.
+_Example_: Research evaluates official weather-alert sources and returns supported findings to Jamis; Jamis owns the combined weather report.
+
+**Tool**:
+A callable operation that performs a predefined action for an agent or workflow, such as retrieving data or applying an authorized change, while the task owner retains responsibility for the overall outcome.
+_Examples (illustrative)_: `read_file`, `write_file`, `get_forecast`, `get_current_time`, `search_web`, and `scrape_page`.
 
 **Project understanding**:
 Jamis's read-only capability to inspect approved source code, documentation, and configuration and explain a project's behavior from that evidence. Credentials and private runtime data are outside its scope.
@@ -45,6 +69,10 @@ _Avoid_: bot account, Operator account
 An exact change to a `jamis` team issue awaiting the Operator's confirmation before Jamis applies it.
 _Avoid_: check (asks for missing information rather than permission to act)
 
+**Email send confirmation**:
+The Operator's explicit authorization to send one exact email to its proposed recipients. Drafting or editing a message, approving another action, and standing authorization do not supply it.
+_Avoid_: draft approval (does not establish permission to send)
+
 **Personal-accounts agent**:
 The internal subagent that owns tool integrations with the Operator's personal accounts. Jamis delegates personal-account requests to it; its result is evidence for Jamis's final reply, not a channel reply itself. One delegation boundary for the whole personal-account class, not one subagent per account provider.
 _Avoid_: email agent, gmail subagent, google agent
@@ -62,15 +90,16 @@ An authoritative primary source, such as official documentation, a government or
 _Avoid_: top search result, popular source
 
 **Research subagent**:
-The internal subagent through which Jamis performs online research and receives sourced evidence. Only Jamis delegates to it; Jamis owns the operator conversation and final answer.
+The internal capability specialist that performs Online research for Jamis or a permitted domain specialist and returns sourced evidence to its caller. Jamis owns the operator conversation and final answer.
 _Avoid_: web agent, browser agent
 
 **Check**:
 A plain question Jamis asks when missing information or outcome-changing ambiguity prevents a useful answer. The operator's next message supplies the needed context, and Jamis may ask again while it remains unclear. On the current Sendblue shared-line channel, a check is plain text rather than a structured prompt.
-_Avoid_: approval (implies a button card)
+_Avoid_: approval (authorizes an action rather than supplying missing information)
 
 **Operator**:
 You, logging in as `root` over the tailnet. The only account with privilege on the box. The `jamis` account is the agent's, and holds read-only inspection rights, never `sudo` in general and never the `docker` group.
+_Example_: You ask Jamis to plan tomorrow, provide Chicago as the forecast location, and confirm an exact Linear issue proposal when requested.
 _Avoid_: admin user, deploy user
 
 **Operator time zone**:

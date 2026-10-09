@@ -2,6 +2,19 @@
 
 Jamis will gain online research as a first-class capability by delegating to one internal research subagent that owns Firecrawl search and single-page scrape tools. The subagent discovers relevant public webpages and reads selected pages; Jamis remains the only public agent and owns the final answer. Evidence requirements constrain how Jamis uses this capability for factual answers.
 
+## Architecture amendment: permitted domain callers (2026-10-08 UTC)
+
+Status: accepted design, not implemented. The Operator selected direct domain-to-Research delegation during the [architecture walkthroughs](../jamis-agent-architecture.md). This revises the target architecture's Jamis-only caller restriction; the existing code remains Jamis-only until a separately planned implementation.
+
+- Jamis and explicitly configured domain specialists may call Research for a bounded contribution within their assigned task. Research returns evidence to its caller; the caller retains ownership of its assignment. Research itself uses only its permitted tools/workflows and does not delegate to agents.
+- Apply the same Research privacy, evidence, refusal, price, and task-budget policy at every permitted caller boundary. Caller-added instructions, another invocation, or delegation through another agent cannot expand authority or reset the same research task's budget. Native per-agent configuration exposes only explicitly permitted callees.
+- Pass only the current public research question and necessary public context. A generic query may use public labels extracted from account data, such as airline and public fare-class names; private messages, identity, booking references, itineraries, unrelated history, credentials, and broader caller runtime capabilities stay out. Message filtering alone does not constrain Mastra's separately copied request context.
+- Work remains sequential. Jamis handles every Operator question, approval, and final response in its own voice. Domain-to-domain calls and further capability-agent delegation remain outside the selected initial scope.
+
+Provider ownership, source standards, existing action gates, and unavailable writes are unchanged. Typed handback, nested control propagation, and public-only context isolation require verification together before implementation is accepted. Historical Jamis-only statements below describe the original rollout and current implementation, not the amended target caller set.
+
+The [native invocation boundary](../jamis-agent-architecture.md#native-mastra-invocation-boundary) specifies the engineering default for typed results and one authoritative Research entry path across permitted callers. It also constrains explicit query construction for private-to-public projections; filtering messages or copying a typed context alone does not establish public-only input. This is design documentation, not an implemented delegation or privacy guarantee.
+
 ## Amendment: neutral tool boundary (JAM-63, 2026-09-27 UTC)
 
 The original decision below records the Firecrawl-only rollout. Research now exposes only `web-search` and `web-scrape`, with provider-neutral schemas, instructions, and execution errors. Provider selection, credentials, upstream payloads, normalization, and safe operation telemetry belong to one web-tool module; they are absent from the agent-facing interface. Firecrawl remains the sole scraper, including PR #35's Firecrawl 4.41.0 freshness settings and disabled processing-timeout resumption.
