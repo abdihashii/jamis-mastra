@@ -1,8 +1,8 @@
 # 029: Typed Jamis delegation and confirmed-action continuation
 
-Status: reviewed staged plan, prepared 2026-10-08 UTC. Stage 1 is implemented, locally verified, and reviewed. On 2026-10-09 UTC, the Operator authorized its commit, push, deployment, and guided IRL testing if ready. Later stages have not started. The three GPT-6-Luna max passes supplied read-only code exploration, installed-Mastra research, and bounded web research. Nine GPT-6-Astra review passes found no verified design blocker; Mastra API claims were reconciled with the original researcher. Research caches remain ignored.
+Status: reviewed staged plan, prepared 2026-10-08 UTC. Stage 1 is committed, pushed, and deployed as `32b34afbdde6e69e8e7c50344e048da0ba50e0d3`, with local verification, implementation reviews, and scoped production regression checks complete on 2026-10-09 UTC. Stage 2 is the next-session focus; later implementation has not started. The three GPT-6-Luna max passes supplied read-only code exploration, installed-Mastra research, and bounded web research. Nine GPT-6-Astra review passes found no verified design blocker; Mastra API claims were reconciled with the original researcher. Research caches remain ignored.
 
-Tracking: [JAM-77: Make Jamis delegation and action continuation deterministic](https://linear.app/abdirahman-haji/issue/JAM-77/make-jamis-delegation-and-action-continuation-deterministic). Its title/body now follow the reviewed plan and JAM-59's general structure, with all 15 implementation acceptance criteria unchecked. The ticket keeps Context, Goal, Acceptance criteria, Not in scope, and Sources; framework detail and stage scope live in this plan. Working branch: `codex/jam-77-agent-architecture`. No subissues were created.
+Tracking: [JAM-77: Make Jamis delegation and action continuation deterministic](https://linear.app/abdirahman-haji/issue/JAM-77/make-jamis-delegation-and-action-continuation-deterministic) remains In Progress. The Operator authorized checking acceptance criteria 5, 7, and 13 on 2026-10-09 UTC; 3 of 15 are checked, with evidence below. The ticket keeps Context, Goal, Acceptance criteria, Not in scope, and Sources; framework detail and stage scope live in this plan. Working branch: `codex/jam-77-agent-architecture`. No subissues were created.
 
 ## Accepted scope and source of truth
 
@@ -26,19 +26,19 @@ Memory redesign, new dependencies/services, general task/dependency scheduling, 
 | Specialist outputs are prose; native `Agent.agents` drops the child's structured object. | Carry `response.object` explicitly through a native tool with matching output validation. |
 | Native delegation currently supplies registration, message/context handling, hooks, tracing, and cancellation. | Direct invocation must replace the relevant behavior deliberately; deleting the raw delegation entry alone is insufficient. |
 | `sendblue.ts` consumes confirmed Linear creation before normal routing, posts the outcome, then returns. | Add an explicit owner/procedure continuation; conversation memory cannot bridge it by itself. |
-| `linear-proposals.ts` owns receipts, exact operation, claim, outcome, and notification, but has no continuation reference. Its selector excludes notified terminal rows. | Extend this existing owner with durable correlation and a continuation-aware lookup; do not introduce another approval/effect ledger. |
+| `linear-proposals.ts` owns receipts, exact operation, claim, outcome, and notification. Stage 1 adds optional continuation/decision data and exact continuation lookup, including notified outcomes; production channel calls remain unbound. | Connect the existing owner and lookup in Stage 3; do not introduce another approval/effect ledger. |
 | Gmail returns bounded content without a reusable message ID. Calendar silently skips selected calendars returning 403/404. | Persist the selected bounded source for the procedure, and surface missing Calendar coverage in typed results rather than claiming completeness. |
 | `fantasy/broadcast.ts` claims a saved draft before sending, but has no executable confirmation/session check. | Add the accepted authority gate inside the send owner and channel intake. Duplicate protection alone is insufficient. |
 | Protected trace/log/metric handling and incident mappings depend on agent/tool identities. | Preserve safe parent/root attribution and historical lookup while new invocation paths are introduced. |
 
 Framework defaults verified against `@mastra/core@1.71.0` and `@mastra/pg@1.27.1`:
 
-- Build the common Mastra runtime first. Construct internal specialists with public `AgentConfig.mastra`, then use public `addAgent()`/`addWorkflow()` for the existing public roots and concrete procedures. Do not call internal registration methods or create a second Mastra runtime. The constructor seam is public-typed and source-supported, with integrated acceptance still required.
+- Build the common Mastra runtime first. Construct internal specialists with public `AgentConfig.mastra`, then use public `addAgent()`/`addWorkflow()` for the existing public roots and concrete procedures. Do not call internal registration methods or create a second Mastra runtime. Stage 1 verified the constructor seam through native fixtures and the configured real gateway; migrated callers need their own acceptance.
 - Use strict structured output. Reject a missing object and native `ValidationError` values, using the exported validation helper where appropriate. Callers cannot supply generation options, instructions, toolsets, models, contexts, or memory bindings.
 - Keep workflow validation enabled and snapshots persisted for `running` as well as suspended/terminal states. Installed Postgres supports the native atomic suspension claim. Set action-procedure retries to zero and `autoRestartActiveRuns: false`; retain existing service-local safe preflight/credential-refresh behavior.
 - Resume can merge stored request context. Persist only intended serializable data, rebuild current authority, and check operation/session eligibility again. Cancellation can swallow storage-update failures. Authenticated start/resume/tool routes require executable checks as well as server authentication.
 
-These are source findings, not runtime proof. The architecture record links exact framework evidence and records the limits of schema validation, model judgment, and delivery claims.
+These source findings informed the design; Stage 1's integrated proof and its limits are recorded below. The architecture record links exact framework evidence and records the limits of schema validation, model judgment, and delivery claims.
 
 ## Delivery slices and stage gates
 
@@ -48,7 +48,7 @@ Each numbered stage is independently committable and preserves functioning route
 
 The standard gate is `rtk bun run typecheck`, `rtk bun run lint`, `rtk bun test`, `rtk bun run build`, and `rtk git diff --check`. Point both `DATABASE_URL` and `JAMIS_TEST_DATABASE_URL` at disposable loopback `jamis_sessions_test` Postgres so channel/session/Linear contracts actually execute. Keep fixture provider/model/channel traffic controlled. Report skips and failures; do not count a skipped persistence contract as acceptance. Run the existing Docker/project smokes at the final gate, and earlier if composition/workspace behavior changes.
 
-Review each implementation diff with `review-code` and `ponytail:ponytail-review`; use `security-audit` for the context/authority/persistence changes in stages 1-4. Resolve verified blockers before stage sign-off. These reviews have not been run for implementation because no implementation exists yet.
+Review each implementation diff with `review-code` and `ponytail:ponytail-review`; use `security-audit` for the context/authority/persistence changes in stages 1-4. Resolve verified blockers before stage sign-off. Stage 1 reviews are complete; run fresh reviews for each later implementation diff.
 
 ### 1. Prove the native typed and durable boundaries without changing live routes
 
@@ -78,6 +78,27 @@ Implemented the isolated native invocation and stored-wait modules, specialist-o
 Native integration limits are explicit: cancellation needs durable receipt/session invalidation, not only a native cancellation return. Native resume claims before application step authorization, so denied direct resume can fail the selected run without drafting or effects. The procedure remains unexposed; Stage 3 must account for admission before native claiming. Later-stage production migrations and live channel acceptance remain outstanding.
 
 The disposable Stage 1 Postgres container and project-smoke resources were removed after verification. The subsequently authorized rollout remains limited to Stage 1. Handset tests can verify existing production routes; the new typed delegation and linked-reply continuation remain unexposed until their later stages. Stage 2 is outside this rollout authorization.
+
+#### Stage 1 rollout, live regressions, and AC checkpoint (2026-10-09 UTC)
+
+After explicit commit, push, and deployment approval, `32b34afbdde6e69e8e7c50344e048da0ba50e0d3` was pushed to the matching origin branch and deployed through `infra/deploy.sh`. The previous production revision was `ffb4ccbe19bfb011d4f7c5375e829eba4d10fc0f`, an ancestor of the implementation. The deployed checkout was clean at the exact approved SHA. The app started at `2026-10-09T00:51:13.622Z`; its prepared view is `view-NLJEdL`, prepared at `2026-10-09T00:49:51.844Z`.
+
+- App and worker readiness passed. Postgres, ClickHouse, and tunnel container identities stayed unchanged; the deployment lock was released. Loopback and configured tailnet-hostname health returned 200; the API returned 401 without app authentication and 200 with authentication; the public API still redirected unauthenticated requests to Cloudflare Access (302). The app had zero restarts and no startup storage/auth/error markers at the inspected checkpoint.
+- Production registration was checked without model execution or raw private output: public agent IDs remain `jamis` and `fantasy-agent`; the only registered workflow key is `fantasyWeeklyRecap`. New `invoke_*` tools and `prepare_linear_reply` remain unexposed. Both additive Linear columns were present after DM intake.
+- The Operator sent the handset messages and reported the received replies. Weather recorded one Jamis run, one Weather run, one weather-tool call, zero failed spans, and one matching reply-acceptance boundary. Research recorded one Jamis run, one Research run, one search, two sequential successful page reads, zero failed spans, and one matching accepted reply. No broader account/broadcast or new invocation path was exercised. Handset receipt comes from the Operator's report, separately from provider acceptance.
+- The Research reply's main claims were independently compared with its two linked NWS pages: [Lightning Rules](https://www.weather.gov/mlb/lightning_rules) and [Severe Weather Preparedness Week](https://www.weather.gov/gsp/severeprep). The cited pages supported the guidance. This separate source check is not a claim that redacted production traces retained the page bodies or URLs.
+- Database-side aggregate privacy checks returned zero raw input/output/request-context/tag or unexpected-metadata violations across all 36 correlated Weather spans and 49 correlated Research spans. All 27 Weather and 31 Research metric records passed label/metadata checks. Correlated warning/error log counts were zero. Raw production messages, credentials, and telemetry rows were not returned. These are scoped structural checks, not a historical purge or universal privacy certification.
+- One existing prose-path format gap was observed: Weather named the resolved place but omitted the instructed "The weather in..." opening. No prompt change was folded into Stage 1. Include this in Stage 2's Weather response/composition regression checks.
+
+The Operator approved the following issue checkbox updates; criteria retain their original wording:
+
+| AC | Evidence and scope |
+| --- | --- |
+| 5 | Bounded real configured-gateway tool-plus-structured-output observation, plus native registry/logger/tracing/memory/cancellation fixtures. |
+| 7 | Existing exact Linear confirmation and single-use gate remains intact; current native channel, receipt, replay, session, and competing-claim regressions pass. This is preserved preexisting behavior, not delivery of the new linked-reply procedure. No live issue creation was needed for this checkpoint. |
+| 13 | First-event protection for new roots, aligned new tool names, numeric attribution/historical lookup and existing project/channel/scheduled Fantasy regressions pass; scoped live Weather/Research telemetry checks are clean. Future migrations must preserve these guarantees. |
+
+All other 12 criteria remain unchecked. Typed delegation, nested Research, and durable continuation have boundary proofs but still need their specified production integrations and final acceptance. This evidence update is documentation only; production remains on the Stage 1 implementation SHA above. The next session implements Stage 2 only and stops for commit approval after its focused/full gates and fresh reviews. Stage 2 commit/push/deployment and Stage 3 work are not authorized by this checkpoint.
 
 ### 2. Migrate adaptive Weather, Research, and Personal Accounts delegation
 
@@ -145,11 +166,11 @@ The send owner must reject missing/forged/direct authority even when a draft ID 
 
 The local implementation is complete only when all stages have their own approved commit and current verification evidence, each migrated specialist has one enforced typed entry path, both requested-action gates are runtime-enforced, and the concrete Linear continuation preserves effects and eligibility across the tested failures. Production acceptance remains separate until an authorized rollout and live observations are recorded. Unsupported general continuation and existing unrelated tool-name debt must not be described as delivered.
 
-JAM-77 now carries the reviewed scope and acceptance observations, preserving its original mega-prompt/determinism motivation. The Operator authorized its update, branch creation, and the documentation commit/push, then handed Stage 1 implementation to a new session. Implementation-stage commits, pushes, deployment, and later ticket/subissue changes retain their existing authorization boundaries; none is authorized merely by writing this plan. Stage 1 must stop after verification/reviews for explicit commit sign-off before Stage 2 begins.
+JAM-77 carries the reviewed scope and current acceptance observations, preserving its original mega-prompt/determinism motivation. Stage 1's implementation commit/push/deployment, scoped live tests, and the three checkbox updates were explicitly authorized. The Operator subsequently requested this documentation commit/push and a Stage 2 handoff. Next-session implementation is limited to Stage 2, with focused/full verification and fresh reviews before stopping for its own commit sign-off. Later pushes, deployment, issue changes, and external effects require their own authorization; none is authorized merely by writing this plan.
 
 ## Research basis and limits
 
-The repository exploration traced current callers, durable records, tests, and telemetry mappings. The Mastra pass used installed docs/types/source; manual constructor injection is source-supported but still requires stage 1 integration proof. General-web evidence corroborated the design rather than adding new requirements:
+The repository exploration traced current callers, durable records, tests, and telemetry mappings. The Mastra pass used installed docs/types/source; Stage 1 subsequently proved the constructor integration through native fixtures and a bounded configured-gateway observation. General-web evidence corroborated the design rather than adding new requirements:
 
 - Keep orchestration small and use defined workflows for predictable sequences: [Anthropic's Building effective agents](https://www.anthropic.com/engineering/building-effective-agents) and [OpenAI's practical guide](https://openai.com/business/guides-and-resources/a-practical-guide-to-building-ai-agents/).
 - Test re-entry and external effects independently of invocation success: [LangGraph execution guidance](https://docs.langchain.com/oss/python/langgraph/graph-api#re-execution-and-idempotency) and [Temporal Activities](https://docs.temporal.io/activities). Their replay guidance does not establish a Linear idempotency API or permit automatic retries here.
