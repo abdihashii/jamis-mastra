@@ -798,21 +798,26 @@ export async function handleSendblueDirectMessage(
 						if (property !== 'post')
 							return Reflect.get(target, property, receiver);
 						return async (postable: unknown) => {
-							if (!turn.proposalAttempted || postable === GENERIC_CHANNEL_ERROR || postable === CODEX_AUTH_CHANNEL_ERROR)
+							if (postable === GENERIC_CHANNEL_ERROR || postable === CODEX_AUTH_CHANNEL_ERROR)
 								return Reflect.apply(target.post, target, [postable]);
-							// A dedicated field preserves other answers without forwarding proposal-status prose.
+							// Accounts can fail before a proposal attempt; its reply envelope still stays off the channel.
 							const text = typeof postable === 'string' ? postable : z.object({ markdown: z.string() }).safeParse(postable).data?.markdown;
 							let parsed: unknown;
 							try {
 								parsed = JSON.parse(text ?? '');
 							}
 							catch {
+								if (!turn.proposalAttempted)
+									return Reflect.apply(target.post, target, [postable]);
 								return;
 							}
 							const answers = linearOtherAnswersSchema.safeParse(parsed);
 							if (answers.success) {
 								for (const answer of answers.data.otherAnswers)
 									await Reflect.apply(target.post, target, [answer]);
+							}
+							else if (!turn.proposalAttempted) {
+								return Reflect.apply(target.post, target, [postable]);
 							}
 						};
 					},

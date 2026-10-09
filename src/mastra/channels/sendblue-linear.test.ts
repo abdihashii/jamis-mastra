@@ -210,7 +210,7 @@ else {
 		finally { await restart.close(); }
 	});
 
-	const { CODEX_AUTH_CHANNEL_ERROR, formatSendblueError, handleSendblueDirectMessage, OPENAI_LOGIN_FAILURE, proposeLinearCreate, registerLinearReplyProcedure, requireSendbluePostAcceptance, startJamisDmSession } = await import('./sendblue');
+	const { CODEX_AUTH_CHANNEL_ERROR, EMPTY_REPLY_CHANNEL_ERROR, formatSendblueError, handleSendblueDirectMessage, OPENAI_LOGIN_FAILURE, proposeLinearCreate, registerLinearReplyProcedure, requireSendbluePostAcceptance, startJamisDmSession } = await import('./sendblue');
 	const { recordAccountsGmailRead } = await import('../tools/invoke-specialist');
 	const { linearCreateProposalTool, linearReadTool } = await import('../tools/linear');
 	const { createJamisAgent } = await import('../agents/jamis');
@@ -240,7 +240,7 @@ else {
 		} });
 	}
 
-	async function fixture(options: { description?: string; reply?: string; unavailable?: boolean; denied?: boolean; modelError?: boolean; read?: boolean; typed?: boolean; linked?: boolean; clarify?: boolean; badDraft?: boolean; inspectionMissing?: boolean; sourceMode?: 'missing' | 'ambiguous' | 'truncated' | 'forged' } = {}) {
+	async function fixture(options: { description?: string; reply?: string; unavailable?: boolean; denied?: boolean; modelError?: boolean; read?: boolean; typed?: boolean; linked?: boolean; clarify?: boolean; badDraft?: boolean; inspectionMissing?: boolean; accountsHandbackFailure?: boolean; sourceMode?: 'missing' | 'ambiguous' | 'truncated' | 'forged' } = {}) {
 		await clearOperatorTimeZoneConversation(sql);
 		let channelSql: SqlLike = sql;
 		const posts: string[] = [];
@@ -346,7 +346,7 @@ else {
 			? createJamisAgent({
 					mastra,
 					tools: {},
-					model: boundaryModel([{ tool: 'invoke_personal_accounts', input: { question: 'Propose one exact fixture issue.' } }, { text: options.clarify ? 'Which email?' : JSON.stringify({ otherAnswers: [] }) }, ...(options.clarify ? [{ tool: 'invoke_personal_accounts', input: { question: 'Use the selected email for the original issue and linked reply task.', continueClarification: true } }, { text: JSON.stringify({ otherAnswers: [] }) }] : [])], (value) => {
+					model: boundaryModel([{ tool: 'invoke_personal_accounts', input: { question: 'Propose one exact fixture issue.' } }, { text: options.reply ?? (options.clarify ? 'Which email?' : JSON.stringify({ otherAnswers: [] })) }, ...(options.clarify ? [{ tool: 'invoke_personal_accounts', input: { question: 'Use the selected email for the original issue and linked reply task.', continueClarification: true } }, { text: JSON.stringify({ otherAnswers: [] }) }] : [])], (value) => {
 						prompts.push(value);
 						typedToolResults.push(...(value as { prompt: Array<{ role: string; content: unknown }> }).prompt.filter(message => message.role === 'tool').map(message => message.content));
 					}),
@@ -355,7 +355,7 @@ else {
 					specialists: { personalAccounts: { tools: { linearCreateProposalTool, ...(options.linked ? { gmailSearchTool: gmailFixture } : {}) }, model: boundaryModel([
 						...(options.clarify ? [{ handback: { case: 'needs_help', need: { kind: 'input', question: 'Which email?', missing: ['selected email'] }, progress: null } }] : []),
 						...(options.linked && options.sourceMode !== 'missing' ? [{ tool: 'gmailSearchTool', input: {} }] : []),
-						{ tool: 'linearCreateProposalTool', input: { action: 'create', title: 'Exact fixture title', description: 'Exact fixture description', ...(options.linked ? { replySource: { ...email, ...(options.sourceMode === 'forged' ? { body: 'Fabricated source.' } : {}) } } : {}) } },
+						...(options.accountsHandbackFailure ? [] : [{ tool: 'linearCreateProposalTool', input: { action: 'create', title: 'Exact fixture title', description: 'Exact fixture description', ...(options.linked ? { replySource: { ...email, ...(options.sourceMode === 'forged' ? { body: 'Fabricated source.' } : {}) } } : {}) } }]),
 						{ handback: typedNeed },
 					], (value) => {
 						prompts.push(value);
@@ -690,6 +690,27 @@ else {
 			expect((await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId))?.status).toBe('canceled');
 		}
 		finally { await f.close(); }
+	}, 30_000);
+
+	test('failed Accounts before a proposal never exposes the internal reply envelope', async () => {
+		const honest = 'I could not verify enough to propose the issue.';
+		for (const reply of [JSON.stringify({ otherAnswers: [] }), JSON.stringify({ otherAnswers: [honest], proposalStatus: 'The proposal was posted.' }), honest]) {
+			const f = await fixture({ typed: true, linked: true, accountsHandbackFailure: true, reply });
+			try {
+				const source = await f.send('Create an issue from the selected email, then draft a linked reply.');
+				expect(f.counts().gmailReads).toBe(1);
+				expect(f.spans.some(span => (span as { entityId?: string }).entityId === 'linearCreateProposalTool')).toBe(false);
+				expect(await readLinearProposal(source.threadId, sql)).toBeNull();
+				expect(await sql`SELECT id FROM linear_create_proposals WHERE dm_id = ${source.threadId} AND continuation IS NOT NULL`).toHaveLength(0);
+				expect(f.mutations).toHaveLength(0);
+				expect(f.draftPrompts).toHaveLength(0);
+				expect(f.posts).toEqual([reply === JSON.stringify({ otherAnswers: [] }) ? EMPTY_REPLY_CHANNEL_ERROR : honest]);
+				if (reply === JSON.stringify({ otherAnswers: [] })) {
+					expect(f.spans).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'sendblue.channel', metadata: expect.objectContaining({ stage: 'reply_generation', classification: 'failed' }) })]));
+				}
+			}
+			finally { await f.close(); }
+		}
 	}, 30_000);
 
 	test('production typed Accounts proposal returns the runtime operation and exact native confirmation creates once', async () => {
