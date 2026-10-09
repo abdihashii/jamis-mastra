@@ -1,19 +1,23 @@
+import type { AgentConfig } from '@mastra/core/agent';
+
 import { Agent } from '@mastra/core/agent';
 
 import { calendarEventsTool } from '../tools/calendar-events';
 import { gmailSearchTool } from '../tools/gmail-search';
 import { linearCreateProposalTool, linearReadTool } from '../tools/linear';
 
-export const personalAccountsAgent = new Agent({
-	id: 'personal-accounts-agent',
-	name: 'Personal Accounts Agent',
-	description:
+export function createPersonalAccountsAgent(config: Partial<Pick<AgentConfig, 'mastra' | 'model' | 'tools'>> = {}) {
+	return new Agent({
+		mastra: config.mastra,
+		id: 'personal-accounts-agent',
+		name: 'Personal Accounts Agent',
+		description:
 		'Use for requests about the operator\'s personal online accounts: read-only Gmail '
 		+ '("what\'s my latest unread email", "did Sarah write back", searches by sender, subject, '
 		+ 'or date) and read-only Calendar ("what\'s on my calendar tomorrow", "when is my next '
 		+ 'dentist"), across the calendars the operator picked at login, and jamis Linear issues '
 		+ '(reads and confirmed creation proposals).',
-	instructions: `
+		instructions: `
         You are an internal personal-accounts subagent. Return a compact evidence memo for Jamis,
         not a reply to the operator.
 
@@ -56,11 +60,14 @@ export const personalAccountsAgent = new Agent({
           else; anything else ("rate-limited", "unreachable", "failed", "unusable") → say the
           corresponding service (Gmail or Calendar) is having trouble and to try again later.
 `,
-	model: 'openai-codex/gpt-6-luna',
-	defaultOptions: {
-		providerOptions: {
-			openai: { reasoningEffort: 'max' },
+		model: config.model ?? 'openai-codex/gpt-6-luna',
+		defaultOptions: {
+			providerOptions: {
+				openai: { reasoningEffort: 'max' },
+			},
 		},
-	},
-	tools: { gmailSearchTool, calendarEventsTool, linearReadTool, linearCreateProposalTool },
-});
+		tools: config.tools ?? { gmailSearchTool, calendarEventsTool, linearReadTool, linearCreateProposalTool },
+	});
+}
+
+export const personalAccountsAgent = createPersonalAccountsAgent();

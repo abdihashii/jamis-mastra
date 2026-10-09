@@ -3,7 +3,19 @@ import type { SqlLike } from './operator-time-zone';
 
 import { SQL } from 'bun';
 import process from 'node:process';
+import { z } from 'zod';
 import { linearCreateOperationSchema, linearCreateOutcomeSchema } from './linear';
+
+export const linearContinuationSchema = z.object({
+	workflowId: z.literal('prepare_linear_reply'),
+	runId: z.string().min(1),
+	waitStep: z.literal('await_linear_outcome'),
+}).strict();
+export type LinearContinuation = z.infer<typeof linearContinuationSchema>;
+export const linearDecisionSchema = z.object({
+	messageId: z.string().min(1).nullable(),
+	disposition: z.enum(['confirmed', 'declined', 'canceled']),
+}).strict();
 
 let cachedSql: SQL | undefined;
 const ready = new WeakMap<SqlLike, Promise<void>>();
@@ -37,6 +49,8 @@ async function ensureTables(sql: SqlLike): Promise<void> {
 					UNIQUE (dm_id, source_message_id)
 				)
 			`;
+			await sql`ALTER TABLE linear_create_proposals ADD COLUMN IF NOT EXISTS continuation JSONB`;
+			await sql`ALTER TABLE linear_create_proposals ADD COLUMN IF NOT EXISTS decision JSONB`;
 		})();
 		ready.set(sql, pending);
 		pending.catch(() => ready.delete(sql));
@@ -64,6 +78,8 @@ export interface LinearProposal {
 	state: string;
 	outcome: LinearCreateOutcome | null;
 	notified: boolean;
+	continuation?: LinearContinuation | null;
+	decision?: z.infer<typeof linearDecisionSchema> | null;
 }
 
 export async function receiveLinearMessage(dmId: string, messageId: string, sql: SqlLike = getSql()): Promise<boolean> {
@@ -86,6 +102,19 @@ export async function readLinearProposal(dmId: string, sql: SqlLike = getSql()):
 	return rows[0] ?? null;
 }
 
+/** Outcome notification does not finish the bound procedure. */
+export async function readLinearContinuation(id: string, sql: SqlLike = getSql()): Promise<LinearProposal | null> {
+	await ensureTables(sql);
+	const rows = await sql`SELECT * FROM linear_create_proposals WHERE id = ${id} AND continuation IS NOT NULL` as LinearProposal[];
+	return rows[0] ?? null;
+}
+
+export async function isLatestLinearMessage(dmId: string, messageId: string, sql: SqlLike = getSql()): Promise<boolean> {
+	await ensureTables(sql);
+	const rows = await sql`SELECT message_id FROM linear_dm_receipts WHERE dm_id = ${dmId} ORDER BY ordinal DESC LIMIT 1` as { message_id: string }[];
+	return rows[0]?.message_id === messageId;
+}
+
 export function formatLinearCreateProposal(op: LinearCreateOperation): string {
 	return `Create Linear issue in jamis?\n\nTitle: ${JSON.stringify(op.title).slice(1, -1)}\nDescription: ${JSON.stringify(op.description).slice(1, -1)}\nStatus: ${JSON.stringify(op.stateName).slice(1, -1)}\n\nNext reply: confirm | decline. Any other reply cancels.`;
 }
@@ -97,8 +126,10 @@ export async function postLinearCreateProposal(
 	sourceMessageId: string,
 	post: (text: string) => Promise<unknown>,
 	sql: SqlLike = getSql(),
+	continuation?: LinearContinuation,
 ): Promise<boolean> {
 	linearCreateOperationSchema.parse(op);
+	const bound = continuation ? linearContinuationSchema.parse(continuation) : null;
 	if (!dmId || !sessionId || !sourceMessageId)
 		return false;
 	return transaction(dmId, sql, async (tx) => {
@@ -109,8 +140,8 @@ export async function postLinearCreateProposal(
 		if (active.length)
 			return false;
 		const inserted = await tx`
-			INSERT INTO linear_create_proposals (id, dm_id, session_id, source_message_id, operation, state)
-			VALUES (${op.id}, ${dmId}, ${sessionId}, ${sourceMessageId}, ${op}::jsonb, 'pending')
+			INSERT INTO linear_create_proposals (id, dm_id, session_id, source_message_id, operation, state, continuation)
+			VALUES (${op.id}, ${dmId}, ${sessionId}, ${sourceMessageId}, ${op}::jsonb, 'pending', ${bound}::jsonb)
 			ON CONFLICT DO NOTHING RETURNING id
 		`;
 		if (inserted.length !== 1)
@@ -125,17 +156,19 @@ export async function claimLinearCreate(
 	proposal: LinearProposal,
 	sessionId: string | null,
 	messageId: string,
-	confirmed: boolean,
+	confirmed: boolean | 'declined',
 	sql: SqlLike = getSql(),
 ): Promise<boolean> {
 	return transaction(proposal.dm_id, sql, async (tx) => {
 		const receipts = await tx`
 			SELECT message_id FROM linear_dm_receipts WHERE dm_id = ${proposal.dm_id} ORDER BY ordinal DESC LIMIT 2
 		` as { message_id: string }[];
-		const allowed = confirmed && sessionId === proposal.session_id
+		const adjacent = sessionId === proposal.session_id
 			&& receipts[0]?.message_id === messageId && receipts[1]?.message_id === proposal.source_message_id;
+		const allowed = confirmed === true && adjacent;
+		const decision = { messageId, disposition: allowed ? 'confirmed' : adjacent && confirmed === 'declined' ? 'declined' : 'canceled' };
 		const rows = await tx`
-			UPDATE linear_create_proposals SET state = ${allowed ? 'claimed' : 'canceled'}, notified = ${!allowed}
+			UPDATE linear_create_proposals SET state = ${allowed ? 'claimed' : 'canceled'}, notified = ${!allowed}, decision = ${decision}::jsonb
 			WHERE id = ${proposal.id} AND state = 'pending' RETURNING id
 		`;
 		return allowed && rows.length === 1;
@@ -175,6 +208,6 @@ export async function notifyLinearOutcome(proposal: LinearProposal, post: (text:
 
 export async function cancelLinearConversation(dmId: string, sql: SqlLike = getSql()): Promise<void> {
 	await transaction(dmId, sql, async (tx) => {
-		await tx`UPDATE linear_create_proposals SET state = 'canceled', notified = TRUE WHERE dm_id = ${dmId} AND state = 'pending'`;
+		await tx`UPDATE linear_create_proposals SET state = 'canceled', notified = TRUE, decision = ${{ messageId: null, disposition: 'canceled' }}::jsonb WHERE dm_id = ${dmId} AND state = 'pending'`;
 	});
 }

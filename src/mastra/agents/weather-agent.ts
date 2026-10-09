@@ -1,14 +1,18 @@
+import type { AgentConfig } from '@mastra/core/agent';
+
 import { Agent } from '@mastra/core/agent';
 
 import { forecastTool, weatherTool } from '../tools/weather-tool';
 
-export const weatherAgent = new Agent({
-	id: 'weather-agent',
-	name: 'Weather Agent',
-	description:
+export function createWeatherAgent(config: Partial<Pick<AgentConfig, 'mastra' | 'model' | 'tools'>> = {}) {
+	return new Agent({
+		mastra: config.mastra,
+		id: 'weather-agent',
+		name: 'Weather Agent',
+		description:
 		'Use for weather questions: current conditions ("what\'s the weather in Chicago") '
 		+ 'and future-date forecasts ("what to wear to the zoo on Saturday").',
-	instructions: `
+		instructions: `
       You are a weather assistant chatting over iMessage. Answer first, then at most
       2 supporting details. No data dumps, no tables.
       - Use weatherTool for "now" questions, including "is it safe to walk outside" (consider
@@ -38,6 +42,9 @@ export const weatherAgent = new Agent({
         anything else ("rate-limited", "unreachable", "failed", "unusable") → say the weather
         service is having trouble and to try again later.
 `,
-	model: 'openai-codex/gpt-6-luna',
-	tools: { weatherTool, forecastTool },
-});
+		model: config.model ?? 'openai-codex/gpt-6-luna',
+		tools: config.tools ?? { weatherTool, forecastTool },
+	});
+}
+
+export const weatherAgent = createWeatherAgent();
