@@ -131,7 +131,7 @@ test('standalone specialist, invocation, and workflow roots protect their first 
 	// The runtime initializes native signal correlation and logger integration.
 	const runtime = new Mastra({ observability, logger: createProjectLogger() });
 	const instance = runtime.observability.getInstance('test')!;
-	const roots = ['weather-agent', 'research-agent', 'personal-accounts-agent', 'invoke_weather', 'invoke_research', 'invoke_personal_accounts', 'prepare_linear_reply', 'await_linear_outcome', 'prepare_linked_reply'];
+	const roots = ['weather-agent', 'research-agent', 'personal-accounts-agent', 'invoke_weather', 'invoke_research', 'invoke_personal_accounts', 'jamis-input-processor', 'jamis-output-processor', 'prepare_linear_reply', 'await_linear_outcome', 'prepare_linked_reply'];
 	try {
 		for (const entityId of roots) {
 			const requestContext = new RequestContext();

@@ -47,6 +47,8 @@ export function createProjectLogger(logger = new ConsoleLogger({ name: 'Mastra',
 const projectTraceKey = '__jamis_project_trace';
 const protectedRootEntityIds = [
 	'jamis',
+	'jamis-input-processor',
+	'jamis-output-processor',
 	'research-agent',
 	'weather-agent',
 	'personal-accounts-agent',
