@@ -183,4 +183,17 @@ test('public questions use application labels and never forward unsupported priv
 	expect(project({ kind: 'operator_request' })).toMatchObject({ case: 'blocked', progress: null });
 	expect(researchQuestionSchema.safeParse({ kind: 'operator_request', question: 'Private text' }).success).toBe(false);
 	expect(researchQuestionSchema.safeParse({ kind: 'carry_on_allowance', subjectId: 'united-basic-economy', airline: 'private text' }).success).toBe(false);
+	for (const input of [{ kind: 'operator_request' }, { kind: 'clarification' }, { kind: 'carry_on_allowance', subjectId: 'united-basic-economy' }])
+		expect(researchQuestionSchema.safeParse(input).success).toBe(true);
+	for (const input of [
+		{ kind: 'carry_on_allowance' },
+		{ kind: 'carry_on_allowance', subjectId: '' },
+		{ kind: 'carry_on_allowance', subjectId: 'x'.repeat(81) },
+		{ kind: 'carry_on_allowance', subjectId: null },
+		{ kind: 'operator_request', subjectId: 'private text' },
+		{ kind: 'clarification', subjectId: 'private text' },
+		{ kind: 'operator_request', query: 'private text' },
+		{ kind: 'operator_request', instructions: 'private text', maxSteps: 3 },
+	])
+		expect(researchQuestionSchema.safeParse(input).success).toBe(false);
 });
