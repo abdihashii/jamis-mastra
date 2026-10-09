@@ -11,8 +11,10 @@ export const specialistClarificationSchema = z.object({
 	owner: z.enum(['invoke_weather', 'invoke_research', 'invoke_personal_accounts']),
 	need: z.object({ kind: z.literal('input'), question: z.string().min(1).max(4000), missing: z.array(z.string().min(1).max(4000)).min(1).max(5) }).strict(),
 	publicAssignment: z.string().min(1).max(16_000).nullable(),
+	originalAccountsRequest: z.string().min(1).max(4000).optional(),
 	researchResults: z.array(z.object({ assignment: z.string().min(1).max(16_000), handback: specialistHandbackSchema(researchResultSchema) }).strict()).max(5),
 }).strict().refine(state => (state.owner === 'invoke_research') === (state.publicAssignment !== null)
+	&& (state.originalAccountsRequest === undefined || state.owner === 'invoke_personal_accounts')
 	&& JSON.stringify(state).length <= 128_000, 'Specialist clarification is outside its bounded contract.');
 
 export type SpecialistClarification = z.infer<typeof specialistClarificationSchema>;

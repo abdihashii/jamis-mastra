@@ -63,6 +63,7 @@ const protectedRootEntityIds = [
 	'prepare_linear_reply',
 	'await_linear_outcome',
 	'prepare_linked_reply',
+	'await_reply_acceptance',
 ];
 // Mastra TOOL_CALL entityIds are registry keys, not createTool ids. Incident
 // triage queries these identities, including Jamis's delegated tool failures.

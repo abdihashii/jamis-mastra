@@ -5,7 +5,7 @@ import type { LinearCreateOperation } from '../../lib/linear';
 import type { SqlLike } from '../../lib/operator-time-zone';
 
 import { SQL } from 'bun';
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import process from 'node:process';
 import { Agent } from '@mastra/core/agent';
@@ -13,14 +13,16 @@ import { Mastra } from '@mastra/core/mastra';
 import { TracingEventType } from '@mastra/core/observability';
 import { RequestContext } from '@mastra/core/request-context';
 import { MastraLanguageModelV2Mock } from '@mastra/core/test-utils/llm-mock';
-import { noopObserve } from '@mastra/core/tools';
+import { createTool, noopObserve } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import { Observability } from '@mastra/observability';
 import { PostgresStore } from '@mastra/pg';
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
-import { claimLinearCreate, finishLinearCreate, isImmediatelyFollowingLinearMessage, notifyLinearOutcome, postLinearCreateProposal, readLinearProposal, receiveLinearMessage } from '../../lib/linear-proposals';
+import { z } from 'zod';
+import { claimLinearCreate, finishLinearCreate, isImmediatelyFollowingLinearMessage, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../lib/linear-proposals';
 import { clearOperatorTimeZoneConversation, saveOperatorTimeZoneProposal } from '../../lib/operator-time-zone';
 import { redactChannelRenderContext } from '../observability';
+import { specialistClarificationKey } from '../specialist-clarification';
 
 const databaseUrl = process.env.JAMIS_TEST_DATABASE_URL;
 if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
@@ -137,6 +139,37 @@ else {
 		expect(await isImmediatelyFollowingLinearMessage(dm, 'other', 'other', sql)).toBe(false);
 	});
 
+	test('only acknowledged publication enables confirmation, including lost readiness acknowledgements', async () => {
+		for (const mode of ['publication-ack', 'readiness-write', 'readiness-ack']) {
+			const dm = randomUUID();
+			const op = operation();
+			await receiveLinearMessage(dm, 'source', sql);
+			const wrapped: SqlLike = async (strings, ...values) => {
+				if (strings.join('').includes('SET publication_ready = TRUE')) {
+					if (mode === 'readiness-write')
+						throw new Error('Synthetic readiness write failure.');
+					const result = await sql(strings, ...values);
+					throw new Error(`Synthetic ${result.length} readiness acknowledgement lost.`);
+				}
+				return sql(strings, ...values);
+			};
+			wrapped.begin = async (work) => {
+				const result = await sql.begin(work);
+				if (mode === 'publication-ack')
+					throw new Error('Synthetic publication acknowledgement lost.');
+				return result;
+			};
+			if (mode === 'publication-ack')
+				await expect(postLinearCreateProposal(op, dm, 'session', 'source', async () => {}, wrapped)).rejects.toThrow();
+			else
+				expect(await postLinearCreateProposal(op, dm, 'session', 'source', async () => {}, wrapped)).toBe(true);
+			const proposal = (await readLinearProposal(dm, sql))!;
+			expect(proposal.publication_ready).toBe(mode === 'readiness-ack');
+			await receiveLinearMessage(dm, 'confirm', sql);
+			expect(await claimLinearCreate({ ...proposal, publication_ready: true }, 'session', 'confirm', true, sql)).toBe(mode === 'readiness-ack');
+		}
+	});
+
 	test('stored success survives failed result posting; notification retry does not execute again', async () => {
 		const dm = randomUUID();
 		await receiveLinearMessage(dm, 'source', sql);
@@ -177,7 +210,8 @@ else {
 		finally { await restart.close(); }
 	});
 
-	const { CODEX_AUTH_CHANNEL_ERROR, formatSendblueError, handleSendblueDirectMessage, OPENAI_LOGIN_FAILURE, proposeLinearCreate, requireSendbluePostAcceptance, startJamisDmSession } = await import('./sendblue');
+	const { CODEX_AUTH_CHANNEL_ERROR, formatSendblueError, handleSendblueDirectMessage, OPENAI_LOGIN_FAILURE, proposeLinearCreate, registerLinearReplyProcedure, requireSendbluePostAcceptance, startJamisDmSession } = await import('./sendblue');
+	const { recordAccountsGmailRead } = await import('../tools/invoke-specialist');
 	const { linearCreateProposalTool, linearReadTool } = await import('../tools/linear');
 	const { createJamisAgent } = await import('../agents/jamis');
 	const { boundaryModel } = await import('../agents/__tests__/specialist-boundary.fixture');
@@ -206,7 +240,7 @@ else {
 		} });
 	}
 
-	async function fixture(options: { description?: string; reply?: string; unavailable?: boolean; denied?: boolean; modelError?: boolean; read?: boolean; typed?: boolean } = {}) {
+	async function fixture(options: { description?: string; reply?: string; unavailable?: boolean; denied?: boolean; modelError?: boolean; read?: boolean; typed?: boolean; linked?: boolean; clarify?: boolean; badDraft?: boolean; inspectionMissing?: boolean; sourceMode?: 'missing' | 'ambiguous' | 'truncated' | 'forged' } = {}) {
 		await clearOperatorTimeZoneConversation(sql);
 		let channelSql: SqlLike = sql;
 		const posts: string[] = [];
@@ -215,6 +249,10 @@ else {
 		const typedToolResults: unknown[] = [];
 		const spans: unknown[] = [];
 		const history: Message<SendblueMessagePayload>[] = [];
+		const email = { subject: 'Fixture email', from: 'fixture@example.com', date: '2026-10-01T00:00:00.000Z', body: 'PRIVATE_STAGE3_SENTINEL. Please track this request.' };
+		let gmailReads = 0;
+		let inspectionReads = 0;
+		const draftPrompts: unknown[] = [];
 		let lostResponse = false;
 		let failResultPost = false;
 		let failProposalPost = false;
@@ -241,6 +279,11 @@ else {
 					return Response.json({ data: { team: { ...team, defaultIssueState: state } } });
 				if (query.includes('JamisValidateCreateState'))
 					return Response.json({ data: { workflowState: state } });
+				if (query.includes('JamisInspectCreate')) {
+					inspectionReads++;
+					const created = mutations.at(-1) as LinearCreateOperation | undefined;
+					return Response.json({ data: { issue: options.inspectionMissing || !created ? null : { id: created.id, identifier: 'JAM-999', title: created.title, description: created.description, url: 'https://linear.app/fixture/issue/JAM-999', team: { id: teamId }, state: { id: created.stateId, name: 'Backlog' } } } });
+				}
 				if (query.includes('mutation JamisCreateIssue')) {
 					mutations.push(variables.input);
 					if (lostResponse)
@@ -279,21 +322,40 @@ else {
 			}, exportTracingEvent: async () => {}, flush: async () => {}, shutdown: async () => {} }],
 		} } });
 		const child = new Agent({ id: options.denied ? 'wrong-account-agent' : 'personal-accounts-agent', name: 'Account fixture', instructions: 'Propose only the requested create.', tools: { linearCreateProposalTool, linearReadTool }, model: model([...(options.read ? [{ tool: 'linearReadTool', input: { action: 'list', stateType: 'backlog' } }] : []), { tool: 'linearCreateProposalTool', input: { action: 'create', title: 'Exact fixture title', description: options.description ?? 'Exact fixture description' } }, { text: options.read ? 'Proposal posted. Backlog: JAM-998, Fixture backlog issue.' : 'Proposal posted. Do not send another response.' }], prompts) });
-		const mastra = new Mastra({ storage: store, observability, logger: false });
+		let mastra = new Mastra({ storage: store, observability, logger: false });
+		const gmailFixture = createTool({
+			id: 'gmail-search',
+			description: 'Read one synthetic email.',
+			inputSchema: z.object({}).strict(),
+			execute: async (_, context) => {
+				gmailReads++;
+				const receipt = { estimatedTotal: options.sourceMode === 'ambiguous' ? 2 : 1, messages: [
+					{ ...email, snippet: 'Fixture', ...(options.sourceMode === 'truncated' ? { body: `${email.body}\n... (truncated)` } : {}) },
+					...(options.sourceMode === 'ambiguous' ? [{ ...email, subject: 'Another fixture email', snippet: 'Fixture' }] : []),
+				] };
+				recordAccountsGmailRead(context.requestContext, receipt);
+				return receipt;
+			},
+		});
+		const draftModel = boundaryModel([{ handback: { case: 'completed', result: { replyText: options.badDraft ? 'Missing the verified issue link.' : 'I have tracked your request at https://linear.app/fixture/issue/JAM-999.' } } }], value => draftPrompts.push(value));
+		if (options.linked)
+			registerLinearReplyProcedure(mastra, sql, draftModel);
 		const typedNeed = { case: 'needs_help', need: { kind: 'approval', operationId: '00000000-0000-4000-8000-000000000000' }, progress: null };
 		const channelsConfig: ChannelConfig = { adapters: { sendblue: { adapter, formatError: formatSendblueError, gateway: false, toolDisplay: 'hidden' } }, handlers: { onDirectMessage: (thread, message, handler, context) => handleSendblueDirectMessage(thread, message, handler, context, channelSql), onMention: false, onSubscribedMessage: false } };
 		const agent = options.typed
 			? createJamisAgent({
 					mastra,
 					tools: {},
-					model: boundaryModel([{ tool: 'invoke_personal_accounts', input: { question: 'Propose one exact fixture issue.' } }, { text: JSON.stringify({ otherAnswers: [] }) }], (value) => {
+					model: boundaryModel([{ tool: 'invoke_personal_accounts', input: { question: 'Propose one exact fixture issue.' } }, { text: options.clarify ? 'Which email?' : JSON.stringify({ otherAnswers: [] }) }, ...(options.clarify ? [{ tool: 'invoke_personal_accounts', input: { question: 'Use the selected email for the original issue and linked reply task.', continueClarification: true } }, { text: JSON.stringify({ otherAnswers: [] }) }] : [])], (value) => {
 						prompts.push(value);
 						typedToolResults.push(...(value as { prompt: Array<{ role: string; content: unknown }> }).prompt.filter(message => message.role === 'tool').map(message => message.content));
 					}),
 					memory: new Memory({ options: { semanticRecall: false, workingMemory: { enabled: false } } }),
 					channels: channelsConfig,
-					specialists: { personalAccounts: { tools: { linearCreateProposalTool }, model: boundaryModel([
-						{ tool: 'linearCreateProposalTool', input: { action: 'create', title: 'Exact fixture title', description: 'Exact fixture description' } },
+					specialists: { personalAccounts: { tools: { linearCreateProposalTool, ...(options.linked ? { gmailSearchTool: gmailFixture } : {}) }, model: boundaryModel([
+						...(options.clarify ? [{ handback: { case: 'needs_help', need: { kind: 'input', question: 'Which email?', missing: ['selected email'] }, progress: null } }] : []),
+						...(options.linked && options.sourceMode !== 'missing' ? [{ tool: 'gmailSearchTool', input: {} }] : []),
+						{ tool: 'linearCreateProposalTool', input: { action: 'create', title: 'Exact fixture title', description: 'Exact fixture description', ...(options.linked ? { replySource: { ...email, ...(options.sourceMode === 'forged' ? { body: 'Fabricated source.' } : {}) } } : {}) } },
 						{ handback: typedNeed },
 					], (value) => {
 						prompts.push(value);
@@ -313,7 +375,7 @@ else {
 					channels: { adapters: { sendblue: { adapter, formatError: formatSendblueError, gateway: false, toolDisplay: 'hidden' } }, handlers: { onDirectMessage: (thread, message, handler, context) => handleSendblueDirectMessage(thread, message, handler, context, channelSql), onMention: false, onSubscribedMessage: false } },
 				});
 		mastra.addAgent(agent, 'jamis');
-		const channels = agent.getChannels()!;
+		let channels = agent.getChannels()!;
 		await channels.initialize(mastra);
 		const line = `+1555${Math.floor(1000000 + Math.random() * 8999999)}`;
 		async function send(text: string, id: string = randomUUID(), addHistory = true, dateSent = '2026-10-01T00:00:00.000Z') {
@@ -335,8 +397,19 @@ else {
 			send,
 			adapter,
 			history,
-			mastra,
-			channels,
+			get mastra() { return mastra; },
+			get channels() { return channels; },
+			draftPrompts,
+			counts: () => ({ gmailReads, inspectionReads }),
+			async restart() {
+				await channels.sdk!.shutdown();
+				mastra = new Mastra({ storage: store, observability, logger: false });
+				registerLinearReplyProcedure(mastra, sql, draftModel);
+				const replacement = createJamisAgent({ mastra, model: boundaryModel([{ text: 'No pending action.' }]), tools: {}, memory: new Memory({ options: { semanticRecall: false, workingMemory: { enabled: false } } }), channels: channelsConfig });
+				mastra.addAgent(replacement, 'jamis');
+				channels = replacement.getChannels()!;
+				await channels.initialize(mastra);
+			},
 			setSql: (value: SqlLike) => { channelSql = value; },
 			setLost: () => { lostResponse = true; },
 			setFailResult: (value: boolean) => { failResultPost = value; },
@@ -349,6 +422,275 @@ else {
 			},
 		};
 	}
+
+	test('linked reply survives restart, retains the selected source, and completes once on exact confirmation', async () => {
+		const f = await fixture({ typed: true, linked: true });
+		try {
+			const source = await f.send('Turn my latest email into one issue, then draft reply text linking it.');
+			const proposal = (await readLinearProposal(source.threadId, sql))!;
+			expect(proposal.continuation?.workflowId).toBe('prepare_linear_reply');
+			const saved = await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId);
+			expect(saved?.status).toBe('suspended');
+			expect(saved?.payload?.assignment).toBe(source.text);
+			expect(saved?.payload?.source.body).toContain('PRIVATE_STAGE3_SENTINEL');
+			expect(f.posts).toHaveLength(1);
+			await f.restart();
+			const confirm = await f.send('confirm');
+			expect(f.posts).toHaveLength(2);
+			expect(f.posts[1]).toContain('Created JAM-999: https://linear.app/fixture/issue/JAM-999\n\nReply draft:');
+			expect(f.draftPrompts).toHaveLength(1);
+			expect(JSON.stringify(f.draftPrompts)).toContain('PRIVATE_STAGE3_SENTINEL');
+			expect(f.counts()).toEqual({ gmailReads: 1, inspectionReads: 0 });
+			await f.restart();
+			await f.send('confirm', confirm.id, false);
+			expect(f.posts).toHaveLength(2);
+			expect(f.mutations).toHaveLength(1);
+			expect(f.draftPrompts).toHaveLength(1);
+			expect((await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId))?.status).toBe('success');
+		}
+		finally { await f.close(); }
+	}, 30_000);
+
+	test('missing, ambiguous, truncated, or fabricated email evidence cannot publish the linked proposal', async () => {
+		for (const sourceMode of ['missing', 'ambiguous', 'truncated', 'forged'] as const) {
+			const f = await fixture({ typed: true, linked: true, sourceMode });
+			try {
+				const source = await f.send('Create an issue from my email, then draft a linked reply.');
+				expect(await readLinearProposal(source.threadId, sql)).toBeNull();
+				expect(f.posts.some(text => text.startsWith('Create Linear issue'))).toBe(false);
+				await f.send('confirm');
+				expect(f.mutations).toHaveLength(0);
+				expect(f.draftPrompts).toHaveLength(0);
+			}
+			finally { await f.close(); }
+		}
+	}, 30_000);
+
+	test('Accounts clarification retains original reply constraints and actual Operator answer privately', async () => {
+		const f = await fixture({ typed: true, linked: true, clarify: true });
+		try {
+			const original = 'Create an issue from the selected email, then draft a concise reply linking it without promising a deadline.';
+			const first = await f.send(original);
+			expect(f.posts).toEqual(['Which email?']);
+			const memory = (await store.getStore('memory'))!;
+			const sessions = await memory.listThreads({ filter: { metadata: { channel_externalThreadId: first.threadId } }, perPage: 1 });
+			expect(sessions.threads[0]?.metadata?.[specialistClarificationKey]).toMatchObject({ clarification: { originalAccountsRequest: original } });
+			const selection = await f.send('The selected email, and keep the reply formal.', randomUUID(), true, '2026-10-01T00:00:01.000Z');
+			const proposal = (await readLinearProposal(selection.threadId, sql))!;
+			expect(proposal).not.toBeNull();
+			const saved = await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId);
+			expect(saved?.payload?.assignment).toBe(`${original}\n\nOperator clarification:\n${selection.text}`);
+			await f.restart();
+			await f.send('confirm', randomUUID(), true, '2026-10-01T00:00:02.000Z');
+			expect(JSON.stringify(f.draftPrompts)).toContain('without promising a deadline');
+			expect(JSON.stringify(f.draftPrompts)).toContain('keep the reply formal');
+			expect(f.mutations).toHaveLength(1);
+			expect(f.counts().gmailReads).toBe(1);
+		}
+		finally { await f.close(); }
+	}, 30_000);
+
+	test('legacy Accounts clarification without original scope requires restatement before a linked proposal', async () => {
+		const f = await fixture({ typed: true, linked: true, clarify: true });
+		try {
+			const first = await f.send('Create an email issue and draft a linked reply.');
+			const memory = (await store.getStore('memory'))!;
+			const { threads } = await memory.listThreads({ filter: { metadata: { channel_externalThreadId: first.threadId } }, perPage: 1 });
+			await memory.updateThreadMetadata({ id: threads[0].id, update: (thread) => {
+				const stored = thread.metadata![specialistClarificationKey] as { sourceMessageId: string; clarification: Record<string, unknown> };
+				const { originalAccountsRequest: _request, ...clarification } = stored.clarification;
+				return { ...thread.metadata, [specialistClarificationKey]: { ...stored, clarification } };
+			} });
+			const selected = await f.send('That email.', randomUUID(), true, '2026-10-01T00:00:01.000Z');
+			expect(await readLinearProposal(selected.threadId, sql)).toBeNull();
+			expect(f.posts.some(text => text.startsWith('Create Linear issue'))).toBe(false);
+			expect(f.mutations).toHaveLength(0);
+		}
+		finally { await f.close(); }
+	}, 30_000);
+
+	test('lost proposal commit acknowledgement leaves a displayed linked proposal unable to create', async () => {
+		const f = await fixture({ typed: true, linked: true });
+		try {
+			const wrapped: SqlLike = (strings, ...values) => sql(strings, ...values);
+			wrapped.begin = async (work) => {
+				let publication = false;
+				const result = await sql.begin(tx => work((strings, ...values) => {
+					publication ||= strings.join('').includes('INSERT INTO linear_create_proposals');
+					return tx(strings, ...values);
+				}));
+				if (publication)
+					throw new Error('Synthetic proposal commit acknowledgement lost.');
+				return result;
+			};
+			f.setSql(wrapped);
+			const source = await f.send('Create an email issue and draft a linked reply.');
+			const proposal = (await readLinearProposal(source.threadId, sql))!;
+			expect(proposal.publication_ready).toBe(false);
+			expect(f.posts[0]).toContain('Create Linear issue');
+			expect(f.posts[1]).toContain('Nothing is authorized');
+			f.setSql(sql);
+			await f.restart();
+			await f.send('confirm');
+			expect(f.mutations).toHaveLength(0);
+			expect(f.draftPrompts).toHaveLength(0);
+			expect((await readLinearContinuation(proposal.id, sql))?.state).toBe('canceled');
+		}
+		finally { await f.close(); }
+	}, 30_000);
+
+	test('lost create response uses one exact-ID inspection, preserves uncertainty, and drafts only verified matches', async () => {
+		for (const inspectionMissing of [false, true]) {
+			const f = await fixture({ typed: true, linked: true, inspectionMissing });
+			try {
+				const source = await f.send('Create an email issue, then draft a reply linking it.');
+				const proposal = (await readLinearProposal(source.threadId, sql))!;
+				f.setLost();
+				const confirm = await f.send('confirm');
+				const saved = (await readLinearContinuation(proposal.id, sql))!;
+				expect(saved.state).toBe('uncertain');
+				expect(saved.outcome).toEqual({ status: 'uncertain' });
+				expect(saved.inspection?.status).toBe(inspectionMissing ? 'unresolved' : 'verified');
+				expect(f.draftPrompts).toHaveLength(inspectionMissing ? 0 : 1);
+				expect(f.posts[1]).toContain(inspectionMissing ? 'outcome is uncertain' : 'Reply draft:');
+				await f.restart();
+				await f.send('confirm', confirm.id, false);
+				expect(f.counts().inspectionReads).toBe(1);
+				expect(f.mutations).toHaveLength(1);
+			}
+			finally { await f.close(); }
+		}
+	}, 30_000);
+
+	test('failed final reply posting reuses the stored draft after restart without another read or mutation', async () => {
+		const f = await fixture({ typed: true, linked: true });
+		try {
+			const source = await f.send('Create an email issue, then draft a linked reply.');
+			const proposal = (await readLinearProposal(source.threadId, sql))!;
+			const confirmId = randomUUID();
+			f.setFailResult(true);
+			await expect(f.send('confirm', confirmId)).rejects.toThrow();
+			expect((await readLinearContinuation(proposal.id, sql))?.notified).toBe(false);
+			expect(f.draftPrompts).toHaveLength(1);
+			f.setFailResult(false);
+			await f.restart();
+			await f.send('confirm', confirmId, false);
+			expect(f.posts[1]).toContain('Reply draft:');
+			expect(f.draftPrompts).toHaveLength(1);
+			expect(f.mutations).toHaveLength(1);
+			expect(f.counts().gmailReads).toBe(1);
+		}
+		finally { await f.close(); }
+	}, 30_000);
+
+	test('draft validation failure and missing snapshots report the verified issue with the missing reply', async () => {
+		for (const missing of [false, true]) {
+			const f = await fixture({ typed: true, linked: true, badDraft: true });
+			try {
+				const source = await f.send('Create an email issue and draft a linked reply.');
+				const proposal = (await readLinearProposal(source.threadId, sql))!;
+				if (missing)
+					await (await store.getStore('workflows'))!.deleteWorkflowRunById({ workflowName: 'prepare_linear_reply', runId: proposal.continuation!.runId });
+				const confirm = await f.send('confirm');
+				expect(f.posts[1]).toContain('Created JAM-999: https://linear.app/fixture/issue/JAM-999');
+				expect(f.posts[1]).toContain(missing ? 'reply draft is unavailable' : 'reply draft could not be prepared');
+				await f.send('confirm', confirm.id, false);
+				expect(f.mutations).toHaveLength(1);
+				expect(f.draftPrompts).toHaveLength(missing ? 0 : 1);
+			}
+			finally { await f.close(); }
+		}
+	}, 30_000);
+
+	test('accepted outcome notification cannot hide a draft whose final acceptance snapshot failed', async () => {
+		const f = await fixture({ typed: true, linked: true });
+		const storage = (await store.getStore('workflows'))!;
+		const update = storage.updateWorkflowState.bind(storage);
+		let failAck = true;
+		const spy = spyOn(storage, 'updateWorkflowState').mockImplementation(async (args) => {
+			if (failAck && f.draftPrompts.length && args.opts.expectedStatus === 'suspended') {
+				failAck = false;
+				throw new Error('Synthetic reply acceptance persistence failure.');
+			}
+			return update(args);
+		});
+		try {
+			const source = await f.send('Create an email issue, then draft a linked reply.');
+			const proposal = (await readLinearProposal(source.threadId, sql))!;
+			const confirmId = randomUUID();
+			await expect(f.send('confirm', confirmId)).rejects.toThrow();
+			expect((await readLinearContinuation(proposal.id, sql))?.notified).toBe(true);
+			spy.mockRestore();
+			await f.restart();
+			await f.send('confirm', confirmId, false);
+			expect(f.draftPrompts).toHaveLength(1);
+			expect(f.mutations).toHaveLength(1);
+			expect((await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId))?.status).toBe('success');
+		}
+		finally {
+			spy.mockRestore();
+			await f.close();
+		}
+	}, 30_000);
+
+	test('inspection persistence failure retains uncertain evidence, reports it, and never retries the read', async () => {
+		const f = await fixture({ typed: true, linked: true });
+		try {
+			const source = await f.send('Create an email issue, then draft a linked reply.');
+			const proposal = (await readLinearProposal(source.threadId, sql))!;
+			f.setLost();
+			const failing: SqlLike = (strings, ...values) => {
+				if (strings.join('').includes('inspection->>\'status\' = \'unresolved\''))
+					throw new Error('Synthetic inspection persistence failure.');
+				return sql(strings, ...values);
+			};
+			failing.begin = work => sql.begin(work);
+			f.setSql(failing);
+			const confirm = await f.send('confirm');
+			expect(f.posts[1]).toContain('outcome is uncertain');
+			expect((await readLinearContinuation(proposal.id, sql))?.inspection?.status).toBe('unresolved');
+			f.setSql(sql);
+			await f.send('confirm', confirm.id, false);
+			expect(f.counts().inspectionReads).toBe(1);
+			expect(f.draftPrompts).toHaveLength(0);
+			expect(f.mutations).toHaveLength(1);
+		}
+		finally { await f.close(); }
+	}, 30_000);
+
+	test('decline, supersession, and session rollover stop linked work without concealing saved effects', async () => {
+		for (const command of ['decline', 'unrelated', '/new']) {
+			const f = await fixture({ typed: true, linked: true });
+			try {
+				const source = await f.send('Create an email issue and draft a linked reply.');
+				const proposal = (await readLinearProposal(source.threadId, sql))!;
+				await f.send(command);
+				expect((await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId))?.status).toBe(command === 'decline' ? 'success' : 'canceled');
+				await f.send('confirm');
+				expect(f.mutations).toHaveLength(0);
+				expect(f.draftPrompts).toHaveLength(0);
+				expect((await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId))?.status).toBe(command === 'decline' ? 'success' : 'canceled');
+			}
+			finally { await f.close(); }
+		}
+		const f = await fixture({ typed: true, linked: true });
+		try {
+			const source = await f.send('Create an email issue and draft a linked reply.');
+			const proposal = (await readLinearProposal(source.threadId, sql))!;
+			const confirmId = randomUUID();
+			f.setFailResult(true);
+			await expect(f.send('confirm', confirmId)).rejects.toThrow();
+			f.setFailResult(false);
+			await f.send('A different task.');
+			await f.send('confirm', confirmId, false);
+			expect(f.posts.some(text => text.includes('Reply draft:'))).toBe(false);
+			expect(f.posts.some(text => text.startsWith('Created JAM-999'))).toBe(true);
+			expect(f.mutations).toHaveLength(1);
+			expect(f.draftPrompts).toHaveLength(1);
+			expect((await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId))?.status).toBe('canceled');
+		}
+		finally { await f.close(); }
+	}, 30_000);
 
 	test('production typed Accounts proposal returns the runtime operation and exact native confirmation creates once', async () => {
 		const f = await fixture({ typed: true });

@@ -69,6 +69,13 @@ export function createPersonalAccountsAgent(config: Partial<Pick<AgentConfig, 'm
           never authorization to try another team. An unavailable result means the read could not be
           verified; report its safe reason without guessing. An empty list is only the requested page.
         - For an operator request to create one jamis issue, use linearCreateProposalTool.
+          When the request also asks for reply text linking the new issue, first resolve one
+          usable email, then include replySource copied exactly from that email. If several
+          messages remain plausible or its body is missing/truncated, ask for clarification;
+          do not post a proposal. The application saves the original task and source before
+          posting, then immediately prepares the linked text after verified confirmation.
+          That later drafting invocation receives retained source and verified issue facts
+          with no tools. It must not reread Gmail, propose another issue, or send email.
           It posts the exact title, description, and status directly. A proposed result means
           only a proposal was posted; return that fact to Jamis with no extra channel reply.
           Return needs_help with an approval need using the exact Pending operation ID from

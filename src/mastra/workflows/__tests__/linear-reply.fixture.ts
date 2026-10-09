@@ -108,11 +108,13 @@ export async function runLinearReplyFixture(mastra: Mastra, sql: SqlLike) {
 	// addWorkflow ignores an existing registry key; the stored workflow ID stays canonical.
 	mastra.addWorkflow(recovered.workflow, `fixture-recovery-${randomUUID()}`);
 	const result = await recovered.resume(input.operation.id, decisionMessageId);
-	assert.equal(result?.status, 'success');
-	assert.equal(result?.result?.status, 'ready');
-	assert.equal(result?.result?.url, issueUrl);
+	assert.equal(result?.status, 'suspended');
+	const prepared = recovered.result(result);
+	assert.ok(prepared.status === 'ready');
+	assert.equal(prepared.url, issueUrl);
 	const replay = await recovered.resume(input.operation.id, decisionMessageId);
-	assert.deepEqual(replay?.result, result?.result);
+	assert.deepEqual(recovered.result(replay), recovered.result(result));
+	assert.equal((await recovered.acknowledge(input.operation.id, decisionMessageId))?.status, 'success');
 	assert.equal(drafts, 1);
 	assert.equal(evidenceReads, 1);
 	assert.equal(proposalPosts, 1);

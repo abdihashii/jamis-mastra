@@ -1,4 +1,5 @@
 import type { TracingContext } from '@mastra/core/observability';
+import type { Middleware } from '@mastra/core/server';
 import type { LinearProposal } from '../../lib/linear-proposals';
 import type { SqlLike } from '../../lib/operator-time-zone';
 
@@ -7,22 +8,38 @@ import { RequestContext } from '@mastra/core/request-context';
 import { createStep, createWorkflow, createWorkflowStateReader } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { linearCreateOperationSchema, linearCreateOutcomeSchema } from '../../lib/linear';
-import { isLatestLinearMessage, linearContinuationSchema, linearDecisionSchema, readLinearContinuation } from '../../lib/linear-proposals';
+import { effectiveLinearOutcome, isLatestLinearMessage, linearContinuationSchema, linearDecisionSchema, readLinearContinuation } from '../../lib/linear-proposals';
 
 export const LINEAR_REPLY_WORKFLOW_ID = 'prepare_linear_reply';
 export const LINEAR_OUTCOME_WAIT_ID = 'await_linear_outcome';
+export const LINEAR_REPLY_ACCEPTANCE_ID = 'await_reply_acceptance';
+export const linearReplyApiAdmission = {
+	path: '/api/workflows/*',
+	handler: async (context, next) => {
+		let id;
+		try {
+			id = decodeURIComponent(context.req.path.split('/')[3] ?? '');
+		}
+		catch { return new Response('Invalid workflow path.', { status: 400 }); }
+		return id === LINEAR_REPLY_WORKFLOW_ID && context.req.method !== 'GET'
+			? new Response('Linear reply execution requires the validated Operator DM.', { status: 403 })
+			: next();
+	},
+} satisfies Middleware;
+
+export const linearReplySourceSchema = z.object({
+	subject: z.string().max(998),
+	from: z.string().max(998),
+	date: z.iso.datetime(),
+	body: z.string().min(1).max(4000),
+}).strict();
 
 export const linearReplyInputSchema = z.object({
 	dmId: z.string().min(1),
 	sessionId: z.string().min(1),
 	sourceMessageId: z.string().min(1),
 	assignment: z.string().min(1).max(4000),
-	source: z.object({
-		subject: z.string().max(998),
-		from: z.string().max(998),
-		date: z.iso.datetime(),
-		body: z.string().min(1).max(4000),
-	}).strict(),
+	source: linearReplySourceSchema,
 	operation: linearCreateOperationSchema,
 }).strict();
 export type LinearReplyInput = z.infer<typeof linearReplyInputSchema>;
@@ -46,7 +63,7 @@ interface Authority {
 	runId: string;
 	input: LinearReplyInput;
 	messageId: string;
-	phase: 'start' | 'resume';
+	phase: 'start' | 'resume' | 'acknowledge';
 }
 
 export interface LinearReplyOptions {
@@ -115,8 +132,8 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 				throw unavailable();
 			if (proposal.state === 'claimed' && !proposal.outcome)
 				return suspend({ operationId: inputData.operation.id });
-			const outcome = linearCreateOutcomeSchema.safeParse(proposal.outcome);
-			if (!outcome.success || outcome.data.status !== proposal.state)
+			const outcome = linearCreateOutcomeSchema.safeParse(proposal.outcome ? effectiveLinearOutcome(proposal) : null);
+			if (!outcome.success || (outcome.data.status !== proposal.state && !(proposal.state === 'uncertain' && outcome.data.status === 'succeeded')))
 				throw unavailable();
 			return outcome.data.status === 'succeeded' ? createdSchema.parse(outcome.data) : { status: outcome.data.status };
 		},
@@ -133,8 +150,8 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 			const proposal = await readBound(input, runId, authority.messageId);
 			if (inputData.status !== 'succeeded')
 				return { status: 'stopped' as const, operationId: input.operation.id, reason: inputData.status };
-			const outcome = createdSchema.parse(proposal.outcome);
-			if (proposal.state !== 'succeeded')
+			const outcome = createdSchema.parse(effectiveLinearOutcome(proposal));
+			if (!['succeeded', 'uncertain'].includes(proposal.state))
 				throw unavailable();
 			abortSignal.throwIfAborted();
 			try {
@@ -153,6 +170,27 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 		},
 	});
 
+	const acceptance = createStep({
+		id: LINEAR_REPLY_ACCEPTANCE_ID,
+		inputSchema: replyResultSchema,
+		outputSchema: replyResultSchema,
+		resumeSchema: z.object({ operationId: z.uuid() }).strict(),
+		suspendSchema: replyResultSchema,
+		retries: 0,
+		execute: async ({ inputData, getInitData, requestContext, runId, resumeData, suspend }) => {
+			const input = linearReplyInputSchema.parse(getInitData());
+			const authority = await authorize(requestContext, runId, input);
+			await readBound(input, runId, authority.messageId);
+			if (inputData.status === 'stopped')
+				return inputData;
+			if (!resumeData)
+				return suspend(inputData);
+			if (authority.phase !== 'acknowledge' || resumeData.operationId !== input.operation.id)
+				throw unavailable();
+			return inputData;
+		},
+	});
+
 	const workflow = createWorkflow({
 		id: LINEAR_REPLY_WORKFLOW_ID,
 		inputSchema: linearReplyInputSchema,
@@ -166,7 +204,7 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 				await authorize(requestContext, runId, linearReplyInputSchema.parse(getInitData()));
 			},
 		},
-	}).then(wait).then(prepare).commit();
+	}).then(wait).then(prepare).then(acceptance).commit();
 
 	async function start(raw: LinearReplyInput) {
 		const input = linearReplyInputSchema.parse(raw);
@@ -211,13 +249,20 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 						throw unavailable();
 				}
 				else {
-					const outcome = createdSchema.parse(bound.outcome);
-					if (bound.state !== 'succeeded' || bound.decision?.disposition !== 'confirmed' || result.identifier !== outcome.identifier || result.url !== outcome.url)
+					const outcome = createdSchema.parse(effectiveLinearOutcome(bound));
+					if (!['succeeded', 'uncertain'].includes(bound.state) || bound.decision?.disposition !== 'confirmed' || result.identifier !== outcome.identifier || result.url !== outcome.url)
 						throw unavailable();
 				}
 				return state;
 			}
 			const suspended = reader.getSuspendedStep();
+			if (state.status === 'suspended' && suspended?.stepId === acceptance.id && suspended.path.length === 1) {
+				const result = replyResultSchema.parse(suspended.suspendPayload);
+				const outcome = createdSchema.parse(effectiveLinearOutcome(bound));
+				if (result.status === 'stopped' || result.operationId !== operationId || result.identifier !== outcome.identifier || result.url !== outcome.url)
+					throw unavailable();
+				return state;
+			}
 			if (state.status !== 'suspended' || suspended?.stepId !== wait.id || suspended.path.length !== 1
 				|| suspended.suspendPayload?.operationId !== operationId) {
 				throw unavailable();
@@ -236,6 +281,30 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 		finally { authorities.delete(context); }
 	}
 
+	function result(state: Awaited<ReturnType<typeof workflow.getWorkflowRunById>>) {
+		if (!state || state.isFromInMemory)
+			throw unavailable();
+		const suspended = createWorkflowStateReader(state).getSuspendedStep();
+		return replyResultSchema.parse(state.status === 'success' ? state.result : suspended?.stepId === acceptance.id ? suspended.suspendPayload : null);
+	}
+
+	async function acknowledge(operationId: string, decisionMessageId: string) {
+		const state = await resume(operationId, decisionMessageId);
+		if (state?.status === 'success')
+			return state;
+		result(state);
+		const input = linearReplyInputSchema.parse(state?.payload);
+		const context = new RequestContext();
+		authorities.set(context, { runId: state!.runId, input, messageId: decisionMessageId, phase: 'acknowledge' });
+		try {
+			await authorize(context, state!.runId, input);
+			const run = await workflow.createRun({ runId: state!.runId });
+			await run.resume({ step: acceptance, resumeData: { operationId }, requestContext: context });
+			return await workflow.getWorkflowRunById(state!.runId);
+		}
+		finally { authorities.delete(context); }
+	}
+
 	async function cancel(runId: string) {
 		const existing = await workflow.getWorkflowRunById(runId);
 		if (!existing || existing.isFromInMemory)
@@ -247,5 +316,5 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 			throw new Error('Linear reply cancellation could not be persisted.');
 	}
 
-	return { workflow, start, resume, cancel };
+	return { workflow, start, resume, result, acknowledge, cancel };
 }

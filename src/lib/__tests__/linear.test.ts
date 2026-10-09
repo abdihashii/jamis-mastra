@@ -42,7 +42,7 @@ test('reads validated app identity and pinned team with the uniform read/create-
 	});
 	const client = createLinearClient(config);
 	expect(await client.readIdentityAndTeam()).toEqual(evidence);
-	expect(Object.keys(client)).toEqual(['readIdentityAndTeam', 'readIssues', 'prepareCreate', 'executeCreate']);
+	expect(Object.keys(client)).toEqual(['readIdentityAndTeam', 'readIssues', 'prepareCreate', 'executeCreate', 'inspectCreate']);
 	expect(calls.map(c => c.url)).toEqual(['https://api.linear.app/oauth/token', 'https://api.linear.app/graphql']);
 	expect(Object.fromEntries(calls[0].init.body as URLSearchParams)).toEqual({
 		grant_type: 'client_credentials',
@@ -404,5 +404,18 @@ test('lost, partial, malformed, failed, and mismatched mutation responses are un
 		expect(result).toEqual({ status: 'uncertain' });
 		expect(calls.filter(call => String(call.init.body).includes('mutation'))).toHaveLength(1);
 		expect(JSON.stringify(result)).not.toMatch(/seeded-/);
+	}
+});
+
+test('one exact-ID inspection verifies every proposed field and never mutates', async () => {
+	const found = { id: createOp.id, identifier: issue.identifier, title: createOp.title, description: createOp.description, url: issue.url, team: { id: createOp.teamId }, state: { id: createOp.stateId, name: createOp.stateName } };
+	for (const candidate of [found, null, { ...found, id: evidence.viewer.id }, { ...found, team: { id: evidence.viewer.id } }, { ...found, title: 'Other' }, { ...found, description: 'Other' }, { ...found, state: { ...found.state, id: evidence.viewer.id } }, { ...found, state: { ...found.state, name: 'Other' } }, { ...found, url: 'https://example.com/forged' }]) {
+		calls = [];
+		replies = [Response.json(grant), Response.json({ data: evidence }), Response.json({ data: { issue: candidate } })];
+		const result = await createLinearClient(config).inspectCreate(createOp);
+		expect(result.status).toBe(candidate === found ? 'verified' : 'unresolved');
+		expect(calls.filter(call => String(call.init.body).includes('JamisInspectCreate'))).toHaveLength(1);
+		expect(JSON.parse(calls.at(-1)!.init.body as string).variables).toEqual({ id: createOp.id });
+		expect(calls.some(call => String(call.init.body).includes('mutation'))).toBe(false);
 	}
 });

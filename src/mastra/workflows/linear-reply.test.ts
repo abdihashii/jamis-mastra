@@ -7,9 +7,10 @@ import process from 'node:process';
 import { Mastra } from '@mastra/core/mastra';
 import { RequestContext } from '@mastra/core/request-context';
 import { PostgresStore } from '@mastra/pg';
+import { Hono } from 'hono';
 import { claimLinearCreate, finishLinearCreate, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../lib/linear-proposals';
 import { linearReplyFixtureInput, runLinearReplyFixture } from './__tests__/linear-reply.fixture';
-import { createLinearReplyProcedure, LINEAR_OUTCOME_WAIT_ID, LINEAR_REPLY_WORKFLOW_ID } from './linear-reply';
+import { createLinearReplyProcedure, LINEAR_OUTCOME_WAIT_ID, LINEAR_REPLY_WORKFLOW_ID, linearReplyApiAdmission } from './linear-reply';
 
 const databaseUrl = process.env.JAMIS_TEST_DATABASE_URL;
 describe('stored Linear reply boundary, real native Postgres', () => {
@@ -143,7 +144,7 @@ describe('stored Linear reply boundary, real native Postgres', () => {
 		});
 		try {
 			const results = await Promise.all([f.procedure.resume(f.input.operation.id, decision), other.resume(f.input.operation.id, decision)]);
-			expect(results.some(result => result?.status === 'success')).toBe(true);
+			expect(results.some(result => result?.status === 'suspended')).toBe(true);
 			expect({ attempts, claimed, ...f.counts() }).toEqual({ attempts: 2, claimed: 1, drafts: 1, posts: 1 });
 		}
 		finally { spy.mockRestore(); }
@@ -169,7 +170,8 @@ describe('stored Linear reply boundary, real native Postgres', () => {
 		expect(f.counts().drafts).toBe(0);
 		const completed = await fixture();
 		const confirmed = await completed.decide();
-		expect((await completed.procedure.resume(completed.input.operation.id, confirmed))?.result?.status).toBe('ready');
+		expect(completed.procedure.result(await completed.procedure.resume(completed.input.operation.id, confirmed)).status).toBe('ready');
+		await completed.procedure.acknowledge(completed.input.operation.id, confirmed);
 		await sql`UPDATE linear_create_proposals SET outcome = NULL WHERE id = ${completed.input.operation.id}`;
 		await expect(completed.procedure.resume(completed.input.operation.id, confirmed)).rejects.toThrow();
 		expect(completed.counts().drafts).toBe(1);
@@ -201,6 +203,28 @@ describe('stored Linear reply boundary, real native Postgres', () => {
 		expect(f.counts().drafts).toBe(0);
 	});
 
+	test('HTTP admission rejects native execution before claiming an eligible stored wait, including encoded IDs', async () => {
+		const f = await fixture();
+		await f.decide();
+		let entered = 0;
+		const app = new Hono();
+		app.use(linearReplyApiAdmission.path, linearReplyApiAdmission.handler);
+		app.all('/api/workflows/:workflowId/*', (context) => {
+			entered++;
+			return context.json({ accepted: true });
+		});
+		for (const id of ['prepare_linear_reply', '%70repare_linear_reply', 'prepare%5flinear_reply']) {
+			for (const action of ['create-run', 'start', 'start-async', 'resume', 'resume-stream', 'resume-async', 'restart', 'time-travel', 'cancel'])
+				expect((await app.request(`/api/workflows/${id}/${action}`, { method: 'POST' })).status).toBe(403);
+			expect((await app.request(`/api/workflows/${id}/runs/${f.continuation.runId}`, { method: 'DELETE' })).status).toBe(403);
+		}
+		expect(entered).toBe(0);
+		expect((await f.procedure.workflow.getWorkflowRunById(f.continuation.runId))?.status).toBe('suspended');
+		expect((await app.request('/api/workflows/prepare_linear_reply/runs/example')).status).toBe(200);
+		expect((await app.request('/api/workflows/fantasyWeeklyRecap/start', { method: 'POST' })).status).toBe(200);
+		expect(entered).toBe(2);
+	});
+
 	test('stored context is restored natively, discarded, and never used as renewed authority', async () => {
 		const f = await fixture();
 		const decision = await f.decide();
@@ -208,7 +232,7 @@ describe('stored Linear reply boundary, real native Postgres', () => {
 		const snapshot = (await storage.loadWorkflowSnapshot({ workflowName: LINEAR_REPLY_WORKFLOW_ID, runId: f.continuation.runId }))!;
 		snapshot.requestContext = { authority: { approved: true }, MastraMemory: { thread: { id: 'old-session' } }, stale: 'PRIVATE_ARCHITECTURE_SENTINEL' };
 		await storage.persistWorkflowSnapshot({ workflowName: LINEAR_REPLY_WORKFLOW_ID, runId: f.continuation.runId, snapshot });
-		expect((await f.procedure.resume(f.input.operation.id, decision))?.status).toBe('success');
+		expect((await f.procedure.resume(f.input.operation.id, decision))?.status).toBe('suspended');
 		const saved = await storage.loadWorkflowSnapshot({ workflowName: LINEAR_REPLY_WORKFLOW_ID, runId: f.continuation.runId });
 		expect(saved?.requestContext).toEqual({});
 		expect(f.counts().drafts).toBe(1);
@@ -261,7 +285,7 @@ describe('stored Linear reply boundary, real native Postgres', () => {
 		});
 		const decision = await f.decide();
 		const result = await f.procedure.resume(f.input.operation.id, decision);
-		expect(result?.result).toEqual({ status: 'partial', operationId: f.input.operation.id, identifier: issue.identifier, url: issue.url, gap: 'draft_unavailable' });
+		expect(f.procedure.result(result)).toEqual({ status: 'partial', operationId: f.input.operation.id, identifier: issue.identifier, url: issue.url, gap: 'draft_unavailable' });
 		await f.procedure.resume(f.input.operation.id, decision);
 		expect(f.counts().drafts).toBe(1);
 	});

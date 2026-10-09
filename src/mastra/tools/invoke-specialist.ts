@@ -4,12 +4,14 @@ import type { ToolExecutionContext } from '@mastra/core/tools';
 import type { SpecialistFailure, SpecialistHandback } from '../agents/specialist-handback';
 import type { SpecialistClarification } from '../specialist-clarification';
 
+import { isDeepStrictEqual } from 'node:util';
 import { RequestContext } from '@mastra/core/request-context';
 import { createTool, isValidationError } from '@mastra/core/tools';
 import { z } from 'zod';
 
 import { specialistHandbackSchema } from '../agents/specialist-handback';
 import { specialistClarificationSchema } from '../specialist-clarification';
+import { linearReplySourceSchema } from '../workflows/linear-reply';
 
 export type SpecialistCaller
 	= | { kind: 'agent'; id: 'jamis' | 'weather-agent' | 'personal-accounts-agent' }
@@ -29,6 +31,8 @@ interface Authority {
 	clarification?: SpecialistClarification;
 	nextClarification?: SpecialistClarification;
 	saveClarification?: (clarification: SpecialistClarification) => Promise<void>;
+	gmailReads?: unknown[];
+	originalAccountsRequest?: string;
 }
 const authorities = new WeakMap<RequestContext, Authority>();
 
@@ -41,6 +45,31 @@ export function createSpecialistContext(caller: SpecialistCaller, pendingOperati
 
 export function revokeSpecialistAuthority(context: RequestContext): void {
 	authorities.delete(context);
+}
+
+/** Source receipts stay in the current Accounts invocation, never serialized context. */
+export function recordAccountsGmailRead(context: RequestContext | undefined, result: unknown): void {
+	const authority = context && authorities.get(context);
+	if (authority?.caller.kind === 'agent' && authority.caller.id === 'personal-accounts-agent')
+		(authority.gmailReads ??= []).push(result);
+}
+
+export function requireAccountsReplySource(context: ToolExecutionContext, source: z.infer<typeof linearReplySourceSchema>) {
+	const authority = context.requestContext && authorities.get(context.requestContext);
+	const receiptSchema = z.object({ messages: z.array(linearReplySourceSchema.strip()) });
+	if (context.agent?.agentId !== 'personal-accounts-agent' || authority?.caller.kind !== 'agent'
+		|| authority.caller.id !== 'personal-accounts-agent'
+		|| !authority.gmailReads?.some((raw) => {
+			const read = receiptSchema.safeParse(raw);
+			return read.success && read.data.messages.length === 1
+				&& !source.body.endsWith('\n... (truncated)') && isDeepStrictEqual(read.data.messages[0], source);
+		})) {
+		throw new Error('Linked reply requires one usable email read by the current Accounts invocation.');
+	}
+	const assignment = z.string().min(1).max(4000).safeParse(authority.originalAccountsRequest);
+	if (!assignment.success)
+		throw new Error('The original Accounts task is unavailable. Restate it before a fresh proposal.');
+	return assignment.data;
 }
 
 /** Native Jamis entry owns the caller identity; tool arguments and serialized context cannot mint it. */
@@ -105,7 +134,7 @@ function throwIfCanceled(signal?: AbortSignal) {
 		throw new DOMException('Specialist invocation was canceled.', signal.reason instanceof Error && signal.reason.name === 'TimeoutError' ? 'TimeoutError' : 'AbortError');
 }
 
-function recordClarification<R>(authority: Authority, owner: InvocationId, assignment: string, handback: SpecialistHandback<R>) {
+function recordClarification<R>(authority: Authority, owner: InvocationId, assignment: string, handback: SpecialistHandback<R>, originalAccountsRequest?: string) {
 	if (authority.nextClarification?.owner === owner)
 		authority.nextClarification = undefined;
 	if (authority.saveClarification && handback.case === 'needs_help' && handback.need.kind === 'input') {
@@ -113,6 +142,7 @@ function recordClarification<R>(authority: Authority, owner: InvocationId, assig
 			owner,
 			need: handback.need,
 			publicAssignment: owner === 'invoke_research' ? assignment : null,
+			...(owner === 'invoke_personal_accounts' ? { originalAccountsRequest } : {}),
 			researchResults: [...authority.researchResults].map(([assignment, handback]) => ({ assignment, handback })),
 		});
 	}
@@ -173,6 +203,11 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 				const childAuthority = authorities.get(requestContext);
 				if (childAuthority)
 					childAuthority.researchResults = authority.researchResults;
+				if (childAuthority && config.id === 'invoke_personal_accounts') {
+					childAuthority.originalAccountsRequest = pending
+						? pending.originalAccountsRequest ? `${pending.originalAccountsRequest}\n\nOperator clarification:\n${authority.operatorRequest}` : undefined
+						: authority.operatorRequest;
+				}
 				const generate = () => config.agent.generate(assignment, {
 					requestContext,
 					abortSignal: context.abortSignal,
@@ -202,7 +237,7 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 				throwIfCanceled(context.abortSignal);
 				if (config.id === 'invoke_research')
 					authority.researchResults.set(assignment, handback);
-				return recordClarification(authority, config.id, assignment, handback);
+				return recordClarification(authority, config.id, assignment, handback, childAuthority?.originalAccountsRequest);
 			}
 			finally {
 				if (calleeContext)
