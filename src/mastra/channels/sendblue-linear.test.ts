@@ -240,7 +240,7 @@ else {
 		} });
 	}
 
-	async function fixture(options: { description?: string; reply?: string; unavailable?: boolean; denied?: boolean; modelError?: boolean; read?: boolean; typed?: boolean; linked?: boolean; clarify?: boolean; badDraft?: boolean; inspectionMissing?: boolean; accountsHandbackFailure?: boolean; sourceMode?: 'missing' | 'ambiguous' | 'truncated' | 'forged' } = {}) {
+	async function fixture(options: { description?: string; reply?: string; unavailable?: boolean; denied?: boolean; modelError?: boolean; read?: boolean; typed?: boolean; linked?: boolean; clarify?: boolean; badDraft?: boolean; inspectionMissing?: boolean; accountsHandbackFailure?: boolean; sourceMode?: 'missing' | 'missing_body' | 'ambiguous' | 'truncated' | 'forged' } = {}) {
 		await clearOperatorTimeZoneConversation(sql);
 		let channelSql: SqlLike = sql;
 		const posts: string[] = [];
@@ -330,7 +330,7 @@ else {
 			execute: async (_, context) => {
 				gmailReads++;
 				const receipt = { estimatedTotal: options.sourceMode === 'ambiguous' ? 2 : 1, messages: [
-					{ ...email, snippet: 'Fixture', ...(options.sourceMode === 'truncated' ? { body: `${email.body}\n... (truncated)` } : {}) },
+					{ ...email, snippet: 'Fixture', ...(options.sourceMode === 'missing_body' ? { body: undefined } : options.sourceMode === 'truncated' ? { body: `${email.body}\n... (truncated)` } : {}) },
 					...(options.sourceMode === 'ambiguous' ? [{ ...email, subject: 'Another fixture email', snippet: 'Fixture' }] : []),
 				] };
 				recordAccountsGmailRead(context.requestContext, receipt);
@@ -451,11 +451,12 @@ else {
 		finally { await f.close(); }
 	}, 30_000);
 
-	test('missing, ambiguous, truncated, or fabricated email evidence cannot publish the linked proposal', async () => {
-		for (const sourceMode of ['missing', 'ambiguous', 'truncated', 'forged'] as const) {
+	test('missing, missing-body, ambiguous, truncated, or fabricated email evidence cannot publish the linked proposal', async () => {
+		for (const sourceMode of ['missing', 'missing_body', 'ambiguous', 'truncated', 'forged'] as const) {
 			const f = await fixture({ typed: true, linked: true, sourceMode });
 			try {
 				const source = await f.send('Create an issue from my email, then draft a linked reply.');
+				expect(f.counts().gmailReads).toBe(sourceMode === 'missing' ? 0 : 1);
 				expect(await readLinearProposal(source.threadId, sql)).toBeNull();
 				expect(f.posts.some(text => text.startsWith('Create Linear issue'))).toBe(false);
 				await f.send('confirm');

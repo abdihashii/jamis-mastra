@@ -114,6 +114,7 @@ describe('Accounts handback provenance and coverage', () => {
 		result.coverage = [{ source: 'gmail', status: 'truncated', gaps: ['The body and query results are truncated.'] }];
 		const toolResults = [tool('gmailSearchTool', { estimatedTotal: 2, messages: [message] })];
 		expect(() => validatePersonalAccountsHandback({ case: 'partial', result, gaps: ['Incomplete email.'] }, { toolResults })).not.toThrow();
+		expect(() => validatePersonalAccountsHandback({ case: 'completed', result }, { toolResults })).toThrow('Incomplete Accounts coverage needs explicit gaps.');
 		result.messages[0]!.truncated = false;
 		expect(() => validatePersonalAccountsHandback({ case: 'partial', result, gaps: ['Incomplete email.'] }, { toolResults })).toThrow();
 		const candidates = [message, { ...message, subject: 'Another booking', body: 'Another email' }];
@@ -125,6 +126,25 @@ describe('Accounts handback provenance and coverage', () => {
 		result.coverage = [{ source: 'gmail', status: 'unavailable', gaps: ['Plain text body unavailable.'] }];
 		const { body: _body, ...noBody } = message;
 		expect(() => validatePersonalAccountsHandback({ case: 'partial', result, gaps: ['Only metadata was retrieved.'] }, { toolResults: [tool('gmailSearchTool', { estimatedTotal: 1, messages: [noBody] })] })).not.toThrow();
+		const missingBody = [tool('gmailSearchTool', { estimatedTotal: 2, messages: [noBody] })];
+		expect(() => validatePersonalAccountsHandback({ case: 'partial', result, gaps: ['Only metadata was retrieved.'] }, { toolResults: missingBody })).not.toThrow();
+		expect(() => validatePersonalAccountsHandback({ case: 'completed', result }, { toolResults: missingBody })).toThrow('Incomplete Accounts coverage needs explicit gaps.');
+		for (const status of ['complete', 'truncated'] as const) {
+			result.coverage[0]!.status = status;
+			expect(() => validatePersonalAccountsHandback({ case: 'partial', result, gaps: ['Only metadata was retrieved.'] }, { toolResults: missingBody })).toThrow('Accounts coverage does not match the queried service.');
+		}
+	});
+
+	test('a count-only Gmail summary still needs the complete retrieved message', () => {
+		const message = { subject: 'Booking', from: 'fixture@example.invalid', date: '2026-10-09T00:00:00.000Z', snippet: 'Booking details', body: 'Complete body' };
+		const result = accountsResult();
+		result.summary = 'Exactly one matching email with a complete body.';
+		result.messages = [{ ...message, truncated: false }];
+		result.coverage = [{ source: 'gmail', status: 'complete', gaps: [] }];
+		const toolResults = [tool('gmailSearchTool', { estimatedTotal: 1, messages: [message] })];
+		expect(() => validatePersonalAccountsHandback({ case: 'completed', result }, { toolResults })).not.toThrow();
+		result.messages = [];
+		expect(() => validatePersonalAccountsHandback({ case: 'completed', result }, { toolResults })).toThrow('Accounts completion cannot omit retrieved records.');
 	});
 
 	test('Linear issues and page gaps match actual reads, with no created-issue invention', () => {
