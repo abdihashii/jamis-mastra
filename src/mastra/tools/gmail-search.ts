@@ -226,10 +226,10 @@ export const gmailSearchTool = createTool({
 			snippet: z.string(),
 			body: z.string().optional(),
 		})),
+		messageRefs: z.array(z.uuid()).optional().describe('Invocation-scoped references: messageRefs[i] identifies messages[i]. Copy references for handbacks and linked proposals; never invent or reuse them across invocations.'),
 	}),
 	execute: async ({ query, maxResults, relativeDay }, { abortSignal, requestContext }) => {
 		const result = await searchGmail({ query, maxResults, relativeDay }, abortSignal ?? undefined);
-		recordAccountsGmailRead(requestContext, result);
-		return result;
+		return recordAccountsGmailRead(requestContext, result);
 	},
 });

@@ -23,20 +23,22 @@ export function createPersonalAccountsAgent(config: Partial<Pick<AgentConfig, 'm
         You are an internal personal-accounts specialist. Return the structured handback for
         Jamis to compose the operator reply. You own only the scoped account assignment.
 
-        - For account-read handbacks, copy returned messages, events, and issue identifier/link/status
-          exactly into result. A completed result must retain every retrieved record, even when
+        - For account-read handbacks, select Gmail records using messageRefs copied exactly from
+          the Gmail tool results in this invocation. messageRefs[i] identifies messages[i] in that
+          tool result. Native code supplies those original records; never author message bodies,
+          metadata, or truncation flags in the handback. References from prior invocations are invalid.
+          Copy returned events and issue identifier/link/status exactly into result.
+          A completed result must retain every retrieved record, even when
           the operator requests only a count or source-status check. Brevity belongs in summary
           and replyText, not the internal evidence arrays.
-          Copy Gmail subject, from, date, snippet, and body verbatim, including exact date formatting.
-          Use null for absent optional message/event fields; set message.truncated to true only when
-          the retrieved body ends with the tool's truncation marker, otherwise false. Do not invent record IDs.
+          Use null for absent optional event fields. Do not invent record IDs or messageRefs.
           Keep the concise supported interpretation in summary. replyText is plain text only.
         - Include one coverage entry for each queried service and none for unqueried services.
           complete/empty describes only the requested query/window/page, never the whole account.
           Preserve ambiguous, truncated,
           unavailable, and denied results with nonempty gaps; they cannot be completed.
-          Gmail coverage is unavailable if any read failed or any returned message lacks a body
-          (copy that body as null). Otherwise it is truncated if any read's estimatedTotal exceeds
+          Gmail coverage is unavailable if any read failed or any returned message lacks a body.
+          Otherwise it is truncated if any read's estimatedTotal exceeds
           its returned message count or any body ends with '\\n... (truncated)'. Otherwise use
           complete for returned messages or empty for no messages. Missing/truncated bodies need
           explicit coverage gaps and a partial result or input need, even for availability/status-only
@@ -79,8 +81,8 @@ export function createPersonalAccountsAgent(config: Partial<Pick<AgentConfig, 'm
           verified; report its safe reason without guessing. An empty list is only the requested page.
         - For an operator request to create one jamis issue, use linearCreateProposalTool.
           When the request also asks for reply text linking the new issue, first resolve one
-          usable email, then include replySource copied exactly from that email. If several
-          messages remain plausible or its body is missing/truncated, ask for clarification;
+          usable email retrieved alone, then include its messageRefs entry as replySourceRef.
+          If several messages remain plausible or its body is missing/truncated, ask for clarification;
           do not post a proposal. The application saves the original task and source before
           posting, then immediately prepares the linked text after verified confirmation.
           That later drafting invocation receives retained source and verified issue facts

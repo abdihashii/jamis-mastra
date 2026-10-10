@@ -1,3 +1,4 @@
+import type { RequestContext } from '@mastra/core/request-context';
 import type { SpecialistHandback } from './specialist-handback';
 
 import { isDeepStrictEqual } from 'node:util';
@@ -5,6 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 
 import { linearReadResultSchema } from '../../lib/linear';
+import { resolveAccountsGmailReferences } from '../tools/invoke-specialist';
 import { researchResultSchema } from './research-handback';
 import { specialistHandbackSchema } from './specialist-handback';
 
@@ -18,6 +20,24 @@ export const personalAccountsResultSchema = z.object({
 	research: researchResultSchema.nullable(),
 	replyText: text.nullable(),
 }).strict();
+
+export const personalAccountsModelHandbackSchema = specialistHandbackSchema(personalAccountsResultSchema.omit({ messages: true }).extend({
+	messageRefs: z.array(z.uuid()).max(20).describe('Exact messageRefs from Gmail tool results in this invocation. Native code supplies the original records. Include every retrieved message for completed results.'),
+}));
+
+export function resolvePersonalAccountsHandback(value: unknown, context: RequestContext) {
+	const handback = personalAccountsModelHandbackSchema.parse(value);
+	const result = 'result' in handback ? handback.result : handback.progress;
+	if (!result)
+		return handback;
+	const { messageRefs, ...rest } = result;
+	const resolved = { ...rest, messages: resolveAccountsGmailReferences(context, messageRefs).map(message => ({
+		...message,
+		body: message.body ?? null,
+		truncated: message.body?.endsWith('\n... (truncated)') ?? false,
+	})) };
+	return 'result' in handback ? { ...handback, result: resolved } : { ...handback, progress: resolved };
+}
 
 const gmailResultSchema = z.object({
 	estimatedTotal: z.number().nonnegative(),

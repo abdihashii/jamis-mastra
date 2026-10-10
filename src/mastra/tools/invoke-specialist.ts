@@ -3,8 +3,9 @@ import type { Processor } from '@mastra/core/processors';
 import type { ToolExecutionContext } from '@mastra/core/tools';
 import type { SpecialistFailure, SpecialistHandback } from '../agents/specialist-handback';
 import type { SpecialistClarification } from '../specialist-clarification';
+import type { GmailSearchResult } from './gmail-search';
 
-import { isDeepStrictEqual } from 'node:util';
+import { randomUUID } from 'node:crypto';
 import { RequestContext } from '@mastra/core/request-context';
 import { createTool, isValidationError } from '@mastra/core/tools';
 import { z } from 'zod';
@@ -31,7 +32,7 @@ interface Authority {
 	clarification?: SpecialistClarification;
 	nextClarification?: SpecialistClarification;
 	saveClarification?: (clarification: SpecialistClarification) => Promise<void>;
-	gmailReads?: unknown[];
+	gmailReads?: Array<{ result: GmailSearchResult; messageRefs: string[] }>;
 	originalAccountsRequest?: string;
 }
 const authorities = new WeakMap<RequestContext, Authority>();
@@ -48,28 +49,45 @@ export function revokeSpecialistAuthority(context: RequestContext): void {
 }
 
 /** Source receipts stay in the current Accounts invocation, never serialized context. */
-export function recordAccountsGmailRead(context: RequestContext | undefined, result: unknown): void {
+export function recordAccountsGmailRead(context: RequestContext | undefined, result: GmailSearchResult): GmailSearchResult & { messageRefs?: string[] } {
 	const authority = context && authorities.get(context);
-	if (authority?.caller.kind === 'agent' && authority.caller.id === 'personal-accounts-agent')
-		(authority.gmailReads ??= []).push(result);
+	if (authority?.caller.kind !== 'agent' || authority.caller.id !== 'personal-accounts-agent')
+		return result;
+	const messageRefs = result.messages.map(() => randomUUID());
+	(authority.gmailReads ??= []).push({ result: structuredClone(result), messageRefs: [...messageRefs] });
+	return { ...result, messageRefs };
 }
 
-export function requireAccountsReplySource(context: ToolExecutionContext, source: z.infer<typeof linearReplySourceSchema>) {
-	const authority = context.requestContext && authorities.get(context.requestContext);
-	const receiptSchema = z.object({ messages: z.array(linearReplySourceSchema.strip()) });
-	if (context.agent?.agentId !== 'personal-accounts-agent' || authority?.caller.kind !== 'agent'
-		|| authority.caller.id !== 'personal-accounts-agent'
-		|| !authority.gmailReads?.some((raw) => {
-			const read = receiptSchema.safeParse(raw);
-			return read.success && read.data.messages.length === 1
-				&& !source.body.endsWith('\n... (truncated)') && isDeepStrictEqual(read.data.messages[0], source);
-		})) {
+function accountsGmailReceipt(context: RequestContext | undefined, reference: string) {
+	const authority = context && authorities.get(context);
+	if (authority?.caller.kind === 'agent' && authority.caller.id === 'personal-accounts-agent') {
+		for (const read of authority.gmailReads ?? []) {
+			const index = read.messageRefs.indexOf(reference);
+			if (index !== -1)
+				return { authority, read: read.result, message: read.result.messages[index]! };
+		}
+	}
+	throw new Error('Accounts email reference is unavailable in this invocation.');
+}
+
+export function resolveAccountsGmailReferences(context: RequestContext, references: string[]) {
+	if (new Set(references).size !== references.length)
+		throw new Error('Accounts email references contain duplicates.');
+	return references.map(reference => structuredClone(accountsGmailReceipt(context, reference).message));
+}
+
+export function requireAccountsReplySource(context: ToolExecutionContext, reference: string) {
+	if (context.agent?.agentId !== 'personal-accounts-agent')
+		throw new Error('Linked reply requires the native Accounts caller.');
+	const { authority, read, message } = accountsGmailReceipt(context.requestContext, reference);
+	const source = linearReplySourceSchema.strip().safeParse(message);
+	if (read.messages.length !== 1 || !source.success || source.data.body.endsWith('\n... (truncated)')) {
 		throw new Error('Linked reply requires one usable email read by the current Accounts invocation.');
 	}
 	const assignment = z.string().min(1).max(4000).safeParse(authority.originalAccountsRequest);
 	if (!assignment.success)
 		throw new Error('The original Accounts task is unavailable. Restate it before a fresh proposal.');
-	return assignment.data;
+	return { source: source.data, assignment: assignment.data };
 }
 
 /** Native Jamis entry owns the caller identity; tool arguments and serialized context cannot mint it. */
@@ -154,6 +172,7 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 	agent: Agent;
 	inputSchema: z.ZodType<I, I>;
 	resultSchema: z.ZodType<R, R>;
+	modelHandback?: { schema: z.ZodType; resolve: (value: unknown, context: RequestContext) => unknown };
 	allowedCallers: readonly SpecialistCaller[];
 	project: (input: I, context: { caller: SpecialistCaller; operatorRequest?: string; clarification?: SpecialistClarification }) => string | { case: 'blocked'; reason: string; progress: null };
 	continueClarification?: (input: I) => boolean;
@@ -166,7 +185,7 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 	const allowed = new Set(config.allowedCallers.map(callerKey));
 	const handbackSchema = specialistHandbackSchema(config.resultSchema);
 	// Strict providers require an object root; the union remains the native tool result.
-	const envelopeSchema = z.object({ handback: handbackSchema }).strict();
+	const envelopeSchema = z.object({ handback: config.modelHandback?.schema ?? handbackSchema }).strict();
 	return createTool({
 		id: config.id,
 		description: `Request a bounded contribution from ${config.agent.name}. Return its typed result or specific need to the task owner.`,
@@ -220,7 +239,8 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 				throwIfCanceled(context.abortSignal);
 				if (isValidationError(response.object))
 					throw new Error('Specialist handback is invalid.');
-				const { handback } = envelopeSchema.parse(response.object);
+				const modelHandback = envelopeSchema.parse(response.object).handback;
+				const handback = handbackSchema.parse(config.modelHandback ? config.modelHandback.resolve(modelHandback, requestContext) : modelHandback);
 				const pendingOperationId = config.pendingOperationId?.() ?? authority.pendingOperationId;
 				if (handback.case === 'needs_help' && handback.need.kind === 'approval' && handback.need.operationId !== pendingOperationId)
 					throw new Error('Specialist approval does not match the pending operation.');

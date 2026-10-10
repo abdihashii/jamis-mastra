@@ -250,6 +250,7 @@ else {
 		const spans: unknown[] = [];
 		const history: Message<SendblueMessagePayload>[] = [];
 		const email = { subject: 'Fixture email', from: 'fixture@example.com', date: '2026-10-01T00:00:00.000Z', body: 'PRIVATE_STAGE3_SENTINEL. Please track this request.' };
+		const proposalInput = { action: 'create', title: 'Exact fixture title', description: 'Exact fixture description', ...(options.linked ? { replySourceRef: randomUUID() as string } : {}) };
 		let gmailReads = 0;
 		let inspectionReads = 0;
 		const draftPrompts: unknown[] = [];
@@ -333,8 +334,10 @@ else {
 					{ ...email, snippet: 'Fixture', ...(options.sourceMode === 'missing_body' ? { body: undefined } : options.sourceMode === 'truncated' ? { body: `${email.body}\n... (truncated)` } : {}) },
 					...(options.sourceMode === 'ambiguous' ? [{ ...email, subject: 'Another fixture email', snippet: 'Fixture' }] : []),
 				] };
-				recordAccountsGmailRead(context.requestContext, receipt);
-				return receipt;
+				const result = recordAccountsGmailRead(context.requestContext, receipt);
+				if (options.sourceMode !== 'forged')
+					proposalInput.replySourceRef = result.messageRefs![0]!;
+				return result;
 			},
 		});
 		const draftModel = boundaryModel([{ handback: { case: 'completed', result: { replyText: options.badDraft ? 'Missing the verified issue link.' : 'I have tracked your request at https://linear.app/fixture/issue/JAM-999.' } } }], value => draftPrompts.push(value));
@@ -355,7 +358,7 @@ else {
 					specialists: { personalAccounts: { tools: { linearCreateProposalTool, ...(options.linked ? { gmailSearchTool: gmailFixture } : {}) }, model: boundaryModel([
 						...(options.clarify ? [{ handback: { case: 'needs_help', need: { kind: 'input', question: 'Which email?', missing: ['selected email'] }, progress: null } }] : []),
 						...(options.linked && options.sourceMode !== 'missing' ? [{ tool: 'gmailSearchTool', input: {} }] : []),
-						...(options.accountsHandbackFailure ? [] : [{ tool: 'linearCreateProposalTool', input: { action: 'create', title: 'Exact fixture title', description: 'Exact fixture description', ...(options.linked ? { replySource: { ...email, ...(options.sourceMode === 'forged' ? { body: 'Fabricated source.' } : {}) } } : {}) } }]),
+						...(options.accountsHandbackFailure ? [] : [{ tool: 'linearCreateProposalTool', input: proposalInput }]),
 						{ handback: typedNeed },
 					], (value) => {
 						prompts.push(value);
@@ -390,6 +393,7 @@ else {
 		}
 		return {
 			posts,
+			email,
 			mutations,
 			prompts,
 			typedToolResults,
@@ -432,7 +436,7 @@ else {
 			const saved = await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId);
 			expect(saved?.status).toBe('suspended');
 			expect(saved?.payload?.assignment).toBe(source.text);
-			expect(saved?.payload?.source.body).toContain('PRIVATE_STAGE3_SENTINEL');
+			expect(saved?.payload?.source).toEqual(f.email);
 			expect(f.posts).toHaveLength(1);
 			await f.restart();
 			const confirm = await f.send('confirm');

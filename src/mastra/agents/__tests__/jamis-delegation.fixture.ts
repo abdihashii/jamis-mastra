@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { handleSendblueDirectMessage } from '../../channels/sendblue';
 import { calendarEventsTool } from '../../tools/calendar-events';
 import { gmailSearchTool } from '../../tools/gmail-search';
+import { recordAccountsGmailRead } from '../../tools/invoke-specialist';
 import { forecastTool } from '../../tools/weather-tool';
 import { createJamisAgent } from '../jamis';
 import { boundaryModel, PRIVATE_ARCHITECTURE_SENTINEL } from './specialist-boundary.fixture';
@@ -21,7 +22,7 @@ const reading = { location: 'Chicago, Illinois', date: '2026-10-10', high: 66, l
 const weatherResult = { answer: 'The weather in Chicago, Illinois will be clear.', reading: { kind: 'forecast', ...reading } };
 const need = { case: 'needs_help', need: { kind: 'input', question: 'Which city?', missing: ['location'] }, progress: null };
 const event = { calendar: 'Fixture calendar', title: 'Dentist', start: '2026-10-10T14:00:00.000Z', end: '2026-10-10T15:00:00.000Z', operatorLocalStart: null, operatorLocalEnd: null, location: null };
-const accountResult = { summary: 'Dentist is scheduled.', messages: [], events: [event], issues: [], coverage: [{ source: 'calendar', status: 'complete', gaps: [] }], research: null, replyText: null };
+const accountResult = { summary: 'Dentist is scheduled.', messageRefs: [], events: [event], issues: [], coverage: [{ source: 'calendar', status: 'complete', gaps: [] }], research: null, replyText: null };
 
 function fixtureJamis(mastra: Mastra, config: Parameters<typeof createJamisAgent>[0]) {
 	return createJamisAgent({ mastra, tools: {}, workspace: undefined, memory: new Memory({ options: { semanticRecall: false, workingMemory: { enabled: false } } }), ...config });
@@ -296,10 +297,16 @@ export async function runJamisNestedResearchFixture(mastra: Mastra) {
 		return { results: [{ title: source.title, url: source.url }] };
 	} });
 	const message = { subject: 'United Basic Economy booking', from: 'booking@example.com', date: '2026-10-09T00:00:00.000Z', snippet: 'United Basic Economy', body: `United Basic Economy. Passenger details ${PRIVATE_ARCHITECTURE_SENTINEL}.` };
-	const progress = { summary: 'The booking names United Basic Economy.', messages: [{ ...message, truncated: false }], events: [], issues: [], coverage: [{ source: 'gmail', status: 'complete', gaps: [] }], research: null, replyText: null };
+	const progress = { summary: 'The booking names United Basic Economy.', messageRefs: [] as string[], events: [], issues: [], coverage: [{ source: 'gmail', status: 'complete', gaps: [] }], research: null, replyText: null };
+	const receiptRefs: string[] = [];
 	const refusal = 'Evidence status: insufficient. I could not verify the requested factual answer.';
 	const researchNeed = { case: 'needs_help', need: { kind: 'input', question: 'Which public policy date?', missing: ['policy date'] }, progress: null };
-	const gmail = createTool({ id: gmailSearchTool.id, description: gmailSearchTool.description!, inputSchema: gmailSearchTool.inputSchema!, outputSchema: gmailSearchTool.outputSchema!, execute: async () => ({ estimatedTotal: 1, messages: [message] }) });
+	const gmail = createTool({ id: gmailSearchTool.id, description: gmailSearchTool.description!, inputSchema: gmailSearchTool.inputSchema!, outputSchema: gmailSearchTool.outputSchema!, execute: async (_, context) => {
+		const result = recordAccountsGmailRead(context.requestContext, { estimatedTotal: 1, messages: [message] });
+		progress.messageRefs.splice(0, progress.messageRefs.length, ...result.messageRefs!);
+		receiptRefs.push(...result.messageRefs!);
+		return result;
+	} });
 	const scrape = createTool({ id: 'web-scrape', description: 'Read a controlled public policy.', inputSchema: z.object({ url: z.string().url() }), outputSchema: z.object({ markdown: z.string() }), execute: async (input, context) => {
 		sourceCalls += 1;
 		observations.push(input, [...context.requestContext.entries()]);
@@ -349,6 +356,7 @@ export async function runJamisNestedResearchFixture(mastra: Mastra) {
 	assert.equal(responses[1]!.text, researchNeed.need.question);
 	assert.equal(sourceCalls, 1);
 	assert(!JSON.stringify(observations).includes(PRIVATE_ARCHITECTURE_SENTINEL));
+	assert(receiptRefs.every(reference => !JSON.stringify(observations).includes(reference)), 'Private Gmail references must not enter public Research.');
 	assert.equal(observations.filter(value => value && typeof value === 'object' && 'prompt' in value).length, 5, 'Unsupported private projection must not invoke Research.');
 	assert(JSON.stringify(ownerPrompts).includes(source.evidence));
 	assert(JSON.stringify(ownerPrompts).includes(researchNeed.need.question));

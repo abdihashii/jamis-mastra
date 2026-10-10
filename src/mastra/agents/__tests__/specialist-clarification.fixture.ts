@@ -31,7 +31,7 @@ export async function runSpecialistClarificationFixture(mastra: Mastra, sql: Sql
 	const need = { case: 'needs_help' as const, need: { kind: 'input' as const, question: 'Which framework?', missing: ['framework'] }, progress: null };
 	const source = { title: 'Published fare policy', url: 'https://example.com/public-policy', evidenceKind: 'scraped-webpage' as const, evidence: 'One personal item is allowed.', limitations: [] };
 	const research = { findings: [{ text: source.evidence, sourceNumbers: [1] }], sources: [source], limitations: [] };
-	const accountResult = { summary: 'The public policy allows one personal item.', messages: [], events: [], issues: [], coverage: [], research, replyText: null };
+	const accountResult = { summary: 'The public policy allows one personal item.', messageRefs: [], events: [], issues: [], coverage: [], research, replyText: null };
 	const docs = { title: 'Mastra authentication', url: 'https://mastra.ai/docs/server/auth', evidenceKind: 'scraped-webpage' as const, evidence: 'The server supports authentication.', limitations: [] };
 	const docsResult = { findings: [{ text: docs.evidence, sourceNumbers: [1] }], sources: [docs], limitations: [] };
 	const sources = [source, docs];
@@ -185,7 +185,8 @@ export async function runSpecialistClarificationFixture(mastra: Mastra, sql: Sql
 		await send('A personal item.');
 		assert.equal(replies.at(-1), 'One personal item is allowed.');
 		assert.equal(sourceReads, 1, 'Fresh owner clarification must reuse validated Research, without a second retrieval.');
-		assert.deepEqual(rootHandbacks.at(-1), { case: 'completed', result: accountResult });
+		const { messageRefs: _messageRefs, ...resolvedAccountResult } = accountResult;
+		assert.deepEqual(rootHandbacks.at(-1), { case: 'completed', result: { ...resolvedAccountResult, messages: [] } });
 		assert(JSON.stringify(accountPrompts.at(-1)).includes(source.evidence));
 		assert.equal((await currentThread()).metadata?.[specialistClarificationKey], null);
 

@@ -3,7 +3,7 @@ import type { AgentConfig } from '@mastra/core/agent';
 import { z } from 'zod';
 
 import { createPersonalAccountsAgent, personalAccountsTools } from './agents/personal-accounts-agent';
-import { personalAccountsResultSchema, validatePersonalAccountsHandback } from './agents/personal-accounts-handback';
+import { personalAccountsModelHandbackSchema, personalAccountsResultSchema, resolvePersonalAccountsHandback, validatePersonalAccountsHandback } from './agents/personal-accounts-handback';
 import { createResearchAgent } from './agents/research-agent';
 import { researchResultSchema, validateResearchHandback } from './agents/research-handback';
 import { createResearchQuestionProjector, publicFareLabels, researchQuestionSchema } from './agents/research-question';
@@ -77,6 +77,7 @@ export function createSpecialistTools(mastra: AgentConfig['mastra'], config: Spe
 			agent: accounts,
 			inputSchema: assignmentSchema,
 			resultSchema: personalAccountsResultSchema,
+			modelHandback: { schema: personalAccountsModelHandbackSchema, resolve: resolvePersonalAccountsHandback },
 			allowedCallers: [{ kind: 'agent', id: 'jamis' }],
 			continueClarification: input => input.continueClarification === true,
 			project: input => input.question,
