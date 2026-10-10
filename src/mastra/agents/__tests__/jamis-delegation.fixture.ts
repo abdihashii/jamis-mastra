@@ -315,7 +315,8 @@ export async function runJamisNestedResearchFixture(mastra: Mastra) {
 	const jamis = fixtureJamis(mastra, {
 		model: boundaryModel([
 			{ tool: 'invoke_personal_accounts', input: { question: `Check the public carry-on policy from my booking. Private context ${PRIVATE_ARCHITECTURE_SENTINEL}.` } },
-			{ text: `${source.evidence}[1]\nSources:\n[1] ${source.title}: ${source.url}` },
+			{ tool: 'invoke_weather', input: { question: `Forecast for Chicago on ${reading.date}.` } },
+			{ text: `${weatherResult.answer} Forecast date: ${reading.date}. Booking: ${message.subject}, ${message.from}, ${message.date}. ${source.evidence}[1]\nSources:\n[1] ${source.title}: ${source.url}` },
 			{ tool: 'invoke_personal_accounts', input: { question: 'Check the booking public policy for the requested date.' } },
 			{ text: 'Which public policy date?' },
 			{ tool: 'invoke_personal_accounts', input: { question: 'Check the booking public policy again as a fresh assignment.' } },
@@ -344,15 +345,23 @@ export async function runJamisNestedResearchFixture(mastra: Mastra) {
 				{ handback: researchNeed },
 				{ handback: { case: 'blocked', reason: refusal, progress: null } },
 			], options => observations.push(options)) },
-			weather: { tools: {}, model: boundaryModel([]) },
+			weather: { tools: { forecastTool: createTool({ id: forecastTool.id, description: forecastTool.description!, inputSchema: forecastTool.inputSchema!, outputSchema: forecastTool.outputSchema!, execute: async () => reading }) }, model: boundaryModel([
+				{ tool: 'forecastTool', input: { location: 'Chicago', date: reading.date } },
+				{ handback: { case: 'completed', result: weatherResult } },
+			]) },
 		},
 	});
 	mastra.addAgent(jamis, 'stage2-nested-research-fixture');
 	const responses = [];
-	for (const question of ['Check the carry-on policy for my booking.', 'Check the date-specific policy.', 'Check the public policy with a fresh read.', 'Check an unsupported private policy question.'])
+	for (const question of [`Check the carry-on policy for my booking and Chicago's forecast for ${reading.date}.`, 'Check the date-specific policy.', 'Check the public policy with a fresh read.', 'Check an unsupported private policy question.'])
 		responses.push(await jamis.generate(question, { requestContext: new RequestContext() }));
-	assert.deepEqual(responses.map(response => response.toolCalls.map(call => call.payload.toolName)), Array.from({ length: 4 }, () => ['invoke_personal_accounts']));
+	assert.deepEqual(responses.map(response => response.toolCalls.map(call => call.payload.toolName)), [['invoke_personal_accounts', 'invoke_weather'], ...Array.from({ length: 3 }, () => ['invoke_personal_accounts'])]);
 	assert.deepEqual(responses.map(response => resultCase(response.toolResults[0]?.payload.result)), ['completed', 'needs_help', 'partial', 'blocked']);
+	assert.deepEqual(responses[0]!.toolResults[1]?.payload.result, { case: 'completed', result: weatherResult });
+	assert.match(responses[0]!.text, /^The weather in Chicago, Illinois/);
+	for (const detail of [reading.date, message.subject, message.from, message.date, `${source.evidence}[1]`, `Sources:\n[1] ${source.title}: ${source.url}`])
+		assert(responses[0]!.text.includes(detail));
+	assert(!responses[0]!.text.includes(PRIVATE_ARCHITECTURE_SENTINEL));
 	assert.equal(responses[1]!.text, researchNeed.need.question);
 	assert.equal(sourceCalls, 1);
 	assert(!JSON.stringify(observations).includes(PRIVATE_ARCHITECTURE_SENTINEL));
@@ -361,7 +370,7 @@ export async function runJamisNestedResearchFixture(mastra: Mastra) {
 	assert(JSON.stringify(ownerPrompts).includes(source.evidence));
 	assert(JSON.stringify(ownerPrompts).includes(researchNeed.need.question));
 	assert(JSON.stringify(ownerPrompts).includes(refusal));
-	return { nestedOwnerHandback: true, nestedNeedAndRefusal: true, privateContextIsolated: true, unsupportedProjectionDenied: true, sourceCalls };
+	return { mixedAccountsResearchWeather: true, nestedOwnerHandback: true, nestedNeedAndRefusal: true, privateContextIsolated: true, unsupportedProjectionDenied: true, sourceCalls };
 }
 
 export async function runJamisWeatherValidationFixture(mastra: Mastra) {

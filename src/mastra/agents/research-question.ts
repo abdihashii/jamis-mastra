@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 // OpenAI function parameters require an object root.
 export const researchQuestionSchema = z.object({
-	kind: z.enum(['operator_request', 'clarification', 'carry_on_allowance']),
-	subjectId: z.string().min(1).max(80).optional(),
+	kind: z.enum(['operator_request', 'clarification', 'carry_on_allowance']).describe('operator_request uses the exact current public Operator task, never a private or mixed account task. clarification uses the immediately preceding active-session public task and actual answer. carry_on_allowance is the only private-to-public template; unsupported projections return a gap. Never repeat Research to reset a task budget.'),
+	subjectId: z.string().min(1).max(80).optional().describe('Verified application-provided public label ID for carry_on_allowance only. Never supply private text, identity, booking references, itinerary, or unrelated conversation.'),
 }).strict().refine(input => (input.kind === 'carry_on_allowance') === (input.subjectId !== undefined), {
 	message: 'subjectId is required only for carry_on_allowance.',
 });

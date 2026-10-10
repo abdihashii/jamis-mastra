@@ -21,7 +21,10 @@ export interface SpecialistConfig {
 	personalAccounts?: SpecialistOverrides;
 }
 
-const assignmentSchema = z.object({ question: z.string().trim().min(1).max(4000), continueClarification: z.boolean().optional() }).strict();
+const assignmentSchema = z.object({
+	question: z.string().trim().min(1).max(4000).describe('Bounded assignment. For clarification, include the original task and the actual missing input; reuse validated prior contributions.'),
+	continueClarification: z.boolean().optional().describe('True only when the current reply answers this specialist\'s immediately preceding active-session input need. Otherwise omit; unrelated requests supersede that need. Unavailable continuation returns a gap, not permission to retry Research as a new task.'),
+}).strict();
 
 export function createSpecialistTools(mastra: AgentConfig['mastra'], config: SpecialistConfig = {}) {
 	const research = createResearchAgent({ ...config.research, mastra });

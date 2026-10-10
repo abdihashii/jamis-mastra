@@ -25,6 +25,12 @@ _Example_: Prepare tomorrow's plan using the selected calendar's events and Chic
 The agent accountable for achieving an assigned task's goal and reporting its overall outcome, even when it delegates parts of the work.
 _Example_: Jamis owns a calendar-plus-weather plan even when Personal Accounts retrieves the events and Weather provides the forecast.
 
+**Specialist handback**:
+A checked internal outcome for one scoped contribution: completed, partial with gaps, needs_help, or blocked, plus specialist-owned evidence. Application code reports execution failure separately. A handback is not approval, an external-effect receipt, or proof that the whole task completed. See [ADR 0009](adrs/0009-jamis-as-mastra-supervisor.md#typed-execution-boundaries-jam-77-2026-10-10-utc).
+
+**Task outcome**:
+The result against an assignment's completion conditions, preserving useful evidence, effects, gaps and unmet work. It is separate from model termination, workflow success, Reply acceptance and handset receipt.
+
 **Domain specialist**:
 An internal subagent with expertise in a subject area that can act as task owner, using permitted tools and capability specialists to complete tasks within that domain.
 _Example_: Personal Accounts owns the calendar portion of the plan and uses its Calendar tool to interpret and report the relevant events.

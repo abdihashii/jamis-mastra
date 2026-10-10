@@ -189,7 +189,7 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 	const envelopeSchema = z.object({ handback: config.modelHandback?.schema ?? handbackSchema }).strict();
 	return createTool({
 		id: config.id,
-		description: `Request a bounded contribution from ${config.agent.name}. Return its typed result or specific need to the task owner.`,
+		description: `${config.agent.getDescription() || config.agent.name} Return a bounded typed contribution or specific need to the task owner.`,
 		inputSchema: config.inputSchema,
 		outputSchema: handbackSchema,
 		execute: async (input, context) => {

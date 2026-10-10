@@ -38,7 +38,7 @@ else {
 	const { applyCodexBodyRules } = await import('../../gateways/openai-codex-auth');
 
 	test('the first weather request includes only object-root function schemas', async () => {
-		const requests: Array<{ tools: Array<{ type: string; name: string; parameters: Record<string, unknown> }> }> = [];
+		const requests: Array<{ tools: Array<{ type: string; name: string; description: string; parameters: Record<string, unknown> }> }> = [];
 		const model = forcingStoreFalse(createOpenAI({
 			name: 'openai-codex',
 			baseURL: 'https://schema-fixture.invalid',
@@ -65,5 +65,17 @@ else {
 			expect(tool.parameters.anyOf).toBeUndefined();
 			expect(tool.parameters.oneOf).toBeUndefined();
 		}
+		const weather = functions.find(tool => tool.name === 'invoke_weather')!;
+		expect(weather.description).toContain('current conditions');
+		expect(weather.description).toContain('future-date forecasts');
+		const assignment = weather.parameters.properties as Record<string, { description: string }>;
+		expect(assignment.continueClarification!.description).toContain('immediately preceding active-session input need');
+		expect(assignment.question!.description).toContain('original task');
+		const research = functions.find(tool => tool.name === 'invoke_research')!;
+		const selectors = research.parameters.properties as Record<string, { description: string }>;
+		expect(selectors.kind!.description).toContain('never a private or mixed account task');
+		expect(selectors.subjectId!.description).toContain('Never supply private text');
+		expect(functions.find(tool => tool.name === 'invoke_personal_accounts')!.description).toContain('read-only Gmail');
+		expect(functions.find(tool => tool.name === 'invoke_fantasy_broadcast')!.description).toContain('one-off message');
 	});
 }

@@ -34,3 +34,14 @@ The implementation lives in Jamis's coordination instructions only; see [plan 00
 - "Ask until clear" relies on the active Jamis DM session and Observational Memory ([ADR 0010](0010-keep-imessage-conversations-continuous.md)) across runs rather than a paused suspended run. `/new` starts an isolated session. There is no structured resume; an answer that does not address the question simply lets Jamis ask again.
 - This is not an approval or safety control. No new code controls are added: `toolDisplay`, `streaming`, `maxSteps`, `autoResumeSuspendedTools`, and `toolCallConcurrency` are unchanged. Behavior is instruction-driven and verified through real-model and channel smokes, not a hard code invariant.
 - A future action tool must record its own confirmation design. A future button-capable channel, native Mastra suspend rendering, or a deliberate Sendblue App Card integration can reopen the structured-prompt decision.
+
+
+## Bounded clarification continuation (JAM-77, 2026-10-10 UTC)
+
+Plan 029 adds one native active-session clarification metadata slot, superseding the historical instruction/memory-only continuation description above. The handset interaction remains a plain check and next reply, not a suspended model run, approval card or new permission.
+
+"What's the weather outside?" without an unambiguous current place returns an input need before a weather call. Jamis asks the question. An immediately following eligible location answer starts a fresh bounded invocation of the same owner, carrying the original task and actual answer; Weather preserves its tool-resolved place/date. Operator time zone or an old location does not establish current physical place. Unrelated email work supersedes that unfinished check without reminders/background continuation. Explicit return requires a fresh task and revalidated context.
+
+Invocation schemas describe `continueClarification` and Research's `clarification` selector. Runtime checks match the immediately preceding active-session owner/input need and carry previously validated public contributions without repeating Research. Accounts also retains its original private assignment and actual eligible answers for the concrete linked-reply procedure. Direct API callers cannot supply DM continuation authority. An unavailable slot yields a gap and a request to restate the task, never a new Research attempt that resets its budget. `/new` invalidates continuation and action proposals; conversational input cannot revive either.
+
+The in-process DM queue serializes intake, not durable task scheduling or multi-process concurrency. Selection/wording still involve model judgment. Controlled clarification, supersession and native-channel fixtures plus bounded live observations and their limits are recorded in [plan 029](../plans/029-jamis-agent-architecture.md).
