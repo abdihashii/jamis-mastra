@@ -60,6 +60,7 @@ const protectedRootEntityIds = [
 	'invoke_weather',
 	'invoke_research',
 	'invoke_personal_accounts',
+	'invoke_fantasy_broadcast',
 	'prepare_linear_reply',
 	'await_linear_outcome',
 	'prepare_linked_reply',

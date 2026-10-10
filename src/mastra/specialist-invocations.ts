@@ -2,6 +2,7 @@ import type { AgentConfig } from '@mastra/core/agent';
 
 import { z } from 'zod';
 
+import { createFantasyBroadcastAgent, fantasyBroadcastResultSchema } from './agents/fantasy-broadcast-agent';
 import { createPersonalAccountsAgent, personalAccountsTools } from './agents/personal-accounts-agent';
 import { personalAccountsModelHandbackSchema, personalAccountsResultSchema, resolvePersonalAccountsHandback, validatePersonalAccountsHandback } from './agents/personal-accounts-handback';
 import { createResearchAgent } from './agents/research-agent';
@@ -14,6 +15,7 @@ import { createSpecialistInvocation } from './tools/invoke-specialist';
 
 type SpecialistOverrides = Partial<Pick<AgentConfig, 'model' | 'tools'>>;
 export interface SpecialistConfig {
+	fantasyBroadcast?: SpecialistOverrides;
 	weather?: SpecialistOverrides;
 	research?: SpecialistOverrides;
 	personalAccounts?: SpecialistOverrides;
@@ -61,6 +63,24 @@ export function createSpecialistTools(mastra: AgentConfig['mastra'], config: Spe
 		}),
 	});
 	return {
+		invoke_fantasy_broadcast: createSpecialistInvocation({
+			id: 'invoke_fantasy_broadcast',
+			agent: createFantasyBroadcastAgent({ ...config.fantasyBroadcast, mastra }),
+			inputSchema: assignmentSchema,
+			resultSchema: fantasyBroadcastResultSchema,
+			allowedCallers: [{ kind: 'agent', id: 'jamis' }],
+			continueClarification: input => input.continueClarification === true,
+			project: input => input.question,
+			validate: (handback, { toolResults }) => {
+				const result = handback.case === 'completed' || handback.case === 'partial' ? handback.result : handback.progress;
+				if (result && !toolResults.some(({ payload }) => {
+					const saved = z.object({ ok: z.literal(true), draftId: z.string(), text: z.string() }).safeParse(payload.result);
+					return payload.toolName === 'draft_group_message' && saved.success && saved.data.draftId === result.draftId && saved.data.text === result.text;
+				})) {
+					throw new Error('Fantasy handback does not match a saved reviewed draft.');
+				}
+			},
+		}),
 		invoke_weather: createSpecialistInvocation({
 			id: 'invoke_weather',
 			agent: weather,

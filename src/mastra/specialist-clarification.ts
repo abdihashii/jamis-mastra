@@ -8,7 +8,7 @@ import { specialistHandbackSchema } from './agents/specialist-handback';
 export const specialistClarificationKey = 'jamis_specialist_clarification';
 
 export const specialistClarificationSchema = z.object({
-	owner: z.enum(['invoke_weather', 'invoke_research', 'invoke_personal_accounts']),
+	owner: z.enum(['invoke_weather', 'invoke_research', 'invoke_personal_accounts', 'invoke_fantasy_broadcast']),
 	need: z.object({ kind: z.literal('input'), question: z.string().min(1).max(4000), missing: z.array(z.string().min(1).max(4000)).min(1).max(5) }).strict(),
 	publicAssignment: z.string().min(1).max(16_000).nullable(),
 	originalAccountsRequest: z.string().min(1).max(4000).optional(),

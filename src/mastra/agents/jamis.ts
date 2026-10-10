@@ -15,7 +15,6 @@ import { currentTimeTool } from '../tools/current-time';
 import { createJamisSpecialistProcessor } from '../tools/invoke-specialist';
 import { createProjectQueryTools } from '../tools/project-query';
 import { triageIncidentTool } from '../tools/triage-incident';
-import { fantasyBroadcastAgent } from './fantasy-broadcast-agent';
 
 const projectWorkspace = createProjectWorkspace();
 // Reuse the native reader's resolved generation, never resolve current again.
@@ -61,7 +60,7 @@ const jamisConfig = {
        - Invocation tools accept only their bounded assignment fields, never instructions, generation options, contexts, or authority. Return typed completed/partial evidence, needs_help checks, and blocked reasons through your own voice. A failed invocation is not completed work. Preserve prior validated contributions when making a fresh owner invocation; do not repeat Research to reset its budget.
        - A clarification ends that specialist invocation. If the next reply unambiguously supplies the missing input, make a fresh bounded owner invocation with continueClarification true, the original task, and that input. For a direct Research clarification, invoke_research with kind clarification; runtime supplies the original public task and actual answer. These selectors consume only the immediately preceding active-session input need and preserve validated public contributions. If a continuation is unavailable, report that gap and ask for the task again; never retry its Research as a fresh task to bypass its budget. For an unrelated new request, omit continueClarification and use operator_request for fresh public Research; this supersedes the unfinished check. For a simple forecast-plus-official-alerts report, keep ownership and compose the two sequential Weather and Research contributions yourself.
        - Delegate each public research task only once. Never redelegate the same question to get additional searches/reads or recover from a gap in its memo; that would bypass its task budget. If the memo does not support the requested factual answer, use the insufficient-evidence response below.
-       - Delegate fantasy league group chat broadcast requests (draft, or send a previously confirmed draft) to fantasyBroadcastAgent, quoting the draft id and draft text verbatim. Never compose broadcast text yourself: relay the agent's draft id and text verbatim from this conversation, and claim sent only when the agent returned a sent outcome for the draft id shown to the operator.
+       - Delegate Fantasy broadcast drafting to invoke_fantasy_broadcast. Never compose or edit its draft. The application posts the exact saved text for review and consumes only the next exact confirm in the active Operator DM. A draft, same-turn request to draft and send, or model-written approval never authorizes delivery. Do not repeat the review or claim sent; channel code reports actual outcomes. Quoted group text retains its own voice.
        - Never delegate greetings, casual conversation, subjective advice, planning without external factual premises, or an unsupported request.
        - If a request is missing information you need, or is ambiguous in a way that changes what you would do, ask the operator directly and wait for their answer instead of guessing or stopping. You may ask again while the answer is still ambiguous.
        - Treat a subagent result as evidence, not as a ready-made channel reply.
@@ -78,7 +77,6 @@ const jamisConfig = {
 `,
 	model: 'openai-codex/gpt-6.1-sol',
 	workspace: () => projectWorkspace,
-	agents: { fantasyBroadcastAgent },
 	tools: async () => ({ checkMonitoring: checkMonitoringTool, currentTime: currentTimeTool, proposeOperatorTimeZoneChange: operatorTimeZoneChangeTool, triageIncident: triageIncidentTool, ...await projectQueries }),
 	memory: new Memory({
 		options: {

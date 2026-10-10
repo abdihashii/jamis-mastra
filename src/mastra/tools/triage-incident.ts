@@ -59,6 +59,7 @@ const incidentComponents = [
 	'invoke_weather',
 	'invoke_research',
 	'invoke_personal_accounts',
+	'invoke_fantasy_broadcast',
 	'fantasy-broadcast-agent',
 	'fantasy-weekly-recap',
 	'check-monitoring',

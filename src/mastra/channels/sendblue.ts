@@ -21,6 +21,7 @@ import { createTool, noopObserve } from '@mastra/core/tools';
 
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
 import { z } from 'zod';
+import { broadcastTools, cancelBroadcast, notifyBroadcast, readPendingBroadcast } from '../../fantasy/broadcast';
 import { createLinearClient, linearCreateOperationSchema } from '../../lib/linear';
 import { beginLinearInspection, cancelLinearConversation, claimLinearCreate, finishLinearCreate, finishLinearInspection, getLinearSql, isImmediatelyFollowingLinearMessage, markLinearOutcomeNotified, notifyLinearOutcome, postLinearCreateProposal, readLatestLinearContinuation, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../lib/linear-proposals';
 import { clearOperatorTimeZoneConversation, clearPendingOperatorTimeZoneNotification, consumePendingOperatorTimeZoneChange, readPendingOperatorTimeZoneNotification, readPendingOperatorTimeZoneProposal, saveOperatorTimeZoneProposal, withOperatorTimeZoneTransaction } from '../../lib/operator-time-zone';
@@ -73,11 +74,23 @@ export const sendblueAdapter = Object.assign(adapter, {
 	isDM: (threadId: string): boolean => !adapter.decodeThreadId(threadId).groupId,
 	// Chat SDK discards the raw response in Thread.post; validate before that boundary.
 	postMessage: async (...args: Parameters<typeof adapter.postMessage>) => {
-		const result = await postMessage(...args);
+		const raw = z.object({ raw: z.string().min(1) }).safeParse(args[1]);
+		const result = raw.success ? await postExactSendblueMessage(adapter, args[0], raw.data.raw) : await postMessage(...args);
 		requireSendbluePostAcceptance(result);
 		return result;
 	},
 });
+
+/** Raw review text bypasses the adapter's Markdown normalization, only for a DM. */
+export async function postExactSendblueMessage(adapter: ReturnType<typeof createSendblueAdapter>, threadId: string, text: string) {
+	const decoded = adapter.decodeThreadId(threadId);
+	if (decoded.groupId)
+		throw new Error('Exact draft review requires a DM.');
+	const raw = await adapter.getSdk().messages.send({ number: decoded.contactNumber!, from_number: decoded.fromNumber, content: text }, { maxRetries: 0, signal: AbortSignal.timeout(15_000), timeout: 15_000 });
+	const result = { id: raw.message_handle ?? '', threadId, raw };
+	requireSendbluePostAcceptance(result);
+	return result;
+}
 
 export function isOperator(message: Message): boolean {
 	return message.author.userId.trim() === operatorNumber;
@@ -164,8 +177,105 @@ const linearTurns = new AsyncLocalStorage<{
 	proposalAttempted: boolean;
 	proposalPosted: boolean;
 	proposalOperationId?: string;
+	broadcastPosted?: boolean;
+	broadcastAttempted?: boolean;
+	broadcastReady?: boolean;
 	mastra?: Mastra;
 }>();
+
+const broadcastDecisions = new AsyncLocalStorage<{
+	draftId: string;
+	dmId: string;
+	sessionId: string;
+	sourceMessageId: string;
+	messageId: string;
+	sql?: SqlLike;
+	active: boolean;
+}>();
+
+export function getBroadcastDecision(draftId: string) {
+	const decision = broadcastDecisions.getStore();
+	return decision?.active && decision.draftId === draftId ? { ...decision } : undefined;
+}
+
+export function markBroadcastDraftAttempt() {
+	const turn = linearTurns.getStore();
+	if (turn?.active)
+		turn.broadcastAttempted = true;
+}
+
+export async function getBroadcastPreparation() {
+	const turn = linearTurns.getStore();
+	if (!turn?.active || turn.capability.used)
+		return undefined;
+	turn.capability.used = true;
+	turn.broadcastAttempted = true;
+	const session = z.object({ thread: z.object({ id: z.string().min(1) }) }).safeParse(turn.requestContext.getRaw('MastraMemory'));
+	const memory = await turn.mastra?.getStorage()?.getStore('memory');
+	if (!session.success || !memory || await findJamisSession(memory, turn.capability.threadId, turn.capability.thread.channelId) !== session.data.thread.id || await readLinearProposal(turn.capability.threadId, turn.sql)
+		|| await readPendingOperatorTimeZoneProposal(turn.sql)
+		|| await readPendingBroadcast(turn.capability.threadId, turn.sql)) {
+		return undefined;
+	}
+	return {
+		dmId: turn.capability.threadId,
+		sessionId: session.data.thread.id,
+		sourceMessageId: turn.capability.messageId,
+		sql: turn.sql,
+		ready: () => { turn.broadcastReady = turn.active; },
+		post: async (text: string) => {
+			if (!turn.active)
+				throw new Error('Broadcast turn ended.');
+			const result = z.object({ id: z.string().min(1) }).safeParse(await turn.capability.thread.post({ raw: text }));
+			if (!result.success)
+				throw new Error('Fantasy review posting unavailable.');
+			turn.broadcastPosted = true;
+		},
+	};
+}
+
+async function handleBroadcastConfirmation(thread: Thread, message: Message, context: ChannelHandlerContext, fresh: boolean, sql?: SqlLike): Promise<boolean> {
+	const row = await readPendingBroadcast(thread.id, sql);
+	if (!row)
+		return false;
+	if (['sending', 'sent', 'send_attempted'].includes(row.status)) {
+		await notifyBroadcast(row, text => postLinearText(thread, text), sql);
+		return !fresh || row.decision?.messageId === message.id;
+	}
+	if (!fresh)
+		return row.source_message_id === message.id;
+	const adjacent = await isImmediatelyFollowingLinearMessage(thread.id, message.id, row.source_message_id, sql)
+		&& await isImmediatelyFollowingOperatorMessage(thread, message, row.source_message_id);
+	const sessionId = await activeJamisSession(context, thread);
+	const competing = !!await readLinearProposal(thread.id, sql) || !!await readPendingOperatorTimeZoneProposal(sql);
+	const allowed = !competing && adjacent && sessionId === row.session_id && message.text.trim().toLowerCase() === 'confirm';
+	if (!allowed) {
+		await cancelBroadcast(thread.id, message.id, sql, adjacent && sessionId === row.session_id && message.text.trim().toLowerCase() === 'decline' ? 'declined' : 'canceled');
+		if (competing) {
+			await cancelLinearConversation(thread.id, sql);
+			await clearOperatorTimeZoneConversation(sql);
+		}
+		if (/^(?:confirm|decline|yes|send it)[.!]?$/i.test(message.text.trim())) {
+			await postLinearText(thread, 'Fantasy broadcast canceled.');
+			return true;
+		}
+		return false;
+	}
+	const decision = { draftId: row.id, dmId: thread.id, sessionId: sessionId!, sourceMessageId: row.source_message_id, messageId: message.id, sql, active: true };
+	try {
+		await broadcastDecisions.run(decision, () => broadcastTools.sendGroupMessage.execute!({ draftId: row.id }, { observe: noopObserve }));
+	}
+	finally { decision.active = false; }
+	const outcome = await readPendingBroadcast(thread.id, sql);
+	if (outcome && ['sending', 'sent', 'send_attempted'].includes(outcome.status)) {
+		await notifyBroadcast(outcome, text => postLinearText(thread, text), sql);
+	}
+	else {
+		await cancelBroadcast(thread.id, message.id, sql);
+		await postLinearText(thread, 'Fantasy broadcast canceled.');
+	}
+	return true;
+}
 
 const linearReplyProcedures = new WeakMap<Mastra, ReturnType<typeof createLinearReplyProcedure>>();
 
@@ -267,7 +377,7 @@ export async function proposeLinearCreate(raw: z.input<typeof linearCreateInputS
 	const procedure = turn.mastra && linearReplyProcedures.get(turn.mastra);
 	try {
 		const op = await createLinearClient().prepareCreate(raw);
-		if (await readPendingOperatorTimeZoneProposal(turn.sql))
+		if (await readPendingOperatorTimeZoneProposal(turn.sql) || await readPendingBroadcast(turn.capability.threadId, turn.sql))
 			return { status: 'denied' };
 		if (source) {
 			if (!procedure || !assignment)
@@ -467,6 +577,8 @@ export async function proposeOperatorTimeZoneChange(
 	if (!capability || capability.used)
 		return { status: 'denied' };
 	capability.used = true;
+	if (await readPendingBroadcast(capability.threadId, sql ?? linearTurns.getStore()?.sql) || await readLinearProposal(capability.threadId, sql ?? linearTurns.getStore()?.sql))
+		return { status: 'denied' };
 
 	const proposed = timeZone === null ? null : timeZone.trim();
 	if (proposed !== null && !isIanaTimeZone(proposed)) {
@@ -685,6 +797,7 @@ export async function handleSendblueDirectMessage(
 			return await enqueueDirectMessage(async () => {
 				try {
 					if (linearContext && await receiveLinearMessage(thread.id, message.id, sql)) {
+						await cancelBroadcast(thread.id, message.id, sql);
 						await beginSpecialistClarificationTurn(linearContext, thread, message.id, sql);
 						await cancelLinearConversation(thread.id, sql);
 						await cancelOldLinearReply(linearContext, thread, message.id, sql);
@@ -722,6 +835,7 @@ export async function handleSendblueDirectMessage(
 						throw new Error('Memory storage is required to start a Jamis session.');
 					result = await startJamisDmSession(memory, thread, message, async () => {
 						// Cancel before writing so a lost write acknowledgement cannot leak old state.
+						await cancelBroadcast(thread.id, message.id, sql);
 						await clearOperatorTimeZoneConversation(sql);
 						await cancelLinearConversation(thread.id, sql);
 						if (context)
@@ -753,6 +867,8 @@ export async function handleSendblueDirectMessage(
 			if (linearContext && freshLinearTurn)
 				await beginSpecialistClarificationTurn(linearContext, thread, message.id, sql);
 			await deliverPendingOperatorTimeZoneNotification(observedThread, sql);
+			if (linearContext && await handleBroadcastConfirmation(observedThread, message, linearContext, freshLinearTurn, sql))
+				return;
 			if (linearContext && await handleLinearConfirmation(observedThread, message, linearContext, freshLinearTurn, sql)) {
 				// Never allow one confirm to authorize both kinds of proposal.
 				if (correlation)
@@ -790,7 +906,7 @@ export async function handleSendblueDirectMessage(
 				await ensureReply();
 				return;
 			}
-			const turn = { capability, requestContext: correlation!.context.requestContext, mastra: context?.mastra, sql, active: true, proposalAttempted: false, proposalPosted: false };
+			const turn = { capability, requestContext: correlation!.context.requestContext, mastra: context?.mastra, sql, active: true, proposalAttempted: false, proposalPosted: false, broadcastPosted: false, broadcastAttempted: false, broadcastReady: false };
 			try {
 				// Keep native channel errors visible. The proposal itself uses observedThread.
 				const replyThread = new Proxy(observedThread, {
@@ -800,6 +916,8 @@ export async function handleSendblueDirectMessage(
 						return async (postable: unknown) => {
 							if (postable === GENERIC_CHANNEL_ERROR || postable === CODEX_AUTH_CHANNEL_ERROR)
 								return Reflect.apply(target.post, target, [postable]);
+							if (turn.broadcastAttempted)
+								return;
 							// Accounts can fail before a proposal attempt; its reply envelope still stays off the channel.
 							const text = typeof postable === 'string' ? postable : z.object({ markdown: z.string() }).safeParse(postable).data?.markdown;
 							let parsed: unknown;
@@ -825,6 +943,8 @@ export async function handleSendblueDirectMessage(
 				await linearTurns.run(turn, () => defaultHandler(replyThread, message));
 				if (turn.proposalAttempted && !turn.proposalPosted)
 					await observedThread.post(LINEAR_PROPOSAL_FAILURE);
+				if (turn.broadcastAttempted && !turn.broadcastReady)
+					await observedThread.post('Fantasy draft review unavailable. Nothing is authorized.');
 				await ensureReply();
 			}
 			finally {

@@ -15,10 +15,11 @@ import { specialistClarificationSchema } from '../specialist-clarification';
 import { linearReplySourceSchema } from '../workflows/linear-reply';
 
 export type SpecialistCaller
-	= | { kind: 'agent'; id: 'jamis' | 'weather-agent' | 'personal-accounts-agent' }
+	= | { kind: 'agent'; id: 'jamis' | 'weather-agent' | 'personal-accounts-agent' | 'fantasy-broadcast-agent' }
 		| { kind: 'workflow'; id: 'prepare_linear_reply' };
 
 const targets = {
+	invoke_fantasy_broadcast: 'fantasy-broadcast-agent',
 	invoke_weather: 'weather-agent',
 	invoke_research: 'research-agent',
 	invoke_personal_accounts: 'personal-accounts-agent',
@@ -217,7 +218,7 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 					return recordClarification(authority, config.id, assignment, handbackSchema.parse(authority.researchResults.get(assignment)));
 				const requestContext = config.id === 'invoke_research'
 					? new RequestContext()
-					: createSpecialistContext({ kind: 'agent', id: config.agent.id as 'weather-agent' | 'personal-accounts-agent' }, authority.pendingOperationId);
+					: createSpecialistContext({ kind: 'agent', id: config.agent.id as 'weather-agent' | 'personal-accounts-agent' | 'fantasy-broadcast-agent' }, authority.pendingOperationId);
 				calleeContext = requestContext;
 				const childAuthority = authorities.get(requestContext);
 				if (childAuthority)

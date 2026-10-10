@@ -139,7 +139,7 @@ export async function runJamisDelegationFixture(mastra: Mastra) {
 	assert.match(partialAccounts.text, /dentist.*Gmail is unavailable.*partial/i);
 	assert.equal(calendarCalls, 3);
 	const agents = await jamis.listAgents();
-	assert.deepEqual(Object.keys(agents), ['fantasyBroadcastAgent']);
+	assert.deepEqual(Object.keys(agents), []);
 	assert(!Object.values(mastra.listAgents()).some(agent => ['weather-agent', 'research-agent', 'personal-accounts-agent'].includes(agent.id)));
 	const tools = await jamis.listTools();
 	assert(['invoke_weather', 'invoke_research', 'invoke_personal_accounts'].every(name => name in tools));
