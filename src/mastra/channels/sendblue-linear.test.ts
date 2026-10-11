@@ -567,9 +567,12 @@ else {
 		}
 	}, 30_000);
 
-	test('failed final reply posting reuses the stored draft after restart without another read or mutation', async () => {
+	test('failed final reply posting survives an older message replay after restart without another read or mutation', async () => {
 		const f = await fixture({ typed: true, linked: true });
 		try {
+			const session = await f.send('/new');
+			const olderId = randomUUID();
+			await receiveLinearMessage(session.threadId, olderId, sql);
 			const source = await f.send('Create an email issue, then draft a linked reply.');
 			const proposal = (await readLinearProposal(source.threadId, sql))!;
 			const confirmId = randomUUID();
@@ -579,8 +582,10 @@ else {
 			expect(f.draftPrompts).toHaveLength(1);
 			f.setFailResult(false);
 			await f.restart();
+			await f.send('An earlier unrelated request.', olderId, false);
+			expect((await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId))?.status).toBe('suspended');
 			await f.send('confirm', confirmId, false);
-			expect(f.posts[1]).toContain('Reply draft:');
+			expect(f.posts.at(-1)).toContain('Reply draft:');
 			expect(f.draftPrompts).toHaveLength(1);
 			expect(f.mutations).toHaveLength(1);
 			expect(f.counts().gmailReads).toBe(1);

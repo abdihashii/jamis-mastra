@@ -522,7 +522,8 @@ async function handleLinearConfirmation(thread: Thread, message: Message, contex
 			await continueLinearReply(proposal.id, thread, message, context, sql);
 		}
 		else {
-			await cancelOldLinearReply(context, thread, message.id, sql);
+			if (fresh)
+				await cancelOldLinearReply(context, thread, message.id, sql);
 			if (!proposal.notified && proposal.state !== 'canceled')
 				await notifyLinearOutcome(proposal, text => postLinearText(thread, text), sql);
 		}
