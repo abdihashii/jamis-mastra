@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
 import { Mastra } from '@mastra/core';
-import { Agent } from '@mastra/core/agent';
 import { TracingEventType } from '@mastra/core/observability';
 import { MastraLanguageModelV2Mock } from '@mastra/core/test-utils/llm-mock';
 import { noopObserve } from '@mastra/core/tools';
@@ -74,8 +73,11 @@ else {
 			}],
 		} } });
 		try {
-			const { personalAccountsAgent } = await import('../../agents/personal-accounts-agent');
-			const { jamis } = await import('../../agents/jamis');
+			const { createPersonalAccountsAgent } = await import('../../agents/personal-accounts-agent');
+			const personalAccountsAgent = createPersonalAccountsAgent();
+			const { createJamisAgent } = await import('../../agents/jamis');
+			const jamis = createJamisAgent();
+			const { boundaryModel } = await import('../../agents/__tests__/specialist-boundary.fixture');
 			const { linearReadTool } = await import('../linear');
 			const tools = await personalAccountsAgent.listTools();
 			expect(Object.keys(tools).sort()).toEqual(['calendarEventsTool', 'gmailSearchTool', 'linearCreateProposalTool', 'linearReadTool']);
@@ -106,9 +108,30 @@ else {
 			}
 			for (const failed of [false, true]) {
 				unavailable = failed;
-				const child = new Agent({ id: 'personal-accounts-agent', name: 'Account fixture', instructions: await personalAccountsAgent.getInstructions(), tools, model: model([{ tool: 'linearReadTool', input: { action: 'list', stateType: 'backlog', limit: 1 } }, { text: 'Fixture evidence memo.' }], true) });
-				const parent = new Agent({ id: 'linear-parent-fixture', name: 'Parent fixture', instructions: await jamis.getInstructions(), agents: { personalAccountsAgent: child }, defaultOptions: { maxSteps: 3, delegation: (await jamis.getDefaultOptions()).delegation }, model: model([{ tool: 'agent-personalAccountsAgent', input: { prompt: 'Read the jamis backlog.' } }, { text: 'Fixture completed.' }]) });
-				const mastra = new Mastra({ agents: { parent }, observability });
+				const handback = failed
+					? { case: 'blocked', reason: 'Linear evidence is unavailable.', progress: null }
+					: { case: 'partial', result: {
+							summary: 'The requested backlog page is incomplete.',
+							messages: [],
+							events: [],
+							issues: [{ identifier: 'JAM-64', url: 'https://linear.app/fixture/issue/JAM-64', status: 'Backlog' }],
+							coverage: [{ source: 'linear', status: 'truncated', gaps: ['More issue pages remain.'] }],
+							research: null,
+							replyText: null,
+						}, gaps: ['More issue pages remain.'] };
+				const mastra = new Mastra({ observability });
+				const parent = createJamisAgent({
+					mastra,
+					memory: undefined,
+					workspace: undefined,
+					tools: {},
+					model: model([{ tool: 'invoke_personal_accounts', input: { question: 'Read the jamis backlog.' } }, { text: 'Fixture completed.' }]),
+					specialists: { personalAccounts: { tools, model: boundaryModel([
+						{ tool: 'linearReadTool', input: { action: 'list', stateType: 'backlog', limit: 1 } },
+						{ handback },
+					], options => prompts.push(options)) } },
+				});
+				mastra.addAgent(parent, 'parent');
 				const result = await mastra.getAgent('parent').stream([
 					{ role: 'user', content: 'Unrelated private marker linear-private-history.' },
 					{ role: 'user', content: 'Read the jamis backlog.' },

@@ -206,6 +206,7 @@ describe('listCalendarEvents merge semantics', () => {
 		});
 		const out = await listCalendarEvents({});
 		expect(out.events).toHaveLength(3);
+		expect(out.unavailableCalendars).toEqual([]);
 		expect(out.events.map(e => e.title)).toEqual(['Wake up', 'Team standup', 'Dentist']);
 		expect(fetchCalls).toHaveLength(2);
 	});
@@ -359,7 +360,7 @@ describe('listCalendarEvents truncation and service errors', () => {
 		expect(out.truncated).toBe(true);
 	});
 
-	test('a stale 404 pool calendar skips that id; others still answer', async () => {
+	test.each([403, 404])('an inaccessible %s calendar preserves other events and reports missing coverage', async (status) => {
 		mockFetch({
 			events: (calId) => {
 				if (calId === 'primary@example.com') {
@@ -367,11 +368,21 @@ describe('listCalendarEvents truncation and service errors', () => {
 						{ summary: 'Primary still works', start: { dateTime: '2026-09-05T09:00:00-05:00' }, end: { dateTime: '2026-09-05T10:00:00-05:00' } },
 					]);
 				}
-				return eventsJson([], 404);
+				return eventsJson([], status);
 			},
 		});
 		const out = await listCalendarEvents({});
 		expect(out.events.map(e => e.title)).toEqual(['Primary still works']);
+		expect(out.unavailableCalendars).toEqual([{ calendar: 'Team', status }]);
+		expect(out.truncated).toBe(false);
+	});
+
+	test('an entirely inaccessible calendar pool cannot look like an empty readable window', async () => {
+		mockFetch({ events: () => eventsJson([], 403) });
+		const out = await listCalendarEvents({});
+		expect(out.events).toEqual([]);
+		expect(out.unavailableCalendars).toHaveLength(2);
+		expect(out.unavailableCalendars.every(calendar => calendar.status === 403)).toBe(true);
 	});
 
 	test('a real service error (5xx) fails the call', async () => {

@@ -1,12 +1,13 @@
-import type { AnyExportedSpan } from '@mastra/core/observability';
+import type { AnyExportedSpan, ExportedLog, ExportedMetric } from '@mastra/core/observability';
 
 import { expect, test } from 'bun:test';
 
+import { Mastra } from '@mastra/core';
 import { RequestContext } from '@mastra/core/di';
 import { SpanType, TracingEventType } from '@mastra/core/observability';
 import { Observability } from '@mastra/observability';
 
-import { redactChannelRenderContext } from './observability';
+import { createProjectLogger, filterProjectTrace, protectProjectSignals, redactChannelRenderContext, spanOutputProcessors } from './observability';
 
 const sendblueCorrelationKey = 'sendblue_message_digest';
 
@@ -107,4 +108,51 @@ test('exports only the Sendblue digest as indexed request metadata', async () =>
 		/raw-handle|raw-adapter-config|raw-message-text|15555550101/,
 	);
 	await instance.shutdown();
+});
+
+test('standalone specialist, invocation, and workflow roots protect their first event and signals', async () => {
+	const events: Array<{ type: string; span: AnyExportedSpan }> = [];
+	const logs: ExportedLog[] = [];
+	const metrics: ExportedMetric[] = [];
+	const observability = new Observability({ configs: { test: {
+		serviceName: 'architecture-proof',
+		spanOutputProcessors,
+		spanFilter: filterProjectTrace,
+		exporters: [protectProjectSignals({
+			name: 'capture',
+			onTracingEvent: (event) => { events.push({ type: event.type, span: structuredClone(event.exportedSpan) }); },
+			onLogEvent: (event) => { logs.push(structuredClone(event.log)); },
+			onMetricEvent: (event) => { metrics.push(structuredClone(event.metric)); },
+			exportTracingEvent: async () => {},
+			flush: async () => {},
+			shutdown: async () => {},
+		})],
+	} } });
+	// The runtime initializes native signal correlation and logger integration.
+	const runtime = new Mastra({ observability, logger: createProjectLogger() });
+	const instance = runtime.observability.getInstance('test')!;
+	const roots = ['weather-agent', 'research-agent', 'personal-accounts-agent', 'invoke_weather', 'invoke_research', 'invoke_personal_accounts', 'jamis-input-processor', 'jamis-output-processor', 'prepare_linear_reply', 'await_linear_outcome', 'prepare_linked_reply', 'await_reply_acceptance'];
+	try {
+		for (const entityId of roots) {
+			const requestContext = new RequestContext();
+			requestContext.setRaw('private', 'PRIVATE_ARCHITECTURE_SENTINEL');
+			const root = instance.startSpan({ name: 'PRIVATE_ARCHITECTURE_SENTINEL', type: SpanType.GENERIC, entityId, input: 'PRIVATE_ARCHITECTURE_SENTINEL', requestContext, metadata: { private: 'PRIVATE_ARCHITECTURE_SENTINEL' } });
+			const child = root.createChildSpan({ name: 'PRIVATE_ARCHITECTURE_SENTINEL', type: SpanType.GENERIC, entityId: 'untrusted-child-PRIVATE_ARCHITECTURE_SENTINEL', input: 'PRIVATE_ARCHITECTURE_SENTINEL' });
+			instance.getLoggerContext?.(child).error('PRIVATE_ARCHITECTURE_SENTINEL', { private: 'PRIVATE_ARCHITECTURE_SENTINEL' });
+			instance.getMetricsContext?.(child).emit('architecture_duration', 1, { status: 'ok', private: 'PRIVATE_ARCHITECTURE_SENTINEL' });
+			child.error({ error: new Error('PRIVATE_ARCHITECTURE_SENTINEL'), endSpan: true });
+			root.end({ output: 'PRIVATE_ARCHITECTURE_SENTINEL' });
+			expect(root.input).toBe('PRIVATE_ARCHITECTURE_SENTINEL');
+			expect(root.output).toBe('PRIVATE_ARCHITECTURE_SENTINEL');
+		}
+		await instance.flush();
+		expect(JSON.stringify({ events, logs, metrics })).not.toContain('PRIVATE_ARCHITECTURE_SENTINEL');
+		expect(logs.filter(log => roots.includes(log.correlationContext?.rootEntityId ?? ''))).toHaveLength(roots.length);
+		expect(metrics.filter(metric => metric.name === 'architecture_duration')).toHaveLength(roots.length);
+		for (const entityId of roots) {
+			expect(events.some(event => event.type === TracingEventType.SPAN_STARTED && event.span.entityId === entityId)).toBe(true);
+			expect(logs.some(log => log.correlationContext?.rootEntityId === entityId)).toBe(true);
+		}
+	}
+	finally { await instance.shutdown(); }
 });

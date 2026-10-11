@@ -105,6 +105,11 @@ export const linearCreateOutcomeSchema = z.object({
 	url: issueSchema.shape.url.optional(),
 }).strict();
 export type LinearCreateOutcome = z.infer<typeof linearCreateOutcomeSchema>;
+export const linearCreateInspectionSchema = z.discriminatedUnion('status', [
+	z.object({ status: z.literal('unresolved') }).strict(),
+	z.object({ status: z.literal('verified'), operation: linearCreateOperationSchema, outcome: linearCreateOutcomeSchema.extend({ status: z.literal('succeeded'), identifier: issueSchema.shape.identifier, url: issueSchema.shape.url }) }).strict(),
+]);
+export type LinearCreateInspection = z.infer<typeof linearCreateInspectionSchema>;
 
 type Failure = 'configuration' | 'authentication' | 'identity' | 'team' | 'response' | 'timeout' | 'unavailable';
 
@@ -377,5 +382,26 @@ export function createLinearClient(env: Record<string, string | undefined> = pro
 		}
 	}
 
-	return { readIdentityAndTeam, readIssues, prepareCreate, executeCreate };
+	async function inspectCreate(raw: LinearCreateOperation): Promise<LinearCreateInspection> {
+		const op = linearCreateOperationSchema.parse(raw);
+		try {
+			const { team } = await readIdentityAndTeam();
+			if (team.id !== op.teamId)
+				return { status: 'unresolved' };
+			const result = await graphql(
+				'query JamisInspectCreate($id: String!) { issue(id: $id) { id identifier title description url team { id } state { id name } } }',
+				{ id: op.id },
+				z.object({ issue: z.object({ id: z.uuid(), identifier: issueSchema.shape.identifier, title: z.string(), description: z.string().nullable(), url: issueSchema.shape.url, team: z.object({ id: z.uuid() }), state: z.object({ id: z.uuid(), name: z.string() }) }).nullable() }),
+			);
+			const issue = result.issue;
+			if (!issue || issue.id !== op.id || issue.team.id !== op.teamId || issue.title !== op.title
+				|| (issue.description ?? '') !== op.description || issue.state.id !== op.stateId || issue.state.name !== op.stateName) {
+				return { status: 'unresolved' };
+			}
+			return { status: 'verified', operation: op, outcome: { status: 'succeeded', identifier: issue.identifier, url: issue.url } };
+		}
+		catch { return { status: 'unresolved' }; }
+	}
+
+	return { readIdentityAndTeam, readIssues, prepareCreate, executeCreate, inspectCreate };
 }

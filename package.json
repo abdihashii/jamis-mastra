@@ -19,6 +19,7 @@
 		"lint:fix": "bun run --bun eslint --fix",
 		"login:google": "bun --bun scripts/google-login.ts",
 		"smoke:linear": "bun --bun scripts/linear-smoke.ts",
+		"smoke:architecture": "bun --bun scripts/jamis-architecture-smoke.ts",
 		"login:openai": "bun --bun scripts/openai-codex-login.ts",
 		"fantasy:recap": "bun --bun scripts/fantasy-recap.ts"
 	},

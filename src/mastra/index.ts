@@ -10,25 +10,23 @@ import {
 import { PostgresStore } from '@mastra/pg';
 
 import { createFantasyAgent, DEFAULT_RECAP_MODEL } from '../fantasy/generate';
-import { jamis } from './agents/jamis';
-import { SENDBLUE_CORRELATION_KEY } from './channels/sendblue';
+import { createJamisAgent } from './agents/jamis';
+import { registerLinearReplyProcedure, SENDBLUE_CORRELATION_KEY } from './channels/sendblue';
 import { requireEnv, requireOperatorTimeZone } from './env';
 import { openAICodexGateway } from './gateways/openai-codex-gateway.js';
 import { createProjectLogger, filterProjectTrace, protectProjectSignals, spanOutputProcessors } from './observability';
 import { deploymentEvidenceTool } from './tools/deployment-evidence';
 import { fantasyWeeklyRecapWorkflow } from './workflows/fantasy-weekly-recap';
+import { linearReplyApiAdmission } from './workflows/linear-reply';
 
 requireOperatorTimeZone();
 
 export const mastra = new Mastra({
 	logger: createProjectLogger(),
-	// 'fantasy' has no channels wired; it exists only for the weekly recap workflow.
-	// Jamis keeps its own delegation agents (including fantasy-broadcast) on its agent config.
-	agents: { jamis, fantasy: createFantasyAgent(DEFAULT_RECAP_MODEL) },
-	workflows: { fantasyWeeklyRecap: fantasyWeeklyRecapWorkflow },
 	gateways: { 'openai-codex': openAICodexGateway },
 	tools: { deploymentEvidence: deploymentEvidenceTool },
 	server: {
+		middleware: [linearReplyApiAdmission],
 		// One token, one operator. SimpleAuth checks Authorization and
 		// X-Playground-Access by default, so Studio authenticates with an
 		// `Authorization: Bearer` header. No public path exceptions.
@@ -65,3 +63,9 @@ export const mastra = new Mastra({
 		},
 	}),
 });
+
+mastra.addAgent(createJamisAgent({ mastra }), 'jamis');
+// 'fantasy' has no channels wired; it exists only for the weekly recap workflow.
+mastra.addAgent(createFantasyAgent(DEFAULT_RECAP_MODEL), 'fantasy');
+mastra.addWorkflow(fantasyWeeklyRecapWorkflow, 'fantasyWeeklyRecap');
+registerLinearReplyProcedure(mastra);

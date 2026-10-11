@@ -32,7 +32,8 @@ process.env.OPERATOR_TIMEZONE = 'America/Chicago';
 
 const { handleSendblueDirectMessage, NEW_SESSION_SUCCESS, sendblueAdapter, startJamisDmSession } = await import('./sendblue');
 const { createFantasyGroupHandler } = await import('../../fantasy/ingest');
-const { jamis } = await import('../agents/jamis');
+const { createJamisAgent } = await import('../agents/jamis');
+const jamis = createJamisAgent();
 const memoryOptions = (await jamis.getMemory())!.getMergedThreadConfig();
 
 test('Jamis explicitly isolates conversational memory by thread', () => {

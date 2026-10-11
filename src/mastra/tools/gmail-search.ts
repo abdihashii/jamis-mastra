@@ -14,6 +14,7 @@ import {
 import { resolveOperatorTimeZone } from '../../lib/operator-time-zone.js';
 import { zonedDayWindow } from '../../lib/time.js';
 import { requireEnv, requireOperatorTimeZone } from '../env';
+import { recordAccountsGmailRead } from './invoke-specialist';
 
 // Missing client config is a hard failure at boot, same as the other API keys.
 const gmailAuth = {
@@ -225,8 +226,10 @@ export const gmailSearchTool = createTool({
 			snippet: z.string(),
 			body: z.string().optional(),
 		})),
+		messageRefs: z.array(z.uuid()).optional().describe('Invocation-scoped references: messageRefs[i] identifies messages[i]. Copy references for handbacks and linked proposals; never invent or reuse them across invocations.'),
 	}),
-	execute: async ({ query, maxResults, relativeDay }, { abortSignal }) => {
-		return await searchGmail({ query, maxResults, relativeDay }, abortSignal ?? undefined);
+	execute: async ({ query, maxResults, relativeDay }, { abortSignal, requestContext }) => {
+		const result = await searchGmail({ query, maxResults, relativeDay }, abortSignal ?? undefined);
+		return recordAccountsGmailRead(requestContext, result);
 	},
 });

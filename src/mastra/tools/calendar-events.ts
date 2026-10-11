@@ -57,6 +57,7 @@ export interface CalendarEventsResult {
 	to: string;
 	/** True when the window had more events than we returned; the caller should narrow daysAhead/q. */
 	truncated: boolean;
+	unavailableCalendars: Array<{ calendar: string; status: 403 | 404 }>;
 	events: CalendarEventSummary[];
 }
 
@@ -114,6 +115,7 @@ export async function listCalendarEvents(
 	const [timeMin, timeMax] = zonedDayWindow(timeZone, daysAhead, input.nowMs);
 
 	const events: CalendarEventSummary[] = [];
+	const unavailableCalendars: CalendarEventsResult['unavailableCalendars'] = [];
 	let sawTruncation = false;
 	for (const cal of pool) {
 		const params = new URLSearchParams({
@@ -134,6 +136,7 @@ export async function listCalendarEvents(
 			// calendar ask; skip it and log. Real service errors still throw.
 			if (res.status === 403 || res.status === 404) {
 				console.error(`[calendar-events] events.list ${res.status} for one pool calendar; skipping. Re-run login:google to refresh the pool.`);
+				unavailableCalendars.push({ calendar: cal.summary, status: res.status });
 				continue;
 			}
 			throw serviceError('events.list', res.status);
@@ -171,7 +174,7 @@ export async function listCalendarEvents(
 	// Chronological across mixed zones: parse, don't compare ISO strings.
 	events.sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
 	const truncated = sawTruncation || events.length > MAX_EVENTS;
-	return { from: timeMin, to: timeMax, truncated, events: events.slice(0, MAX_EVENTS) };
+	return { from: timeMin, to: timeMax, truncated, unavailableCalendars, events: events.slice(0, MAX_EVENTS) };
 }
 
 export const calendarEventsTool = createTool({
@@ -189,6 +192,10 @@ export const calendarEventsTool = createTool({
 		from: z.string().describe('Window start, ISO 8601 with zone offset'),
 		to: z.string().describe('Window end (exclusive), ISO 8601 with zone offset'),
 		truncated: z.boolean().describe('True when more events matched than returned; narrow daysAhead or q'),
+		unavailableCalendars: z.array(z.object({
+			calendar: z.string(),
+			status: z.union([z.literal(403), z.literal(404)]),
+		})).describe('Selected calendars that could not be read; available events do not establish complete coverage'),
 		events: z.array(z.object({
 			title: z.string().describe('Event title; "(Private event)" when Google withholds the name on private-visibility events'),
 			calendar: z.string().describe('Which of the operator\'s picked calendars this event belongs to'),

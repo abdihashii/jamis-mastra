@@ -43,12 +43,12 @@ export function createProjectLogger(logger = new ConsoleLogger({ name: 'Mastra',
 }
 
 // A later tool call cannot retract an already-exported model prompt. Protect the
-// whole Jamis tree from its first event, including evidence reused from memory.
+// Jamis tree and standalone internal entry points from their first event.
 const projectTraceKey = '__jamis_project_trace';
-// Mastra TOOL_CALL entityIds are registry keys, not createTool ids. Incident
-// triage queries these identities, including Jamis's delegated tool failures.
-const safeTraceEntityIds = [
+const protectedRootEntityIds = [
 	'jamis',
+	'jamis-input-processor',
+	'jamis-output-processor',
 	'research-agent',
 	'weather-agent',
 	'personal-accounts-agent',
@@ -57,6 +57,19 @@ const safeTraceEntityIds = [
 	'project-jq',
 	'projectRg',
 	'projectJq',
+	'invoke_weather',
+	'invoke_research',
+	'invoke_personal_accounts',
+	'invoke_fantasy_broadcast',
+	'prepare_linear_reply',
+	'await_linear_outcome',
+	'prepare_linked_reply',
+	'await_reply_acceptance',
+];
+// Mastra TOOL_CALL entityIds are registry keys, not createTool ids. Incident
+// triage queries these identities, including Jamis's delegated tool failures.
+const safeTraceEntityIds = [
+	...protectedRootEntityIds,
 	'checkMonitoring',
 	'currentTime',
 	'proposeOperatorTimeZoneChange',
@@ -89,7 +102,7 @@ const markProjectTrace: SpanOutputProcessor = {
 
 function isProjectSpan(span?: AnySpan): boolean {
 	for (let current = span; current; current = current.parent) {
-		if (current.entityId === 'jamis' || ['project-rg', 'project-jq', 'projectRg', 'projectJq'].includes(current.entityId ?? '') || ['project.query', 'sendblue.channel'].includes(current.name))
+		if (protectedRootEntityIds.includes(current.entityId ?? '') || ['project.query', 'sendblue.channel'].includes(current.name))
 			return true;
 	}
 	return false;
@@ -98,14 +111,14 @@ function isProjectSpan(span?: AnySpan): boolean {
 function isProjectDiagnostic(value: unknown): boolean {
 	if (!value || typeof value !== 'object')
 		return false;
-	const data = value as { agent?: string; agentId?: string; tool?: string; tracing?: { currentSpan?: AnySpan }; tracingContext?: { currentSpan?: AnySpan } };
-	return data.agent === 'Jamis' || data.agentId === 'jamis' || ['project-rg', 'project-jq', 'projectRg', 'projectJq'].includes(data.tool ?? '') || isProjectSpan(data.tracing?.currentSpan ?? data.tracingContext?.currentSpan);
+	const data = value as { agent?: string; agentId?: string; workflowId?: string; tool?: string; tracing?: { currentSpan?: AnySpan }; tracingContext?: { currentSpan?: AnySpan } };
+	return data.agent === 'Jamis' || [data.agentId, data.workflowId, data.tool].some(id => protectedRootEntityIds.includes(id ?? '')) || isProjectSpan(data.tracing?.currentSpan ?? data.tracingContext?.currentSpan);
 }
 
 // Logs/metrics copy live metadata without invoking spanFilter. Replace signal
 // snapshots at the native exporter hooks, never the runtime span or its context.
 export function protectProjectSignals<T extends ObservabilityExporter>(exporter: T): T {
-	const protectedSignal = (signal: ExportedLog | ExportedMetric) => signal.metadata?.[projectTraceKey] || ['jamis', 'project-rg', 'project-jq', 'projectRg', 'projectJq'].includes(signal.correlationContext?.entityId ?? '') || ('data' in signal && isProjectDiagnostic(signal.data));
+	const protectedSignal = (signal: ExportedLog | ExportedMetric) => signal.metadata?.[projectTraceKey] || [signal.correlationContext?.entityId, signal.correlationContext?.rootEntityId].some(id => protectedRootEntityIds.includes(id ?? '')) || ('data' in signal && isProjectDiagnostic(signal.data));
 	const correlation = (context?: CorrelationContext): CorrelationContext | undefined => context && {
 		traceId: context.traceId,
 		spanId: context.spanId,
