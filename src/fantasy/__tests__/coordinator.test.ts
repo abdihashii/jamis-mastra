@@ -47,12 +47,6 @@ function factsStub(): WeekFacts {
 }
 
 const shaping = {
-	awards: {
-		roughestWeek: 'A quiet week for the last-place dynasty.',
-		bestWeek: 'The league briefly became a private showcase.',
-		mostEntertainingMatchup: 'Nobody was permitted a comfortable Sunday.',
-		biggestBlowout: 'The contest became paperwork before dinner.',
-	},
 	editorial: [],
 };
 
@@ -278,7 +272,7 @@ describe('runWeeklyRecap delivery state machine', () => {
 		expect(row.deliverySource).toBe('api');
 		expect(row.finalText).toBe(sends[0]);
 		expect(row.sendAttemptAt).toEqual(new Date(NOW));
-		expect(recorded[0].generatorVersion).toBe('fantasy-recap-v7');
+		expect(recorded[0].generatorVersion).toBe('fantasy-recap-v8');
 		expect(recorded[0].finalText).toBe(sends[0]);
 		expect(dms).toEqual([]);
 	});
