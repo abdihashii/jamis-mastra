@@ -11,7 +11,7 @@ import { z } from 'zod';
  * by (league, week, version, model), so a new version lands as history rather
  * than an overwrite of the old rendering.
  */
-export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v8';
+export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v9';
 
 /** Shipped recap model. One constant; edit this line to swap generators. */
 export const DEFAULT_RECAP_MODEL = 'openai-codex/gpt-6.1-sol';
@@ -90,12 +90,14 @@ The renderer owns every number and award label. You may interpret only the suppl
 Write optional editorial stories about the week's biggest stories. Awards are facts-only and supplied by the renderer.
 
 Hard rules:
-- Never write numeric facts, as digits or words. Digits are allowed only when they are part of an exact supplied name.
+- Never write numeric facts, as digits or words. Digits are allowed only inside exact supplied {manager:rosterId} references.
+- Name manager subjects only with supplied {manager:rosterId} references, never their display names. Use multiple references when a story has multiple subjects. Preserve {speaker} for callback attribution.
 - Do not invent lineup mistakes, injuries, transactions, motives, or events.
-- Be direct, conversational, and willing to be mean about that week's fantasy performance. Light profanity is allowed. Personal traits and real-life circumstances are not.
+- Use blunt praise and blunt blame tied to specific supplied Fantasy facts. Praise standout performances directly; be ruthless about weak performances and supported lineup mistakes. Natural profanity is allowed, never required. Target fantasy performance, never personal traits or real-life circumstances.
+- Let the result do the work instead of manufacturing a punchline. No decorative metaphors or canned jokes such as look underfunded or started the apology. Avoid analysis-note phrasing such as middle-table team or winning alternative sitting idle.
 - Return zero to four editorial stories, strongest first. Return zero when nothing deserves a paragraph.
 - Each story is one paragraph of two to four sentences. Use at most twelve editorial sentences and one hundred eighty editorial words total.
-- Every story needs a distinct premise. Never restate an award score, margin, award outcome, another story, callback, observation, or joke. Add interpretation, consequence, contrast, a curated player story, or genuinely useful chat context.
+- Every story needs a distinct supported premise beyond an award label. You may revisit award winners when you add interpretation. Omit generic filler and forced humor. Never merely restate an award score, margin, award outcome, another story, callback, observation, or joke. Add interpretation, consequence, contrast, a curated player story, or genuinely useful chat context.
 - Never force a conclusion, signoff, callback, joke, or fourth story. Humor is optional and never a quota.
 - A callback sentence references only one supplied message id, uses the exact {speaker} placeholder once, and paraphrases rather than quotes the source. Never copy source wording or use quotation marks.
 - Set callbackMessageId to null for every non-callback sentence.
@@ -156,7 +158,8 @@ export function buildRecapPrompt(facts: WeekFacts, context: ChatContextMessage[]
 	const chat = eligible.length > 0
 		? eligible.map(m => `[${m.id}] ${m.createdAt} ${m.sender}: ${m.text}`).join('\n')
 		: '(no mapped group-chat messages are eligible, use zero callbacks)';
-	return `${factsSummary(facts)}\n\nArchived mapped group chat, oldest first, timestamps in UTC:\n${chat}\n\nReturn the shaping object only.`;
+	const references = [...managerReferences(facts)].map(([token, name]) => `${token}: ${name}`).join('\n');
+	return `${factsSummary(facts)}\n\nManager references (use these tokens instead of display names in prose):\n${references}\n\nArchived mapped group chat, oldest first, timestamps in UTC:\n${chat}\n\nReturn the shaping object only.`;
 }
 
 /** Validates the model stayed inside its lane. Throws ShapingValidationError otherwise. */
@@ -175,7 +178,9 @@ export function validateShaping(shaping: RecapShaping, context: ChatContextMessa
 		text: sentence.text,
 		callbackMessageId: sentence.callbackMessageId,
 	})));
-	const knownNames = suppliedNames(facts);
+	const references = managerReferences(facts);
+	const knownNames = [...new Set(references.values())].filter(name => name.trim()).map(name =>
+		new RegExp(`(?:^|[^\\p{L}\\p{N}])${name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')}(?=$|[^\\p{L}\\p{N}])`, 'iu'));
 	const callbackIds = new Set<string>();
 	let callbackCount = 0;
 	let editorialWords = 0;
@@ -188,7 +193,11 @@ export function validateShaping(shaping: RecapShaping, context: ChatContextMessa
 		const { label, text } = field;
 		if (/["“”«»]/.test(text))
 			throw new ShapingValidationError(`${label} uses quotation marks; prose must paraphrase`);
-		const digitCheck = stripKnownNames(text, knownNames);
+		const renderedManagers = resolveManagerReferences(text, references);
+		const prose = text.replace(/\{manager:[^{}]*\}/g, '').replace('{speaker}', '');
+		if (knownNames.some(name => name.test(prose)))
+			throw new ShapingValidationError(`${label} writes a supplied manager name; use manager references`);
+		const digitCheck = prose;
 		if (/\d/.test(digitCheck))
 			throw new ShapingValidationError(`Digits are never allowed in ${label}; the renderer writes every number`);
 		if (sentenceParts(text).length !== 1)
@@ -213,7 +222,7 @@ export function validateShaping(shaping: RecapShaping, context: ChatContextMessa
 			throw new ShapingValidationError(`${label} has a speaker placeholder without a callback message id`);
 		}
 
-		const tokens = words(text.replace('{speaker}', ''));
+		const tokens = words(renderedManagers.replace('{speaker}', ''));
 		for (const original of context) {
 			const sourceTokens = words(original.text);
 			const copiesShortSource = callbackSource?.id === original.id
@@ -224,7 +233,7 @@ export function validateShaping(shaping: RecapShaping, context: ChatContextMessa
 				throw new ShapingValidationError(`${label} echoes archived chat verbatim; prose must paraphrase`);
 			}
 		}
-		const rendered = callbackSource ? text.replace('{speaker}', callbackSource.sender) : text;
+		const rendered = resolveManagerReferences(text, references, callbackSource?.sender);
 		editorialWords += words(rendered).length;
 	}
 	if (callbackCount > 4)
@@ -276,22 +285,26 @@ function sharesPhrase(a: string[], b: string[], length: number): boolean {
 	return b.slice(0, b.length - length + 1).some((_, index) => phrases.has(b.slice(index, index + length).join(' ')));
 }
 
-function suppliedNames(facts: WeekFacts): string[] {
-	const names = new Set(facts.results.flatMap(result => [result.a.displayName, result.b.displayName]));
-	for (const candidate of facts.playerStoryCandidates) {
-		names.add(candidate.team.displayName);
-		if (candidate.kind === 'top-starter') {
-			names.add(candidate.player.name);
-		}
-		else {
-			names.add(candidate.opponent.displayName);
-			names.add(candidate.benchedPlayer.name);
-			names.add(candidate.startedPlayer.name);
-		}
-	}
-	return [...names].sort((a, b) => b.length - a.length);
+/** Current fact subjects, including managers on a bye or in an upcoming matchup. */
+export function managerReferences(facts: WeekFacts): Map<string, string> {
+	const teams = [
+		...facts.results.flatMap(result => [result.a, result.b]),
+		...(facts.standings ?? []).map(row => row.team),
+		...facts.movement.map(move => move.team),
+		...(facts.upcoming ?? []).flatMap(pair => [pair.a, pair.b]),
+		...facts.playerStoryCandidates.flatMap(candidate => candidate.kind === 'top-starter' ? [candidate.team] : [candidate.team, candidate.opponent]),
+	];
+	return new Map(teams.map(team => [`{manager:${team.rosterId}}`, team.displayName]));
 }
 
-function stripKnownNames(text: string, names: string[]): string {
-	return names.reduce((remaining, name) => remaining.replace(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ''), text);
+/** Resolve only supplied tokens; reject malformed placeholders before substituting names. */
+export function resolveManagerReferences(text: string, references: Map<string, string>, speaker?: string): string {
+	const prose = text.replace(/\{manager:[^{}]*\}/g, (token) => {
+		if (!references.has(token))
+			throw new ShapingValidationError('Unknown or malformed manager reference');
+		return '';
+	}).replaceAll('{speaker}', '');
+	if (/[{}]/.test(prose))
+		throw new ShapingValidationError('Malformed manager reference or unsupported placeholder');
+	return text.replace(/\{manager:[^{}]*\}|\{speaker\}/g, token => token === '{speaker}' ? speaker ?? token : references.get(token)!);
 }

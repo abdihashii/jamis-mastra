@@ -1,5 +1,6 @@
 import type { ScoringExtreme, WeekFacts } from './analysis';
 import type { ChatContextMessage, RecapShaping } from './generate';
+import { managerReferences, resolveManagerReferences } from './generate';
 
 export const RECAP_MAX_LENGTH = 2000;
 
@@ -19,6 +20,7 @@ export function renderWeekRecap(facts: WeekFacts, shaping: RecapShaping, context
 
 function assemble(facts: WeekFacts, shaping: RecapShaping, context: ChatContextMessage[]): string {
 	const byId = new Map(context.map(m => [m.id, m]));
+	const references = managerReferences(facts);
 	if (!facts.high || !facts.low || !facts.closest)
 		throw new RecapRenderError('All three weekly awards require at least one scored matchup');
 
@@ -42,12 +44,13 @@ function assemble(facts: WeekFacts, shaping: RecapShaping, context: ChatContextM
 
 	for (const story of shaping.editorial) {
 		const sentences = story.sentences.map((sentence) => {
+			const text = resolveManagerReferences(sentence.text, references);
 			if (!sentence.callbackMessageId)
-				return sentence.text.trim();
+				return text.trim();
 			const source = byId.get(sentence.callbackMessageId);
 			if (!source)
 				throw new RecapRenderError(`Editorial callback references unknown message id "${sentence.callbackMessageId}"`);
-			return sentence.text.replace('{speaker}', source.sender).trim();
+			return resolveManagerReferences(sentence.text, references, source.sender).trim();
 		});
 		lines.push('', sentences.join(' '));
 	}

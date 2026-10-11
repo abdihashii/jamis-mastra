@@ -203,7 +203,7 @@ describe('validateShaping', () => {
 			{ text: 'alpha1 changed the shape of the week.', callbackMessageId: null },
 			{ text: 'The rest of the league now has a real problem.', callbackMessageId: null },
 		] }] });
-		expect(() => validateShaping(exactName, context, facts)).not.toThrow();
+		expect(() => validateShaping(exactName, context, facts)).toThrow(/manager name/);
 	});
 
 	it('rejects verbatim chat in non-callback stories while allowing short generic phrases', () => {
@@ -211,8 +211,109 @@ describe('validateShaping', () => {
 			{ text, callbackMessageId: null },
 			{ text: 'The result supplied the correction.', callbackMessageId: null },
 		] }] });
-		expect(() => validateShaping(story('bravo is cooked this week, and honestly the chat called it.'), context, factsStub())).toThrow(/echoes archived chat/);
-		expect(validateShaping(story('bravo is cooked.'), context, factsStub()).editorial[0].sentences[0].text).toBe('bravo is cooked.');
+		expect(() => validateShaping(story('The group had been workshopping plays all night.'), context, factsStub())).toThrow(/echoes archived chat/);
+		expect(validateShaping(story('{manager:2} is cooked.'), context, factsStub()).editorial[0].sentences[0].text).toBe('{manager:2} is cooked.');
+	});
+
+	it('resolves single and multiple manager subjects with callbacks and digit-bearing names', () => {
+		const facts = factsStub();
+		facts.results[0].a.displayName = 'alpha1';
+		const shaping = shapingOf({ editorial: [{ sentences: [
+			{ text: '{manager:1} dominated while {manager:2} struggled.', callbackMessageId: null },
+			{ text: '{speaker} backed {manager:1} before kickoff.', callbackMessageId: 'm2' },
+		] }] });
+		const validated = validateShaping(shaping, context, facts);
+		const rendered = renderWeekRecap(facts, validated, context);
+		expect(rendered).toContain('alpha1 dominated while bravo struggled. bravo backed alpha1 before kickoff.');
+		expect(rendered).not.toMatch(/\{manager:|\{speaker\}/);
+	});
+
+	it('rejects unknown and malformed manager references and digits outside valid tokens', () => {
+		for (const token of ['{manager:99}', '{manager:01}', '{manager:x}', '{manager: 1}', '{manager:1', '{manager}', '{Manager:1}', '{manager:1}}', '{{manager:1}}']) {
+			const shaping = shapingOf({ editorial: [{ sentences: [
+				{ text: `${token} dominated.`, callbackMessageId: null },
+				{ text: 'The win was emphatic.', callbackMessageId: null },
+			] }] });
+			expect(() => validateShaping(shaping, [], factsStub())).toThrow(/manager reference/);
+		}
+		const numbered = shapingOf({ editorial: [{ sentences: [
+			{ text: '{manager:1} won by 23.', callbackMessageId: null },
+			{ text: 'The result was emphatic.', callbackMessageId: null },
+		] }] });
+		expect(() => validateShaping(numbered, [], factsStub())).toThrow(/Digits/);
+		expect(() => renderWeekRecap(factsStub(), shapingOf({ editorial: [{ sentences: [
+			{ text: '{manager:99} dominated.', callbackMessageId: null },
+			{ text: 'The result was emphatic.', callbackMessageId: null },
+		] }] }), [])).toThrow(/manager reference/);
+	});
+
+	it('rejects direct supplied names without matching fragments of ordinary words', () => {
+		const story = (text: string) => shapingOf({ editorial: [{ sentences: [
+			{ text, callbackMessageId: null },
+			{ text: 'The result was emphatic.', callbackMessageId: null },
+		] }] });
+		expect(() => validateShaping(story('ALPHA dominated.'), [], factsStub())).toThrow(/manager name/);
+		expect(() => validateShaping(story('bravo\'s lineup struggled.'), [], factsStub())).toThrow(/manager name/);
+		expect(() => validateShaping(story('The alphabet offers no explanation.'), [], factsStub())).not.toThrow();
+		const symbolFacts = factsStub();
+		symbolFacts.results[0].a.displayName = '🔥';
+		expect(() => validateShaping(story('🔥 dominated.'), [], symbolFacts)).toThrow(/manager name/);
+		symbolFacts.results[0].a.displayName = 'a.b $&';
+		expect(() => validateShaping(story('a.b $& dominated.'), [], symbolFacts)).toThrow(/manager name/);
+	});
+
+	it('includes supplied subjects outside completed matchups in the reference map', () => {
+		const facts = factsStub();
+		facts.standings!.push({ rank: 3, team: { rosterId: 3, userId: 'u3', displayName: 'charlie' }, wins: 0, losses: 0, ties: 0, pointsFor: 0 });
+		expect(buildRecapPrompt(facts, [])).toContain('{manager:3}: charlie');
+		const shaping = shapingOf({ editorial: [{ sentences: [
+			{ text: '{manager:3} remains in contention.', callbackMessageId: null },
+			{ text: 'The standings leave room to move.', callbackMessageId: null },
+		] }] });
+		expect(renderWeekRecap(facts, validateShaping(shaping, [], facts), [])).toContain('charlie remains in contention.');
+	});
+
+	it('checks archived phrase copying after resolving manager references', () => {
+		const shaping = shapingOf({ editorial: [{ sentences: [
+			{ text: '{manager:2} is cooked this week.', callbackMessageId: null },
+			{ text: 'The result was emphatic.', callbackMessageId: null },
+		] }] });
+		expect(() => validateShaping(shaping, context, factsStub())).toThrow(/verbatim/);
+	});
+
+	it('preserves literal replacement characters and placeholders inside supplied names', () => {
+		const facts = factsStub();
+		facts.results[0].a.displayName = 'alpha $& {speaker}';
+		const shaping = shapingOf({ editorial: [{ sentences: [
+			{ text: '{speaker} backed {manager:1}.', callbackMessageId: 'm2' },
+			{ text: '{manager:1} dominated.', callbackMessageId: null },
+		] }] });
+		expect(renderWeekRecap(facts, validateShaping(shaping, context, facts), context)).toContain('bravo backed alpha $& {speaker}. alpha $& {speaker} dominated.');
+	});
+
+	it('trims whole stories after manager references expand', () => {
+		const facts = factsStub();
+		facts.results[0].a.displayName = 'a'.repeat(150);
+		const shaping = shapingOf({ editorial: ['dominated', 'impressed', 'excelled', 'thrived'].map(verb => ({ sentences: [
+			{ text: `{manager:1} ${verb} while {manager:2} struggled.`, callbackMessageId: null },
+			{ text: `{manager:1} ${verb} across the lineup.`, callbackMessageId: null },
+		] })) });
+		const validated = validateShaping(shaping, [], facts);
+		const rendered = renderWeekRecap(facts, validated, []);
+		expect(rendered.length).toBeLessThanOrEqual(RECAP_MAX_LENGTH);
+		expect(rendered).toContain('dominated across the lineup.');
+		expect(rendered).not.toContain('thrived');
+		expect(rendered).not.toContain('{manager:');
+	});
+
+	it('counts editorial words after manager name substitution', () => {
+		const facts = factsStub();
+		facts.results[0].a.displayName = 'a '.repeat(90).trim();
+		const shaping = shapingOf({ editorial: [{ sentences: [
+			{ text: '{manager:1} dominated.', callbackMessageId: null },
+			{ text: '{manager:1} earned the win.', callbackMessageId: null },
+		] }] });
+		expect(() => validateShaping(shaping, [], facts)).toThrow(/one hundred eighty words/);
 	});
 
 	it('includes complete facts and timestamped mapped chat in the prompt', () => {
@@ -220,6 +321,8 @@ describe('validateShaping', () => {
 		const prompt = buildRecapPrompt(factsStub({
 			playerStoryCandidates: [{ kind: 'top-starter', team: factsStub().results[0].a, player, points: 31.5 }],
 		}), context);
+		expect(prompt).toContain('{manager:1}: alpha');
+		expect(prompt).toContain('{manager:2}: bravo');
 		expect(prompt).toContain('Standings after week');
 		expect(prompt).toContain('Movement:');
 		expect(prompt).toContain('Top starter: Player One');

@@ -1,6 +1,6 @@
 # JAM-72: Fantasy recap structure and commentary
 
-Status: Stage 1 implemented, reviewed, and approved for commit. Stage 2 planned, not implemented.
+Status: Stage 1 committed and pushed (`b9d4e34`). Stage 2 implemented and reviewed; no-send empty-chat preview passed. Archived-chat/database acceptance remains pending. User approved this version for commit; push is not approved.
 
 Tracking: [JAM-72](https://linear.app/abdirahman-haji/issue/JAM-72/sharpen-fantasy-recap-award-commentary).
 Terminology: [Fantasy Companion glossary](../../src/fantasy/CONTEXT.md).
@@ -85,3 +85,37 @@ The agreed voice is blunt praise and blunt blame tied to specific Fantasy facts.
 For each stage, run focused tests, `rtk bun run typecheck`, `rtk bun test`, `rtk bun run lint`, `rtk bun run build`, `rtk python3 -m unittest discover -s infra -p 'test_*.py'`, and `rtk git diff --check`. Report failures or skipped database-dependent checks explicitly. Show the diff summary, demo evidence, and proposed commit message, then wait for explicit commit sign-off before committing or starting the next stage. Push and deployment require separate confirmation.
 
 After the final stage, rerun the full gate and report totals and commits. Reconcile JAM-72's description and acceptance criteria with this agreed design before treating the issue as complete. No live recap sends are part of implementation verification.
+
+## Reconciled JAM-72 acceptance criteria
+
+Proposed issue description: preserve up to four stories and sharpen their supported interpretation through validated manager references and blunt performance-focused prose. Awards are facts-only, with deterministic named matchup context and the approved plain-text sections. This agreed design supersedes generated award takes and the original prohibition on changing structure. No issue fields or checkboxes have been changed.
+
+| Original AC | Reconciled acceptance | Evidence / remaining gap |
+| --- | --- | --- |
+| 1: up to four paragraphs | Preserve zero to four stories, strongest first | Schema and four-story rendering regression |
+| 2: interchangeable award takes rejected or omitted | Omit all award takes; omit generic story filler through editorial instructions | Facts-only schema/rendering; story quality requires sample review |
+| 3: named opponent context | Manager of the Week includes named opponent and win/loss/tie | Exact output and tied-outcome regressions |
+| 4: complete facts-only matchup | Match of the Week includes both subjects, scores and margin | Exact output and tied-matchup regressions |
+| 5: no model numeric facts or manager names | Require supplied roster-ID tokens, reject direct supplied names, exempt only valid tokens from digit checks, resolve names deterministically | Reference, direct-name, malformed-token, digit, callback and substituted-word-budget tests; number-word facts remain a prompt/sample constraint |
+| 6: safeguards preserved | Preserve factual rendering, paraphrase/privacy, callback limits, 180 words, twelve sentences and 2,000 characters | Existing regressions plus resolved-name overlap and reference-expansion trimming tests |
+| 7: focused award-take tests | Replace superseded award-take tests with facts-only award/context tests and Stage 2 manager-reference tests | Focused generation/coordinator/delivery suite |
+
+Issue completion also requires the bounded real-model editorial review and archived-chat preview with unchanged recap/run counts. An empty-chat preview supplies partial evidence only. No send, commit, push or deployment is part of this verification.
+
+### Stage 2 verification evidence (2026-10-11 UTC)
+
+- Required mix completed: exploration on GPT-6.1-Sol/high, installed-source research on GPT-6-Luna/max, separate fresh code/security/Ponytail reviews on GPT-6-Astra/medium. All reviews, including the final symbol-name amendment, found no introduced findings.
+- Focused generation/coordinator/delivery: 65 passed. Full repository gate: 463 passed, 14 skipped, one pre-existing calendar wiring failure (unmocked SQL connection). Typecheck, lint, build, four Python infra tests and whitespace checks passed. A redirected rerun encountered sandbox socket/temp-file restrictions; the normal full-suite rerun reproduced the stable calendar-only failure.
+- Sleeper preflight reported regular-season week 5. Completed week 4 preview used the existing CLI, empty-chat fixture and a preview-only placeholder group ID. A preload guard removed Sendblue credentials and blocked its request hosts: zero Sendblue attempts. Output: 989 characters, three stories, zero callbacks, generator v9. No commits, pushes, sends, deployments or issue writes.
+- Complete preview and supplied facts retained privately at `/private/tmp/jam-72-stage2-live-preview.txt` and `/private/tmp/jam-72-stage2-facts.txt`. Sample review confirmed named subjects, supported standings/lineup interpretation, direct praise/blame, no decorative metaphor or forced punchline, and no story numeric facts beyond rendered display names. Approved award bullets/blank lines remain intact.
+- Remaining acceptance: configured group ID is absent and the read-only database preflight failed with `ERR_POSTGRES_CONNECTION_CLOSED`. Archived-chat callback behavior and unchanged recap/run row counts remain unverified in a real preview. Synthetic callback/privacy coverage passes. No iPhone display check; dependency advisories remain unverified (`bun audit` connection refused). Number-word facts and prose quality remain prompt/sample-review constraints.
+
+Approved Stage 2 commit: `feat: ground fantasy stories with rendered manager references`. User accepted the rendered dry run and approved committing this version on 2026-10-11 UTC. The reconciled issue description/AC mapping above is prepared for review, not applied to Linear.
+
+## Follow-up: no-send voice experiments
+
+User feedback: this version is better and grounded, but still less savage than desired. Keep v9 as the accepted baseline while exploring stronger performance-focused roasting separately.
+
+Compare the baseline with two temporary prompt variants over identical supplied facts and chat: more direct blame for supported lineup mistakes, and a shorter, sharper roast of the lowest-scoring performance. Preserve praise, factual grounding, references, privacy, formatting and output budgets. Use the existing generator and no-send guard; no new dependencies, evaluators or production configuration. Inspect complete previews side by side for specificity, clarity and bite, and reject invented premises or personal attacks. Choose any production prompt change only after the user reviews the samples.
+
+These experiments are follow-up work, not part of the accepted Stage 2 runtime diff or evidence that the remaining archived-chat/database acceptance has passed.
