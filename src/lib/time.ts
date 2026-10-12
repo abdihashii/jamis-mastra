@@ -56,12 +56,24 @@ export function localDate(unixSec: number, offsetSec: number): string {
  * @param startOffsetDays - Civil-day offset from today, e.g. -1 for yesterday
  * @returns [start, start + daysAhead] in that zone, RFC3339 with zone offset
  */
-export function zonedDayWindow(timeZone: string, daysAhead: number, nowMs = Date.now(), startOffsetDays = 0): [string, string] {
+export function zonedDayWindow(
+	timeZone: string,
+	daysAhead: number,
+	nowMs = Date.now(),
+	startOffsetDays = 0,
+): [string, string] {
 	const start = addDays(startOfDay(new TZDate(nowMs, timeZone)), startOffsetDays);
-	return [format(start, 'yyyy-MM-dd\'T\'HH:mm:ssxxx'), format(addDays(start, daysAhead), 'yyyy-MM-dd\'T\'HH:mm:ssxxx')];
+	return [
+		format(start, 'yyyy-MM-dd\'T\'HH:mm:ssxxx'),
+		format(addDays(start, daysAhead), 'yyyy-MM-dd\'T\'HH:mm:ssxxx'),
+	];
 }
 
-export function zonedDate(timeZone: string, dayOffset: number, nowMs = Date.now()): string {
+export function zonedDate(
+	timeZone: string,
+	dayOffset: number,
+	nowMs = Date.now(),
+): string {
 	return format(addDays(new TZDate(nowMs, timeZone), dayOffset), 'yyyy-MM-dd');
 }
 
@@ -69,7 +81,9 @@ export function dateTimeInstant(dateTime: string, timeZone?: string): number {
 	const hasOffset = /(?:Z|[+-]\d{2}:\d{2})$/i.test(dateTime);
 	if (!hasOffset && !timeZone)
 		return Number.NaN;
-	return hasOffset ? Date.parse(dateTime) : parseISO(dateTime, { in: tz(timeZone!) }).getTime();
+	return hasOffset
+		? Date.parse(dateTime)
+		: parseISO(dateTime, { in: tz(timeZone!) }).getTime();
 }
 
 export function isIanaTimeZone(value: string): boolean {
