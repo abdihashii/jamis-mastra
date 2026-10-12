@@ -272,7 +272,7 @@ describe('runWeeklyRecap delivery state machine', () => {
 		expect(row.deliverySource).toBe('api');
 		expect(row.finalText).toBe(sends[0]);
 		expect(row.sendAttemptAt).toEqual(new Date(NOW));
-		expect(recorded[0].generatorVersion).toBe('fantasy-recap-v9');
+		expect(recorded[0].generatorVersion).toBe('fantasy-recap-v10');
 		expect(recorded[0].finalText).toBe(sends[0]);
 		expect(dms).toEqual([]);
 	});
