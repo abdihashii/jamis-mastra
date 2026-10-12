@@ -11,7 +11,7 @@ import { z } from 'zod';
  * by (league, week, version, model), so a new version lands as history rather
  * than an overwrite of the old rendering.
  */
-export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v7';
+export const FANTASY_GENERATOR_VERSION = 'fantasy-recap-v10';
 
 /** Shipped recap model. One constant; edit this line to swap generators. */
 export const DEFAULT_RECAP_MODEL = 'openai-codex/gpt-6.1-sol';
@@ -27,7 +27,6 @@ export interface ChatContextMessage {
 	createdAt: string;
 }
 
-const awardTakeSchema = z.string().trim().min(1).max(180).nullable();
 const editorialSentenceSchema = z.object({
 	text: z.string().trim().min(1).max(500),
 	callbackMessageId: z.string().nullable(),
@@ -35,12 +34,6 @@ const editorialSentenceSchema = z.object({
 
 /** Model output is only flavor: facts are rendered from WeekFacts, never from the model. */
 export const recapShapingSchema = z.object({
-	awards: z.object({
-		roughestWeek: awardTakeSchema,
-		bestWeek: awardTakeSchema,
-		mostEntertainingMatchup: awardTakeSchema,
-		biggestBlowout: awardTakeSchema,
-	}),
 	/** Strongest story first so the renderer can remove the weakest whole paragraph. */
 	editorial: z.array(z.object({
 		sentences: z.array(editorialSentenceSchema).min(2).max(4),
@@ -94,20 +87,18 @@ export const FANTASY_VOICE = `Style: plain prose, short declaratives, free of ja
 
 const INSTRUCTIONS = `You are the Fantasy Agent: you shape a deterministic fantasy football weekly recap.
 The renderer owns every number and award label. You may interpret only the supplied results, standings, movement, curated player facts, and archived group chat.
-Your job is one optional short take for each fixed award plus an optional closing editorial about the week's biggest stories.
+Write optional editorial stories about the week's biggest stories. Awards are facts-only and supplied by the renderer.
 
 Hard rules:
-- Never write numeric facts, as digits or words. Digits are allowed only when they are part of an exact supplied name.
-- Base each award take only on its supplied result. Do not invent lineup mistakes, injuries, transactions, motives, or events.
-- Return null for an award unless you have a genuinely funny, specific line. An unadorned fact is better than a forced joke.
-- Be direct, conversational, and willing to be mean about that week's fantasy performance. Light profanity is allowed. Personal traits and real-life circumstances are not.
-- Cut every disposable word. One or two short sentences maximum, with the strongest word or turn as late as natural.
-- The renderer puts every manager name immediately before your take. Do not repeat, alter, or spell out a manager name.
-- Find a distinct angle in the actual result. If the line would work equally well after swapping in another award or matchup, return null.
-- Direct ridicule beats a decorative metaphor. Avoid stock constructions involving floors, basements, digging, paperwork, scenery, magnifying glasses, before-and-after photos, hostile takeovers, resignation letters, cautionary tales, or any close rewrite.
+- Never write numeric facts, as digits or words. Digits are allowed only inside exact supplied {manager:rosterId} references.
+- Name manager subjects only with supplied {manager:rosterId} references, never their display names. Use multiple references when a story has multiple subjects. Preserve {speaker} for callback attribution.
+- Do not invent lineup mistakes, injuries, transactions, motives, or events.
+- Use blunt praise and ruthless, conversational criticism tied to specific supplied Fantasy facts. Praise standout performances directly; be ruthless about weak performances and supported lineup mistakes. Natural profanity is welcome, never required or a quota. Conversational performance slang such as beat the brakes off, cooked, or mollywopped is welcome when the supplied facts earn it; these are options, not required phrases. Mix plain criticism, slang and occasional profanity naturally. Avoid the polite report tone of dreadful performance, costly lineup mistake, or directly responsible for a preventable loss. Target fantasy performance, never personal traits or real-life circumstances.
+- Put the bite and any profanity inside the supported interpretation, not an appended punchline. No obligatory closing jab, manufactured metaphor, aphorism, theatrical joke, or stock paired contrast such as X did his job but Y did not or this was not X it was Y. Avoid analysis-note phrasing such as middle-table team or winning alternative sitting idle.
 - Return zero to four editorial stories, strongest first. Return zero when nothing deserves a paragraph.
 - Each story is one paragraph of two to four sentences. Use at most twelve editorial sentences and one hundred eighty editorial words total.
-- Every story needs a distinct premise. Never restate a Highlight score, margin, award outcome, another story, callback, observation, or joke. Add interpretation, consequence, contrast, a curated player story, or genuinely useful chat context.
+- Every story needs a distinct supported premise beyond an award label. You may revisit award winners when you add interpretation. Omit generic filler and forced humor. Never merely restate an award score, margin, award outcome, another story, callback, observation, or joke. Add interpretation, consequence, contrast, a curated player story, or genuinely useful chat context.
+- Across paragraphs, vary sentence structure and wording. Each story must add a different angle, not repeat the same verdict, consequence, curse, accusation, or closing line. Do not recycle the same analytical frame, such as season scoring versus record or rank, across paragraphs; keep the strongest instance and use a different supported angle elsewhere, or omit it. If related lineup mistakes belong to the same narrative, combine them into one story instead of repeating the bench-swap argument in separate paragraphs. Omit the weaker story when it adds nothing new.
 - Never force a conclusion, signoff, callback, joke, or fourth story. Humor is optional and never a quota.
 - A callback sentence references only one supplied message id, uses the exact {speaker} placeholder once, and paraphrases rather than quotes the source. Never copy source wording or use quotation marks.
 - Set callbackMessageId to null for every non-callback sentence.
@@ -135,19 +126,16 @@ function factsSummary(facts: WeekFacts): string {
 		lines.push(result.winner ? `${result.winner.displayName} def. ${result.loser!.displayName} (${pair})` : `${pair}, tie`);
 	}
 	if (facts.high)
-		lines.push(`Best Week: ${facts.high.teams.map(t => t.displayName).join(', ')} at ${facts.high.points}`);
+		lines.push(`Manager of the Week: ${facts.high.teams.map(t => t.displayName).join(', ')} at ${facts.high.points}`);
 	if (facts.low)
-		lines.push(`Roughest Week: ${facts.low.teams.map(t => t.displayName).join(', ')} at ${facts.low.points}`);
+		lines.push(`Loser of the Week: ${facts.low.teams.map(t => t.displayName).join(', ')} at ${facts.low.points}`);
 	if (facts.closest) {
 		const tied = facts.results.filter(r => r.margin === facts.closest!.margin);
-		lines.push(`Most Entertaining Matchup: ${tied.map(r => `${r.a.displayName} ${r.aPoints} vs ${r.b.displayName} ${r.bPoints}`).join('; ')}, margin ${facts.closest.margin}`);
+		lines.push(`Match of the Week: ${tied.map(r => `${r.a.displayName} ${r.aPoints} vs ${r.b.displayName} ${r.bPoints}`).join('; ')}, margin ${facts.closest.margin}`);
 	}
 	if (facts.blowout) {
 		const tied = facts.results.filter(r => r.margin === facts.blowout!.margin);
-		const closest = facts.closest ? facts.results.filter(r => r.margin === facts.closest!.margin) : [];
-		lines.push(matchupSetKey(tied) === matchupSetKey(closest)
-			? 'Biggest Blowout: omitted because it exactly duplicates Most Entertaining Matchup'
-			: `Biggest Blowout: ${tied.map(r => `${r.a.displayName} ${r.aPoints} vs ${r.b.displayName} ${r.bPoints}`).join('; ')}, margin ${facts.blowout.margin}`);
+		lines.push(`Biggest Blowout facts: ${tied.map(r => `${r.a.displayName} ${r.aPoints} vs ${r.b.displayName} ${r.bPoints}`).join('; ')}, margin ${facts.blowout.margin}`);
 	}
 	if (facts.standings) {
 		lines.push(`Standings after week ${facts.week}: ${facts.standings.map(row => `${row.rank}. ${row.team.displayName} ${row.wins}-${row.losses}${row.ties ? `-${row.ties}` : ''}, ${row.pointsFor} points`).join('; ')}`);
@@ -166,19 +154,13 @@ function factsSummary(facts: WeekFacts): string {
 	return lines.join('\n');
 }
 
-function matchupSetKey(results: WeekFacts['results']): string {
-	return results
-		.map(result => [result.a.rosterId, result.b.rosterId].sort((a, b) => a - b).join(':'))
-		.sort()
-		.join('|');
-}
-
 export function buildRecapPrompt(facts: WeekFacts, context: ChatContextMessage[]): string {
 	const eligible = context.filter(message => message.sender !== 'unknown sender');
 	const chat = eligible.length > 0
 		? eligible.map(m => `[${m.id}] ${m.createdAt} ${m.sender}: ${m.text}`).join('\n')
 		: '(no mapped group-chat messages are eligible, use zero callbacks)';
-	return `${factsSummary(facts)}\n\nArchived mapped group chat, oldest first, timestamps in UTC:\n${chat}\n\nReturn the shaping object only.`;
+	const references = [...managerReferences(facts)].map(([token, name]) => `${token}: ${name}`).join('\n');
+	return `${factsSummary(facts)}\n\nManager references (use these tokens instead of display names in prose):\n${references}\n\nArchived mapped group chat, oldest first, timestamps in UTC:\n${chat}\n\nReturn the shaping object only.`;
 }
 
 /** Validates the model stayed inside its lane. Throws ShapingValidationError otherwise. */
@@ -187,30 +169,19 @@ export function validateShaping(shaping: RecapShaping, context: ChatContextMessa
 	if (!parsed.success)
 		throw new ShapingValidationError('Model output did not match the editorial schema');
 	const normalized: RecapShaping = {
-		awards: {
-			roughestWeek: normalizeProse(parsed.data.awards.roughestWeek),
-			bestWeek: normalizeProse(parsed.data.awards.bestWeek),
-			mostEntertainingMatchup: normalizeProse(parsed.data.awards.mostEntertainingMatchup),
-			biggestBlowout: normalizeProse(parsed.data.awards.biggestBlowout),
-		},
 		editorial: parsed.data.editorial.map(story => ({
-			sentences: story.sentences.map(sentence => ({ ...sentence, text: normalizeProse(sentence.text)! })),
+			sentences: story.sentences.map(sentence => ({ ...sentence, text: normalizeProse(sentence.text) })),
 		})),
 	};
 	const byId = new Map(context.map(m => [m.id, m]));
-	const fields: Array<{ label: string; text: string | null; callbackMessageId: string | null; editorial: boolean }> = [
-		{ label: 'roughestWeek', text: normalized.awards.roughestWeek, callbackMessageId: null, editorial: false },
-		{ label: 'bestWeek', text: normalized.awards.bestWeek, callbackMessageId: null, editorial: false },
-		{ label: 'mostEntertainingMatchup', text: normalized.awards.mostEntertainingMatchup, callbackMessageId: null, editorial: false },
-		{ label: 'biggestBlowout', text: normalized.awards.biggestBlowout, callbackMessageId: null, editorial: false },
-		...normalized.editorial.flatMap((story, storyIndex) => story.sentences.map((sentence, sentenceIndex) => ({
-			label: `editorial story ${storyIndex + 1} sentence ${sentenceIndex + 1}`,
-			text: sentence.text,
-			callbackMessageId: sentence.callbackMessageId,
-			editorial: true,
-		}))),
-	];
-	const knownNames = suppliedNames(facts);
+	const fields = normalized.editorial.flatMap((story, storyIndex) => story.sentences.map((sentence, sentenceIndex) => ({
+		label: `editorial story ${storyIndex + 1} sentence ${sentenceIndex + 1}`,
+		text: sentence.text,
+		callbackMessageId: sentence.callbackMessageId,
+	})));
+	const references = managerReferences(facts);
+	const knownNames = [...new Set(references.values())].filter(name => name.trim()).map(name =>
+		new RegExp(`(?:^|[^\\p{L}\\p{N}])${name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')}(?=$|[^\\p{L}\\p{N}])`, 'iu'));
 	const callbackIds = new Set<string>();
 	let callbackCount = 0;
 	let editorialWords = 0;
@@ -221,14 +192,16 @@ export function validateShaping(shaping: RecapShaping, context: ChatContextMessa
 	}
 	for (const field of fields) {
 		const { label, text } = field;
-		if (text == null)
-			continue;
 		if (/["“”«»]/.test(text))
 			throw new ShapingValidationError(`${label} uses quotation marks; prose must paraphrase`);
-		const digitCheck = field.editorial ? stripKnownNames(text, knownNames) : text;
+		const renderedManagers = resolveManagerReferences(text, references);
+		const prose = text.replace(/\{manager:[^{}]*\}/g, '').replace('{speaker}', '');
+		if (knownNames.some(name => name.test(prose)))
+			throw new ShapingValidationError(`${label} writes a supplied manager name; use manager references`);
+		const digitCheck = prose;
 		if (/\d/.test(digitCheck))
 			throw new ShapingValidationError(`Digits are never allowed in ${label}; the renderer writes every number`);
-		if (field.editorial && sentenceParts(text).length !== 1)
+		if (sentenceParts(text).length !== 1)
 			throw new ShapingValidationError(`${label} must contain exactly one sentence`);
 
 		let callbackSource: ChatContextMessage | null = null;
@@ -250,7 +223,7 @@ export function validateShaping(shaping: RecapShaping, context: ChatContextMessa
 			throw new ShapingValidationError(`${label} has a speaker placeholder without a callback message id`);
 		}
 
-		const tokens = words(text.replace('{speaker}', ''));
+		const tokens = words(renderedManagers.replace('{speaker}', ''));
 		for (const original of context) {
 			const sourceTokens = words(original.text);
 			const copiesShortSource = callbackSource?.id === original.id
@@ -261,10 +234,8 @@ export function validateShaping(shaping: RecapShaping, context: ChatContextMessa
 				throw new ShapingValidationError(`${label} echoes archived chat verbatim; prose must paraphrase`);
 			}
 		}
-		if (field.editorial) {
-			const rendered = callbackSource ? text.replace('{speaker}', callbackSource.sender) : text;
-			editorialWords += words(rendered).length;
-		}
+		const rendered = resolveManagerReferences(text, references, callbackSource?.sender);
+		editorialWords += words(rendered).length;
 	}
 	if (callbackCount > 4)
 		throw new ShapingValidationError('Editorial may use at most four callbacks');
@@ -291,9 +262,7 @@ export function validateShaping(shaping: RecapShaping, context: ChatContextMessa
 
 const sentenceSegmenter = new Intl.Segmenter('en', { granularity: 'sentence' });
 
-function normalizeProse(text: string | null): string | null {
-	if (text == null)
-		return null;
+function normalizeProse(text: string): string {
 	const normalized = text.trim().replace(/\s+/g, ' ');
 	return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
 }
@@ -317,22 +286,26 @@ function sharesPhrase(a: string[], b: string[], length: number): boolean {
 	return b.slice(0, b.length - length + 1).some((_, index) => phrases.has(b.slice(index, index + length).join(' ')));
 }
 
-function suppliedNames(facts: WeekFacts): string[] {
-	const names = new Set(facts.results.flatMap(result => [result.a.displayName, result.b.displayName]));
-	for (const candidate of facts.playerStoryCandidates) {
-		names.add(candidate.team.displayName);
-		if (candidate.kind === 'top-starter') {
-			names.add(candidate.player.name);
-		}
-		else {
-			names.add(candidate.opponent.displayName);
-			names.add(candidate.benchedPlayer.name);
-			names.add(candidate.startedPlayer.name);
-		}
-	}
-	return [...names].sort((a, b) => b.length - a.length);
+/** Current fact subjects, including managers on a bye or in an upcoming matchup. */
+export function managerReferences(facts: WeekFacts): Map<string, string> {
+	const teams = [
+		...facts.results.flatMap(result => [result.a, result.b]),
+		...(facts.standings ?? []).map(row => row.team),
+		...facts.movement.map(move => move.team),
+		...(facts.upcoming ?? []).flatMap(pair => [pair.a, pair.b]),
+		...facts.playerStoryCandidates.flatMap(candidate => candidate.kind === 'top-starter' ? [candidate.team] : [candidate.team, candidate.opponent]),
+	];
+	return new Map(teams.map(team => [`{manager:${team.rosterId}}`, team.displayName]));
 }
 
-function stripKnownNames(text: string, names: string[]): string {
-	return names.reduce((remaining, name) => remaining.replace(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ''), text);
+/** Resolve only supplied tokens; reject malformed placeholders before substituting names. */
+export function resolveManagerReferences(text: string, references: Map<string, string>, speaker?: string): string {
+	const prose = text.replace(/\{manager:[^{}]*\}/g, (token) => {
+		if (!references.has(token))
+			throw new ShapingValidationError('Unknown or malformed manager reference');
+		return '';
+	}).replaceAll('{speaker}', '');
+	if (/[{}]/.test(prose))
+		throw new ShapingValidationError('Malformed manager reference or unsupported placeholder');
+	return text.replace(/\{manager:[^{}]*\}|\{speaker\}/g, token => token === '{speaker}' ? speaker ?? token : references.get(token)!);
 }

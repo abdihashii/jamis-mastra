@@ -37,7 +37,10 @@ export const linearReadInputSchema = z.object({
 		|| collection === (input.reference !== undefined)
 		|| (!collection && [input.stateType, input.state, input.priority, input.assigneeId].some(value => value !== undefined))
 		|| (input.action === 'issue' && input.cursor !== undefined)) {
-		ctx.addIssue({ code: 'custom', message: 'Use query only for search, reference only for issue/comments/attachments, and filters only for list/search.' });
+		ctx.addIssue({
+			code: 'custom',
+			message: 'Use query only for search, reference only for issue/comments/attachments, and filters only for list/search.',
+		});
 	}
 });
 const issueSchema = z.object({
@@ -76,7 +79,16 @@ export const linearReadResultSchema = z.object({
 	issue: issueSchema.extend({ description: z.string().nullable(), truncated: z.boolean() }).optional(),
 	comments: z.array(commentSchema.omit({ issue: true }).extend({ truncated: z.boolean() })).max(20).optional(),
 	attachments: z.array(attachmentSchema.omit({ issue: true })).max(20).optional(),
-	reason: z.enum(['configuration', 'authentication', 'identity', 'team', 'response', 'timeout', 'unavailable', 'outside_team']).optional(),
+	reason: z.enum([
+		'configuration',
+		'authentication',
+		'identity',
+		'team',
+		'response',
+		'timeout',
+		'unavailable',
+		'outside_team',
+	]).optional(),
 });
 export type LinearReadInput = z.input<typeof linearReadInputSchema>;
 export type LinearReadResult = z.infer<typeof linearReadResultSchema>;
@@ -89,7 +101,11 @@ export const linearCreateInputSchema = z.object({
 	description: z.string().max(2000).default(''),
 	state: z.string().trim().min(1).max(100).optional(),
 }).strict();
-const workflowStateSchema = z.object({ id: z.uuid(), name: z.string().min(1).max(100), team: z.object({ id: z.uuid() }) });
+const workflowStateSchema = z.object({
+	id: z.uuid(),
+	name: z.string().min(1).max(100),
+	team: z.object({ id: z.uuid() }),
+});
 export const linearCreateOperationSchema = z.object({
 	id: z.uuid(),
 	teamId: z.uuid(),
@@ -107,11 +123,20 @@ export const linearCreateOutcomeSchema = z.object({
 export type LinearCreateOutcome = z.infer<typeof linearCreateOutcomeSchema>;
 export const linearCreateInspectionSchema = z.discriminatedUnion('status', [
 	z.object({ status: z.literal('unresolved') }).strict(),
-	z.object({ status: z.literal('verified'), operation: linearCreateOperationSchema, outcome: linearCreateOutcomeSchema.extend({ status: z.literal('succeeded'), identifier: issueSchema.shape.identifier, url: issueSchema.shape.url }) }).strict(),
+	z.object({
+		status: z.literal('verified'),
+		operation: linearCreateOperationSchema,
+		outcome: linearCreateOutcomeSchema.extend({
+			status: z.literal('succeeded'),
+			identifier: issueSchema.shape.identifier,
+			url: issueSchema.shape.url,
+		}),
+	}).strict(),
 ]);
 export type LinearCreateInspection = z.infer<typeof linearCreateInspectionSchema>;
 
-type Failure = 'configuration' | 'authentication' | 'identity' | 'team' | 'response' | 'timeout' | 'unavailable';
+type Failure
+	= 'configuration' | 'authentication' | 'identity' | 'team' | 'response' | 'timeout' | 'unavailable';
 
 /** Only fixed categories leave this boundary, never upstream bodies or causes. */
 export class LinearError extends Error {
@@ -122,7 +147,10 @@ export class LinearError extends Error {
 }
 
 /** Runtime-only app token. Writable clients are created only at the confirmed channel boundary. */
-export function createLinearClient(env: Record<string, string | undefined> = process.env, writable = false) {
+export function createLinearClient(
+	env: Record<string, string | undefined> = process.env,
+	writable = false,
+) {
 	const parsed = configSchema.safeParse(env);
 	if (!parsed.success)
 		throw new LinearError('configuration');
@@ -141,8 +169,13 @@ export function createLinearClient(env: Record<string, string | undefined> = pro
 				token = undefined;
 				throw new LinearError('authentication');
 			}
-			if (!response.ok)
-				throw new LinearError(url.endsWith('/oauth/token') && response.status === 400 ? 'authentication' : 'unavailable');
+			if (!response.ok) {
+				throw new LinearError(
+					url.endsWith('/oauth/token') && response.status === 400
+						? 'authentication'
+						: 'unavailable',
+				);
+			}
 			return await response.json().catch(() => {
 				throw new LinearError(signal.aborted ? 'timeout' : 'response');
 			});
@@ -170,8 +203,14 @@ export function createLinearClient(env: Record<string, string | undefined> = pro
 						client_secret: config.LINEAR_CLIENT_SECRET,
 					}),
 				}));
-				if (!result.success || result.data.scope.trim().split(/[,\s]+/).sort().join(',') !== 'issues:create,read')
+				if (
+					!result.success
+					|| result.data.scope.trim().split(
+						/[,\s]+/,
+					).sort().join(',') !== 'issues:create,read'
+				) {
 					throw new LinearError('response');
+				}
 				token = { access: result.data.access_token, expiresAt: startedAt + result.data.expires_in * 1000 - 60_000 };
 				return token.access;
 			})();
@@ -184,7 +223,12 @@ export function createLinearClient(env: Record<string, string | undefined> = pro
 		}
 	}
 
-	async function graphql<T extends z.ZodType>(query: string, variables: Record<string, unknown>, schema: T, signal?: AbortSignal): Promise<z.infer<T>> {
+	async function graphql<T extends z.ZodType>(
+		query: string,
+		variables: Record<string, unknown>,
+		schema: T,
+		signal?: AbortSignal,
+	): Promise<z.infer<T>> {
 		const access = await getToken();
 		const envelope = z.object({ data: z.unknown(), errors: z.array(z.unknown()).optional() }).safeParse(
 			await request('https://api.linear.app/graphql', {
@@ -228,8 +272,12 @@ export function createLinearClient(env: Record<string, string | undefined> = pro
 		const input = parsed.data;
 		const { team } = await readIdentityAndTeam(signal);
 		const filter: Record<string, unknown> = { team: { id: { eq: team.id } } };
-		if (input.state || input.stateType)
-			filter.state = { ...(input.state ? { name: { eq: input.state } } : {}), ...(input.stateType ? { type: { eq: input.stateType } } : {}) };
+		if (input.state || input.stateType) {
+			filter.state = {
+				...(input.state ? { name: { eq: input.state } } : {}),
+				...(input.stateType ? { type: { eq: input.stateType } } : {}),
+			};
+		}
 		if (input.priority !== undefined)
 			filter.priority = { eq: input.priority };
 		if (input.assigneeId)
@@ -292,19 +340,44 @@ export function createLinearClient(env: Record<string, string | undefined> = pro
 			throw new LinearError('response');
 		if ('description' in result.issue) {
 			const truncated = (result.issue.description?.length ?? 0) > 8000;
-			return { status: 'ok', issue: { ...result.issue, description: result.issue.description?.slice(0, 8000) ?? null, truncated }, partial: truncated, nextCursor: null };
+			return {
+				status: 'ok',
+				issue: {
+					...result.issue,
+					description: result.issue.description?.slice(0, 8000) ?? null,
+					truncated,
+				},
+				partial: truncated,
+				nextCursor: null,
+			};
 		}
 		const data = 'comments' in result.issue ? result.issue.comments : result.issue.attachments;
 		if (data.nodes.length > input.limit)
 			throw new LinearError('response');
 		if (data.nodes.some(node => node.issue.id !== resolved.id || node.issue.team.id !== team.id))
 			throw new LinearError('team');
-		const pageResult = { partial: data.pageInfo.hasNextPage, nextCursor: data.pageInfo.hasNextPage ? data.pageInfo.endCursor : null };
+		const pageResult = {
+			partial: data.pageInfo.hasNextPage,
+			nextCursor: data.pageInfo.hasNextPage ? data.pageInfo.endCursor : null,
+		};
 		if ('comments' in result.issue) {
-			const comments = result.issue.comments.nodes.map(({ issue: _issue, body, ...comment }) => ({ ...comment, body: body.slice(0, 4000), truncated: body.length > 4000 }));
-			return { status: 'ok', comments, ...pageResult, partial: pageResult.partial || comments.some(comment => comment.truncated) };
+			const comments = result.issue.comments.nodes.map(({
+				issue: _issue,
+				body,
+				...comment
+			}) => ({ ...comment, body: body.slice(0, 4000), truncated: body.length > 4000 }));
+			return {
+				status: 'ok',
+				comments,
+				...pageResult,
+				partial: pageResult.partial || comments.some(comment => comment.truncated),
+			};
 		}
-		return { status: 'ok', attachments: result.issue.attachments.nodes.map(({ issue: _issue, ...attachment }) => attachment), ...pageResult };
+		return {
+			status: 'ok',
+			attachments: result.issue.attachments.nodes.map(({ issue: _issue, ...attachment }) => attachment),
+			...pageResult,
+		};
 	}
 
 	async function prepareCreate(raw: z.input<typeof linearCreateInputSchema>): Promise<LinearCreateOperation> {
@@ -317,7 +390,12 @@ export function createLinearClient(env: Record<string, string | undefined> = pro
 			const result = await graphql(
 				'query JamisCreateState($filter: WorkflowStateFilter!) { workflowStates(filter: $filter, first: 2) { nodes { id name team { id } } pageInfo { hasNextPage } } }',
 				{ filter: { team: { id: { eq: team.id } }, name: { eq: input.data.state } } },
-				z.object({ workflowStates: z.object({ nodes: z.array(workflowStateSchema).max(2), pageInfo: z.object({ hasNextPage: z.boolean() }) }) }),
+				z.object({
+					workflowStates: z.object({
+						nodes: z.array(workflowStateSchema).max(2),
+						pageInfo: z.object({ hasNextPage: z.boolean() }),
+					}),
+				}),
 			);
 			if (result.workflowStates.nodes.length !== 1 || result.workflowStates.pageInfo.hasNextPage)
 				throw new LinearError('response');
@@ -337,7 +415,14 @@ export function createLinearClient(env: Record<string, string | undefined> = pro
 		}
 		if (state.team.id !== team.id)
 			throw new LinearError('team');
-		return { id: crypto.randomUUID(), teamId: team.id, title: input.data.title, description: input.data.description, stateId: state.id, stateName: state.name };
+		return {
+			id: crypto.randomUUID(),
+			teamId: team.id,
+			title: input.data.title,
+			description: input.data.description,
+			stateId: state.id,
+			stateName: state.name,
+		};
 	}
 
 	async function executeCreate(raw: LinearCreateOperation): Promise<LinearCreateOutcome> {
@@ -354,13 +439,23 @@ export function createLinearClient(env: Record<string, string | undefined> = pro
 					{ id: op.stateId },
 					z.object({ workflowState: workflowStateSchema }),
 				);
-				if (result.workflowState.id !== op.stateId || result.workflowState.name !== op.stateName || result.workflowState.team.id !== op.teamId)
+				if (
+					result.workflowState.id !== op.stateId
+					|| result.workflowState.name !== op.stateName
+					|| result.workflowState.team.id !== op.teamId
+				) {
 					return { status: 'failed' };
+				}
 				break;
 			}
 			catch (error) {
-				if (attempt === 0 && error instanceof LinearError && ['authentication', 'timeout', 'unavailable'].includes(error.category))
+				if (
+					attempt === 0
+					&& error instanceof LinearError
+					&& ['authentication', 'timeout', 'unavailable'].includes(error.category)
+				) {
 					continue;
+				}
 				return { status: 'failed' };
 			}
 		}
@@ -372,8 +467,16 @@ export function createLinearClient(env: Record<string, string | undefined> = pro
 				z.object({ issueCreate: z.object({ success: z.boolean(), issue: issueSchema.nullable() }) }),
 			);
 			const issue = result.issueCreate.issue;
-			if (!result.issueCreate.success || !issue || issue.id !== op.id || issue.team.id !== op.teamId || issue.title !== op.title || issue.state.name !== op.stateName)
+			if (
+				!result.issueCreate.success
+				|| !issue
+				|| issue.id !== op.id
+				|| issue.team.id !== op.teamId
+				|| issue.title !== op.title
+				|| issue.state.name !== op.stateName
+			) {
 				return { status: 'uncertain' };
+			}
 			return { status: 'succeeded', identifier: issue.identifier, url: issue.url };
 		}
 		catch {
@@ -391,14 +494,35 @@ export function createLinearClient(env: Record<string, string | undefined> = pro
 			const result = await graphql(
 				'query JamisInspectCreate($id: String!) { issue(id: $id) { id identifier title description url team { id } state { id name } } }',
 				{ id: op.id },
-				z.object({ issue: z.object({ id: z.uuid(), identifier: issueSchema.shape.identifier, title: z.string(), description: z.string().nullable(), url: issueSchema.shape.url, team: z.object({ id: z.uuid() }), state: z.object({ id: z.uuid(), name: z.string() }) }).nullable() }),
+				z.object({
+					issue: z.object({
+						id: z.uuid(),
+						identifier: issueSchema.shape.identifier,
+						title: z.string(),
+						description: z.string().nullable(),
+						url: issueSchema.shape.url,
+						team: z.object({ id: z.uuid() }),
+						state: z.object({ id: z.uuid(), name: z.string() }),
+					}).nullable(),
+				}),
 			);
 			const issue = result.issue;
-			if (!issue || issue.id !== op.id || issue.team.id !== op.teamId || issue.title !== op.title
-				|| (issue.description ?? '') !== op.description || issue.state.id !== op.stateId || issue.state.name !== op.stateName) {
+			if (
+				!issue
+				|| issue.id !== op.id
+				|| issue.team.id !== op.teamId
+				|| issue.title !== op.title
+				|| (issue.description ?? '') !== op.description
+				|| issue.state.id !== op.stateId
+				|| issue.state.name !== op.stateName
+			) {
 				return { status: 'unresolved' };
 			}
-			return { status: 'verified', operation: op, outcome: { status: 'succeeded', identifier: issue.identifier, url: issue.url } };
+			return {
+				status: 'verified',
+				operation: op,
+				outcome: { status: 'succeeded', identifier: issue.identifier, url: issue.url },
+			};
 		}
 		catch { return { status: 'unresolved' }; }
 	}

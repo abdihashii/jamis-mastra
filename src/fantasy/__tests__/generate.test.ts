@@ -5,6 +5,7 @@ import type { RecapGenerationRecord, SqlLike } from '../recaps';
 import type { SleeperManager } from '../sleeper';
 
 import { describe, expect, it } from 'bun:test';
+import { toPlainText } from 'chat-adapter-sendblue';
 import { parseFantasyConfig } from '../config';
 import { buildRecapPrompt, FANTASY_GENERATOR_VERSION, recapShapingSchema, toChatContext, validateShaping } from '../generate';
 import { listGenerations, recordClaimedGeneration, recordGeneration } from '../recaps';
@@ -75,12 +76,6 @@ function factsStub(overrides: Partial<WeekFacts> = {}): WeekFacts {
 
 function shapingOf(overrides: Partial<RecapShaping> = {}): RecapShaping {
 	return {
-		awards: {
-			roughestWeek: 'The lineup submitted a resignation letter.',
-			bestWeek: 'The league briefly became a private showcase.',
-			mostEntertainingMatchup: 'Nobody was permitted a comfortable Sunday.',
-			biggestBlowout: 'The contest became paperwork before dinner.',
-		},
 		editorial: [],
 		...overrides,
 	};
@@ -198,7 +193,6 @@ describe('validateShaping', () => {
 
 	it('rejects digits anywhere in model fields; the renderer owns numbers outright', () => {
 		const facts = factsStub();
-		expect(() => validateShaping(shapingOf({ awards: { ...shapingOf().awards, roughestWeek: 'Week 1 chaos' } }), context, facts)).toThrow(/[Dd]igits/);
 		const numbered = shapingOf({ editorial: [{ sentences: [
 			{ text: 'The workshop produced 97 points of nothing.', callbackMessageId: null },
 			{ text: 'The week moved on.', callbackMessageId: null },
@@ -209,17 +203,117 @@ describe('validateShaping', () => {
 			{ text: 'alpha1 changed the shape of the week.', callbackMessageId: null },
 			{ text: 'The rest of the league now has a real problem.', callbackMessageId: null },
 		] }] });
-		expect(() => validateShaping(exactName, context, facts)).not.toThrow();
+		expect(() => validateShaping(exactName, context, facts)).toThrow(/manager name/);
 	});
 
-	it('rejects long verbatim echoes in award takes, not just callbacks', () => {
+	it('rejects verbatim chat in non-callback stories while allowing short generic phrases', () => {
+		const story = (text: string) => shapingOf({ editorial: [{ sentences: [
+			{ text, callbackMessageId: null },
+			{ text: 'The result supplied the correction.', callbackMessageId: null },
+		] }] });
+		expect(() => validateShaping(story('The group had been workshopping plays all night.'), context, factsStub())).toThrow(/echoes archived chat/);
+		expect(validateShaping(story('{manager:2} is cooked.'), context, factsStub()).editorial[0].sentences[0].text).toBe('{manager:2} is cooked.');
+	});
+
+	it('resolves single and multiple manager subjects with callbacks and digit-bearing names', () => {
 		const facts = factsStub();
-		const echoedHeadline = shapingOf({ awards: { ...shapingOf().awards, bestWeek: 'bravo is cooked this week, and honestly the chat called it' } });
-		// contains the m1 message text verbatim
-		expect(() => validateShaping(echoedHeadline, context, facts)).toThrow(/echoes archived chat/);
-		// short generic phrases stay legal even when they appeared in chat
-		const fine = shapingOf({ awards: { ...shapingOf().awards, bestWeek: 'bravo is cooked' } });
-		expect(validateShaping(fine, context, facts).awards.bestWeek).toBe('bravo is cooked.');
+		facts.results[0].a.displayName = 'alpha1';
+		const shaping = shapingOf({ editorial: [{ sentences: [
+			{ text: '{manager:1} dominated while {manager:2} struggled.', callbackMessageId: null },
+			{ text: '{speaker} backed {manager:1} before kickoff.', callbackMessageId: 'm2' },
+		] }] });
+		const validated = validateShaping(shaping, context, facts);
+		const rendered = renderWeekRecap(facts, validated, context);
+		expect(rendered).toContain('alpha1 dominated while bravo struggled. bravo backed alpha1 before kickoff.');
+		expect(rendered).not.toMatch(/\{manager:|\{speaker\}/);
+	});
+
+	it('rejects unknown and malformed manager references and digits outside valid tokens', () => {
+		for (const token of ['{manager:99}', '{manager:01}', '{manager:x}', '{manager: 1}', '{manager:1', '{manager}', '{Manager:1}', '{manager:1}}', '{{manager:1}}']) {
+			const shaping = shapingOf({ editorial: [{ sentences: [
+				{ text: `${token} dominated.`, callbackMessageId: null },
+				{ text: 'The win was emphatic.', callbackMessageId: null },
+			] }] });
+			expect(() => validateShaping(shaping, [], factsStub())).toThrow(/manager reference/);
+		}
+		const numbered = shapingOf({ editorial: [{ sentences: [
+			{ text: '{manager:1} won by 23.', callbackMessageId: null },
+			{ text: 'The result was emphatic.', callbackMessageId: null },
+		] }] });
+		expect(() => validateShaping(numbered, [], factsStub())).toThrow(/Digits/);
+		expect(() => renderWeekRecap(factsStub(), shapingOf({ editorial: [{ sentences: [
+			{ text: '{manager:99} dominated.', callbackMessageId: null },
+			{ text: 'The result was emphatic.', callbackMessageId: null },
+		] }] }), [])).toThrow(/manager reference/);
+	});
+
+	it('rejects direct supplied names without matching fragments of ordinary words', () => {
+		const story = (text: string) => shapingOf({ editorial: [{ sentences: [
+			{ text, callbackMessageId: null },
+			{ text: 'The result was emphatic.', callbackMessageId: null },
+		] }] });
+		expect(() => validateShaping(story('ALPHA dominated.'), [], factsStub())).toThrow(/manager name/);
+		expect(() => validateShaping(story('bravo\'s lineup struggled.'), [], factsStub())).toThrow(/manager name/);
+		expect(() => validateShaping(story('The alphabet offers no explanation.'), [], factsStub())).not.toThrow();
+		const symbolFacts = factsStub();
+		symbolFacts.results[0].a.displayName = '🔥';
+		expect(() => validateShaping(story('🔥 dominated.'), [], symbolFacts)).toThrow(/manager name/);
+		symbolFacts.results[0].a.displayName = 'a.b $&';
+		expect(() => validateShaping(story('a.b $& dominated.'), [], symbolFacts)).toThrow(/manager name/);
+	});
+
+	it('includes supplied subjects outside completed matchups in the reference map', () => {
+		const facts = factsStub();
+		facts.standings!.push({ rank: 3, team: { rosterId: 3, userId: 'u3', displayName: 'charlie' }, wins: 0, losses: 0, ties: 0, pointsFor: 0 });
+		expect(buildRecapPrompt(facts, [])).toContain('{manager:3}: charlie');
+		const shaping = shapingOf({ editorial: [{ sentences: [
+			{ text: '{manager:3} remains in contention.', callbackMessageId: null },
+			{ text: 'The standings leave room to move.', callbackMessageId: null },
+		] }] });
+		expect(renderWeekRecap(facts, validateShaping(shaping, [], facts), [])).toContain('charlie remains in contention.');
+	});
+
+	it('checks archived phrase copying after resolving manager references', () => {
+		const shaping = shapingOf({ editorial: [{ sentences: [
+			{ text: '{manager:2} is cooked this week.', callbackMessageId: null },
+			{ text: 'The result was emphatic.', callbackMessageId: null },
+		] }] });
+		expect(() => validateShaping(shaping, context, factsStub())).toThrow(/verbatim/);
+	});
+
+	it('preserves literal replacement characters and placeholders inside supplied names', () => {
+		const facts = factsStub();
+		facts.results[0].a.displayName = 'alpha $& {speaker}';
+		const shaping = shapingOf({ editorial: [{ sentences: [
+			{ text: '{speaker} backed {manager:1}.', callbackMessageId: 'm2' },
+			{ text: '{manager:1} dominated.', callbackMessageId: null },
+		] }] });
+		expect(renderWeekRecap(facts, validateShaping(shaping, context, facts), context)).toContain('bravo backed alpha $& {speaker}. alpha $& {speaker} dominated.');
+	});
+
+	it('trims whole stories after manager references expand', () => {
+		const facts = factsStub();
+		facts.results[0].a.displayName = 'a'.repeat(150);
+		const shaping = shapingOf({ editorial: ['dominated', 'impressed', 'excelled', 'thrived'].map(verb => ({ sentences: [
+			{ text: `{manager:1} ${verb} while {manager:2} struggled.`, callbackMessageId: null },
+			{ text: `{manager:1} ${verb} across the lineup.`, callbackMessageId: null },
+		] })) });
+		const validated = validateShaping(shaping, [], facts);
+		const rendered = renderWeekRecap(facts, validated, []);
+		expect(rendered.length).toBeLessThanOrEqual(RECAP_MAX_LENGTH);
+		expect(rendered).toContain('dominated across the lineup.');
+		expect(rendered).not.toContain('thrived');
+		expect(rendered).not.toContain('{manager:');
+	});
+
+	it('counts editorial words after manager name substitution', () => {
+		const facts = factsStub();
+		facts.results[0].a.displayName = 'a '.repeat(90).trim();
+		const shaping = shapingOf({ editorial: [{ sentences: [
+			{ text: '{manager:1} dominated.', callbackMessageId: null },
+			{ text: '{manager:1} earned the win.', callbackMessageId: null },
+		] }] });
+		expect(() => validateShaping(shaping, [], facts)).toThrow(/one hundred eighty words/);
 	});
 
 	it('includes complete facts and timestamped mapped chat in the prompt', () => {
@@ -227,6 +321,8 @@ describe('validateShaping', () => {
 		const prompt = buildRecapPrompt(factsStub({
 			playerStoryCandidates: [{ kind: 'top-starter', team: factsStub().results[0].a, player, points: 31.5 }],
 		}), context);
+		expect(prompt).toContain('{manager:1}: alpha');
+		expect(prompt).toContain('{manager:2}: bravo');
 		expect(prompt).toContain('Standings after week');
 		expect(prompt).toContain('Movement:');
 		expect(prompt).toContain('Top starter: Player One');
@@ -242,29 +338,37 @@ describe('validateShaping', () => {
 });
 
 describe('renderWeekRecap', () => {
-	it('renders the heading and omits a later duplicate matchup Highlight', () => {
-		const text = renderWeekRecap(factsStub(), shapingOf(), context);
-		expect(text.startsWith('Week 2 Recap\n\n')).toBe(true);
-		expect(text).toContain('- Roughest Week: bravo (97.25 points).');
-		expect(text).toContain('- Best Week: alpha (120.5 points).');
-		expect(text).toContain('- Most Entertaining Matchup: alpha 120.5, bravo 97.25 (23.25-point margin).');
-		expect(text).not.toContain('- Biggest Blowout:');
-		expect(text).not.toContain('Standings:');
-		expect(text).not.toContain('Watch next week:');
-		expect(text.length).toBeLessThanOrEqual(RECAP_MAX_LENGTH);
+	it('renders the exact facts-only awards and omits the empty Stories section', () => {
+		const facts = factsStub({ blowout: null });
+		const text = renderWeekRecap(facts, shapingOf(), context);
+		expect(text).toBe([
+			'Week 2 recap:',
+			'',
+			'Awards:',
+			'',
+			'• Manager of the Week: alpha (120.5 points, won against bravo).',
+			'',
+			'• Loser of the Week: bravo (97.25 points, lost to alpha).',
+			'',
+			'• Match of the Week: alpha 120.5, bravo 97.25 (23.25-point margin).',
+		].join('\n'));
+		expect(toPlainText(text)).toBe(text);
+		expect(Object.keys(recapShapingSchema.shape)).toEqual(['editorial']);
 	});
 
-	it('keeps Biggest Blowout when it covers a different matchup', () => {
+	it('omits the displayed blowout while keeping its facts in the prompt', () => {
 		const facts = factsStub();
 		const charlie = { rosterId: 3, userId: 'u3', displayName: 'charlie' };
 		const delta = { rosterId: 4, userId: 'u4', displayName: 'delta' };
 		const blowout = { a: charlie, b: delta, aPoints: 140, bPoints: 80, margin: 60, winner: charlie, loser: delta };
 		facts.results.push(blowout);
 		facts.blowout = blowout;
-		expect(renderWeekRecap(facts, shapingOf(), context)).toContain('- Biggest Blowout: charlie 140, delta 80 (60-point margin).');
+		expect(renderWeekRecap(facts, shapingOf(), context)).not.toContain('Biggest Blowout');
+		expect(buildRecapPrompt(facts, context)).toContain('Biggest Blowout facts: charlie 140 vs delta 80, margin 60');
+		expect(buildRecapPrompt(factsStub(), context)).toContain('Biggest Blowout facts: alpha 120.5 vs bravo 97.25, margin 23.25');
 	});
 
-	it('renders editorial paragraphs with deterministic callback attribution and no heading', () => {
+	it('renders Stories with deterministic callback attribution', () => {
 		const shaping = shapingOf({ editorial: [{ sentences: [
 			{ text: 'The matchup turned the week into a real contest.', callbackMessageId: null },
 			{ text: '{speaker} supplied confidence that the result did not repay.', callbackMessageId: 'm2' },
@@ -273,11 +377,11 @@ describe('renderWeekRecap', () => {
 		expect(text).not.toContain('been workshopping plays all night');
 		expect(text).toContain('\n\nThe matchup turned the week into a real contest. bravo supplied confidence that the result did not repay.');
 		expect(text).not.toContain('Editorial');
-		expect(text.startsWith('Week 2 Recap')).toBe(true);
+		expect(text).toContain('\n\nStories of the Week:\n\n');
 	});
 
 	it('drops the weakest complete paragraph to stay under the length cap', () => {
-		const long = 'team'.repeat(55);
+		const long = 'team'.repeat(40);
 		const alpha = { rosterId: 1, userId: 'u1', displayName: `${long}a` };
 		const bravo = { rosterId: 2, userId: 'u2', displayName: `${long}b` };
 		const result = { a: alpha, b: bravo, aPoints: 120.5, bPoints: 97.25, margin: 23.25, winner: alpha, loser: bravo };
@@ -316,11 +420,46 @@ describe('renderWeekRecap', () => {
 		expect(text).toContain('alpha 120.5, bravo 97.25; charlie 110, delta 86.75');
 	});
 
-	it('leaves an award factual when the model returns no worthwhile joke', () => {
-		const shaping = shapingOf({ awards: { ...shapingOf().awards, bestWeek: null } });
-		const text = renderWeekRecap(factsStub(), shaping, context);
-		expect(text).toContain('- Best Week: alpha (120.5 points).\n');
-		expect(text).not.toContain('null');
+	it('preserves tied high/low scorers and tied closest matches without inventing wins or losses', () => {
+		const facts = factsStub();
+		const [alpha, bravo] = [facts.results[0].a, facts.results[0].b];
+		const charlie = { rosterId: 3, userId: 'u3', displayName: 'charlie' };
+		const delta = { rosterId: 4, userId: 'u4', displayName: 'delta' };
+		const highTie = { a: alpha, b: bravo, aPoints: 120, bPoints: 120, margin: 0, winner: null, loser: null };
+		const lowTie = { a: charlie, b: delta, aPoints: 80, bPoints: 80, margin: 0, winner: null, loser: null };
+		Object.assign(facts, {
+			results: [highTie, lowTie],
+			high: { teams: [alpha, bravo], points: 120 },
+			low: { teams: [charlie, delta], points: 80 },
+			closest: highTie,
+			blowout: highTie,
+		});
+		const text = renderWeekRecap(facts, shapingOf(), []);
+		expect(text).toContain('Manager of the Week: alpha (120 points, tied bravo); bravo (120 points, tied alpha).');
+		expect(text).toContain('Loser of the Week: charlie (80 points, tied delta); delta (80 points, tied charlie).');
+		expect(text).toContain('Match of the Week: alpha 120, bravo 120; charlie 80, delta 80 (0-point margin).');
+		expect(text).not.toMatch(/won|lost|Stories/);
+	});
+
+	it('accepts and renders four stories in importance order', () => {
+		const shaping = shapingOf({ editorial: ['First', 'Second', 'Third', 'Fourth'].map(marker => ({ sentences: [
+			{ text: `${marker} story adds a distinct interpretation.`, callbackMessageId: null },
+			{ text: `${marker} premise earns its place here.`, callbackMessageId: null },
+		] })) });
+		const validated = validateShaping(shaping, context, factsStub());
+		const text = renderWeekRecap(factsStub(), validated, context);
+		expect(text.split('\n\nStories of the Week:\n\n')[1].split('\n\n')).toEqual([
+			...validated.editorial.map(story => story.sentences.map(sentence => sentence.text).join(' ')),
+		]);
+		expect(text.length).toBeLessThanOrEqual(RECAP_MAX_LENGTH);
+	});
+
+	it('omits the Stories heading when every whole paragraph must be removed', () => {
+		const shaping = shapingOf({ editorial: [{ sentences: [
+			{ text: `${'x'.repeat(1800)}.`, callbackMessageId: null },
+			{ text: 'A closing thought.', callbackMessageId: null },
+		] }] });
+		expect(renderWeekRecap(factsStub(), shaping, [])).toBe(renderWeekRecap(factsStub(), shapingOf(), []));
 	});
 });
 

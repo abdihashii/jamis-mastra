@@ -20,9 +20,21 @@ _Avoid_: last week, finished week
 League results, comparisons, and standings context established from Sleeper data. They are authoritative inputs to the Fantasy weekly recap.
 _Avoid_: agent analysis, recap claims
 
+**Manager of the Week**:
+The facts-only Fantasy weekly recap award for the highest score in the completed fantasy week. Tied highest scorers share the award.
+
+**Loser of the Week**:
+The facts-only Fantasy weekly recap award for the lowest score in the completed fantasy week, regardless of matchup outcome. Tied lowest scorers share the award.
+
+**Match of the Week**:
+The facts-only Fantasy weekly recap award for the closest matchup in the completed fantasy week. Matchups tied for the smallest margin share the award.
+
 **Fantasy weekly recap**:
 One league-wide editorial message about a completed fantasy week, grounded in Fantasy facts and relevant Fantasy group conversation.
 _Avoid_: weekly recap (ambiguous), weekly report, team recap
+
+**Story of the Week**:
+A paragraph interpreting a worthwhile story from Fantasy facts or relevant Fantasy group conversation, including awarded performances. Humor is optional and should be immediately understandable; roasting targets fantasy performance rather than personal traits or real-life circumstances, and stories earn their place through substance rather than filling a quota.
 
 **Fantasy recap chat context**:
 The Fantasy group conversation considered while composing one Fantasy weekly recap.

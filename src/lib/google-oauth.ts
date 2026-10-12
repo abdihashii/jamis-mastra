@@ -1,10 +1,14 @@
 /**
- * Google OAuth for the operator's Gmail (ADR 0015, plan 011).
+ * Google OAuth for the operator's Google accounts (ADR 0015, plan 011).
  *
  * Node builtins and plain fetch only: this module must stay runnable inside
  * `oven/bun` with no node_modules (the login and smoke scripts run on the VPS
- * that way). Desktop-app client, loopback redirect, credential must carry
- * every scope in GOOGLE_REQUIRED_SCOPES (plan 012). Wire format from
+ * that way).
+ *
+ * Desktop-app client, loopback redirect, credential must carry
+ * every scope in GOOGLE_REQUIRED_SCOPES (plan 012).
+ *
+ * Wire format from
  * https://developers.google.com/identity/protocols/oauth2/native-app — the
  * loopback listener and any-port redirect remain supported for Desktop clients.
  *
@@ -32,7 +36,11 @@ export const CALENDAR_LIST_READONLY_SCOPE = 'https://www.googleapis.com/auth/cal
  * Every scope Jamis needs; the granted set must contain all of them. A miss
  * fails generic, so a stale file never reaches the API.
  */
-export const GOOGLE_REQUIRED_SCOPES = [GMAIL_READONLY_SCOPE, CALENDAR_EVENTS_READONLY_SCOPE, CALENDAR_LIST_READONLY_SCOPE] as const;
+export const GOOGLE_REQUIRED_SCOPES = [
+	GMAIL_READONLY_SCOPE,
+	CALENDAR_EVENTS_READONLY_SCOPE,
+	CALENDAR_LIST_READONLY_SCOPE,
+] as const;
 const GOOGLE_CALENDARLIST_URL = 'https://www.googleapis.com/calendar/v3/users/me/calendarList';
 const DEFAULT_EXPIRES_IN_SECONDS = 3599;
 /** Treat the credential as expiring this long before the real expiry so clock skew cannot ship a dead token. */
@@ -238,7 +246,11 @@ export async function getUsableCredential(
  * List the operator's calendars for the login-time pool picker (plan 012).
  * Callers check `hasCalendarListScope` first. Never logs calendar data.
  */
-export async function listOperatorCalendars(accessToken: string): Promise<Array<{ id: string; summary: string; timeZone: string; primary?: boolean }>> {
+export async function listOperatorCalendars(
+	accessToken: string,
+): Promise<
+	Array<{ id: string; summary: string; timeZone: string; primary?: boolean }>
+> {
 	// ponytail: one page of 250 covers any sane account (operator has ~6); add
 	// nextPageToken loop if someone ever hits the cap.
 	const response = await fetch(`${GOOGLE_CALENDARLIST_URL}?maxResults=250`, {
@@ -246,13 +258,22 @@ export async function listOperatorCalendars(accessToken: string): Promise<Array<
 	});
 	if (!response.ok) {
 		const text = await response.text().catch(() => '');
-		throw new Error(`calendarList failed with status ${response.status}${text ? ` ${text.slice(0, 200)}` : ''}`);
+		throw new Error(
+			`calendarList failed with status ${response.status}${text ? ` ${text.slice(0, 200)}` : ''}`,
+		);
 	}
 	const json = (await response.json()) as {
 		items?: Array<{ id?: string; summary?: string; timeZone?: string; primary?: boolean }>;
 	};
 	return (json.items ?? [])
-		.filter((c): c is { id: string; summary?: string; timeZone: string; primary?: boolean } => typeof c.id === 'string' && c.id.length > 0 && typeof c.timeZone === 'string')
+		.filter(
+			(c): c is {
+				id: string;
+				summary?: string;
+				timeZone: string;
+				primary?: boolean;
+			} => typeof c.id === 'string' && c.id.length > 0 && typeof c.timeZone === 'string',
+		)
 		.map(c => ({
 			id: c.id,
 			summary: c.summary ?? c.id,
@@ -267,7 +288,10 @@ export function hasCalendarListScope(scope: string): boolean {
 }
 
 /** Persist a calendar pool onto the stored credential (atomic, 0600). */
-export async function saveCalendarPool(calendars: Array<{ id: string; summary: string; timeZone: string; primary?: boolean }>, path: string = defaultCredentialPath()): Promise<void> {
+export async function saveCalendarPool(
+	calendars: Array<{ id: string; summary: string; timeZone: string; primary?: boolean }>,
+	path: string = defaultCredentialPath(),
+): Promise<void> {
 	const cred = await loadCredential(path);
 	if (!cred)
 		throw new Error(GOOGLE_AUTH_FAILURE);
@@ -275,7 +299,11 @@ export async function saveCalendarPool(calendars: Array<{ id: string; summary: s
 }
 
 /** PKCE pair (S256) plus a CSRF state token for one login attempt. */
-export function generatePkceAndState(): { codeVerifier: string; codeChallenge: string; state: string } {
+export function generatePkceAndState(): {
+	codeVerifier: string;
+	codeChallenge: string;
+	state: string;
+} {
 	const codeVerifier = randomBytes(32).toString('base64url');
 	const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
 	return { codeVerifier, codeChallenge, state: randomBytes(16).toString('base64url') };

@@ -27,7 +27,9 @@ export function geocodeQueries(location: string): string[] {
  * @param location - Operator or model text
  * @returns A /geo/1.0/zip query when the input is a ZIP, else null
  */
-export function zipQuery(location: string): { zip: string; country: string } | null {
+export function zipQuery(
+	location: string,
+): { zip: string; country: string } | null {
 	const m = location.trim().match(/^(\d{4,5})(?:\s*,\s*([A-Z]{2}))?$/i);
 	if (!m)
 		return null;

@@ -1,5 +1,6 @@
-import type { WeekFacts } from './analysis';
+import type { ScoringExtreme, WeekFacts } from './analysis';
 import type { ChatContextMessage, RecapShaping } from './generate';
+import { managerReferences, resolveManagerReferences } from './generate';
 
 export const RECAP_MAX_LENGTH = 2000;
 
@@ -13,42 +14,43 @@ export function renderWeekRecap(facts: WeekFacts, shaping: RecapShaping, context
 		if (text.length <= RECAP_MAX_LENGTH)
 			return text;
 		if (editorial.length === 0)
-			throw new RecapRenderError(`Recap is ${text.length} chars even without editorial; Highlights alone overflow ${RECAP_MAX_LENGTH}`);
+			throw new RecapRenderError(`Recap is ${text.length} chars even without editorial; Awards alone overflow ${RECAP_MAX_LENGTH}`);
 	}
 }
 
 function assemble(facts: WeekFacts, shaping: RecapShaping, context: ChatContextMessage[]): string {
 	const byId = new Map(context.map(m => [m.id, m]));
-	if (!facts.high || !facts.low || !facts.closest || !facts.blowout)
-		throw new RecapRenderError('All four weekly awards require at least one scored matchup');
+	const references = managerReferences(facts);
+	if (!facts.high || !facts.low || !facts.closest)
+		throw new RecapRenderError('All three weekly awards require at least one scored matchup');
 
 	const closestResults = facts.results.filter(r => r.margin === facts.closest!.margin);
-	const blowoutResults = facts.results.filter(r => r.margin === facts.blowout!.margin);
 	const closest = closestResults
 		.map(r => `${r.a.displayName} ${r.aPoints}, ${r.b.displayName} ${r.bPoints}`)
 		.join('; ');
-	const blowouts = blowoutResults
-		.map(r => `${r.a.displayName} ${r.aPoints}, ${r.b.displayName} ${r.bPoints}`)
-		.join('; ');
-	const take = (text: string | null) => text ? ` ${text.trim()}` : '';
 	const lines: string[] = [
-		`Week ${facts.week} Recap`,
+		`Week ${facts.week} recap:`,
 		'',
-		`- Roughest Week: ${facts.low.teams.map(t => t.displayName).join(', ')} (${facts.low.points} points).${take(shaping.awards.roughestWeek)}`,
-		`- Best Week: ${facts.high.teams.map(t => t.displayName).join(', ')} (${facts.high.points} points).${take(shaping.awards.bestWeek)}`,
-		`- Most Entertaining Matchup: ${closest} (${facts.closest.margin}-point margin).${take(shaping.awards.mostEntertainingMatchup)}`,
+		'Awards:',
+		'',
+		`• Manager of the Week: ${scoringContext(facts.high, facts)}.`,
+		'',
+		`• Loser of the Week: ${scoringContext(facts.low, facts)}.`,
+		'',
+		`• Match of the Week: ${closest} (${facts.closest.margin}-point margin).`,
 	];
-	if (matchupSetKey(blowoutResults) !== matchupSetKey(closestResults))
-		lines.push(`- Biggest Blowout: ${blowouts} (${facts.blowout.margin}-point margin).${take(shaping.awards.biggestBlowout)}`);
+	if (shaping.editorial.length > 0)
+		lines.push('', 'Stories of the Week:');
 
 	for (const story of shaping.editorial) {
 		const sentences = story.sentences.map((sentence) => {
+			const text = resolveManagerReferences(sentence.text, references);
 			if (!sentence.callbackMessageId)
-				return sentence.text.trim();
+				return text.trim();
 			const source = byId.get(sentence.callbackMessageId);
 			if (!source)
 				throw new RecapRenderError(`Editorial callback references unknown message id "${sentence.callbackMessageId}"`);
-			return sentence.text.replace('{speaker}', source.sender).trim();
+			return resolveManagerReferences(sentence.text, references, source.sender).trim();
 		});
 		lines.push('', sentences.join(' '));
 	}
@@ -56,9 +58,13 @@ function assemble(facts: WeekFacts, shaping: RecapShaping, context: ChatContextM
 	return lines.join('\n');
 }
 
-function matchupSetKey(results: WeekFacts['results']): string {
-	return results
-		.map(result => [result.a.rosterId, result.b.rosterId].sort((a, b) => a - b).join(':'))
-		.sort()
-		.join('|');
+function scoringContext(award: ScoringExtreme, facts: WeekFacts): string {
+	return award.teams.map((team) => {
+		const result = facts.results.find(r => r.a.rosterId === team.rosterId || r.b.rosterId === team.rosterId);
+		if (!result)
+			throw new RecapRenderError(`Award roster ${team.rosterId} has no scored matchup`);
+		const opponent = result.a.rosterId === team.rosterId ? result.b : result.a;
+		const outcome = !result.winner ? 'tied' : result.winner.rosterId === team.rosterId ? 'won against' : 'lost to';
+		return `${team.displayName} (${award.points} points, ${outcome} ${opponent.displayName})`;
+	}).join('; ');
 }

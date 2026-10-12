@@ -1,6 +1,6 @@
-import { SQL } from 'bun';
-
 import process from 'node:process';
+
+import { SQL } from 'bun';
 
 import { isIanaTimeZone } from './time';
 
@@ -98,9 +98,15 @@ export async function withOperatorTimeZoneTransaction<T>(
 	});
 }
 
-export async function resolveOperatorTimeZone(defaultTimeZone: string, sql: SqlLike = getSql()): Promise<OperatorTimeZone> {
+export async function resolveOperatorTimeZone(
+	defaultTimeZone: string,
+	sql: SqlLike = getSql(),
+): Promise<OperatorTimeZone> {
 	await ensureOperatorTimeZoneTable(sql);
-	const rows = await sql`SELECT override_time_zone FROM operator_time_zone WHERE singleton = TRUE` as { override_time_zone: string | null }[];
+	const rows
+		= await sql`SELECT override_time_zone FROM operator_time_zone WHERE singleton = TRUE` as {
+			override_time_zone: string | null;
+		}[];
 	const override = rows[0]?.override_time_zone;
 
 	return override
@@ -108,7 +114,10 @@ export async function resolveOperatorTimeZone(defaultTimeZone: string, sql: SqlL
 		: { timeZone: defaultTimeZone, source: 'default' };
 }
 
-export async function setOperatorTimeZoneOverride(timeZone: string | null, sql: SqlLike = getSql()): Promise<void> {
+export async function setOperatorTimeZoneOverride(
+	timeZone: string | null,
+	sql: SqlLike = getSql(),
+): Promise<void> {
 	const override = timeZone?.trim() || null;
 	if (override && !isIanaTimeZone(override)) {
 		throw new Error(`Invalid operator time zone: "${override}".`);
@@ -123,7 +132,9 @@ export async function setOperatorTimeZoneOverride(timeZone: string | null, sql: 
 	`;
 }
 
-export async function readPendingOperatorTimeZoneProposal(sql: SqlLike = getSql()): Promise<PendingOperatorTimeZoneProposal | null> {
+export async function readPendingOperatorTimeZoneProposal(
+	sql: SqlLike = getSql(),
+): Promise<PendingOperatorTimeZoneProposal | null> {
 	await ensureOperatorTimeZoneTable(sql);
 	const rows = await sql`
 		SELECT proposal_thread_id, proposal_message_id
@@ -135,7 +146,9 @@ export async function readPendingOperatorTimeZoneProposal(sql: SqlLike = getSql(
 		: null;
 }
 
-export async function readPendingOperatorTimeZoneNotification(sql: SqlLike = getSql()): Promise<PendingOperatorTimeZoneNotification | null> {
+export async function readPendingOperatorTimeZoneNotification(
+	sql: SqlLike = getSql(),
+): Promise<PendingOperatorTimeZoneNotification | null> {
 	await ensureOperatorTimeZoneTable(sql);
 	const rows = await sql`
 		SELECT notification_thread_id, notification_message_id, notification_override_time_zone
@@ -173,7 +186,9 @@ export async function clearPendingOperatorTimeZoneNotification(
 	`;
 }
 
-export async function clearOperatorTimeZoneConversation(sql: SqlLike = getSql()): Promise<void> {
+export async function clearOperatorTimeZoneConversation(
+	sql: SqlLike = getSql(),
+): Promise<void> {
 	await ensureOperatorTimeZoneTable(sql);
 	await sql`
 		UPDATE operator_time_zone
