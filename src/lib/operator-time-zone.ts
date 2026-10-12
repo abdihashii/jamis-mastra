@@ -1,6 +1,6 @@
-import { SQL } from 'bun';
-
 import process from 'node:process';
+
+import { SQL } from 'bun';
 
 import { isIanaTimeZone } from './time';
 
