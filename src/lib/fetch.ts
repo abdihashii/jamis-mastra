@@ -16,8 +16,7 @@ export async function fetchJson(
 		const response = await fetch(url, { signal, headers });
 		const json = await response.json().catch(() => null);
 		return { ok: response.ok, status: response.status, json };
-	}
-	catch (error) {
+	} catch (error) {
 		if (signal?.aborted)
 			throw signal.reason ?? error;
 		if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {

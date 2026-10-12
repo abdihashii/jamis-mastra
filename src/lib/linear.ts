@@ -35,7 +35,10 @@ export const linearReadInputSchema = z.object({
 	const collection = input.action === 'list' || input.action === 'search';
 	if ((input.action === 'search') !== (input.query !== undefined)
 		|| collection === (input.reference !== undefined)
-		|| (!collection && [input.stateType, input.state, input.priority, input.assigneeId].some(value => value !== undefined))
+		|| (
+			!collection
+			&& [input.stateType, input.state, input.priority, input.assigneeId].some(value => value !== undefined)
+		)
 		|| (input.action === 'issue' && input.cursor !== undefined)) {
 		ctx.addIssue({
 			code: 'custom',
@@ -179,8 +182,7 @@ export function createLinearClient(
 			return await response.json().catch(() => {
 				throw new LinearError(signal.aborted ? 'timeout' : 'response');
 			});
-		}
-		catch (error) {
+		} catch (error) {
 			if (error instanceof LinearError)
 				throw error;
 			throw new LinearError(signal.aborted ? 'timeout' : 'unavailable');
@@ -211,14 +213,16 @@ export function createLinearClient(
 				) {
 					throw new LinearError('response');
 				}
-				token = { access: result.data.access_token, expiresAt: startedAt + result.data.expires_in * 1000 - 60_000 };
+				token = {
+					access: result.data.access_token,
+					expiresAt: startedAt + result.data.expires_in * 1000 - 60_000,
+				};
 				return token.access;
 			})();
 		}
 		try {
 			return await pendingToken;
-		}
-		finally {
+		} finally {
 			pendingToken = undefined;
 		}
 	}
@@ -301,7 +305,12 @@ export function createLinearClient(
 			search
 				? `query JamisSearch($filter: IssueFilter!, $first: Int!, $after: String, $term: String!) { results: searchIssues(filter: $filter, first: $first, after: $after, term: $term) { nodes { ${ISSUE_FIELDS} } ${PAGE_FIELDS} } }`
 				: `query JamisList($filter: IssueFilter!, $first: Int!, $after: String) { results: issues(filter: $filter, first: $first, after: $after) { nodes { ${ISSUE_FIELDS} } ${PAGE_FIELDS} } }`,
-			{ filter, first: collection ? input.limit : 2, after: collection ? input.cursor : undefined, ...(search ? { term: input.query ?? ref } : {}) },
+			{
+				filter,
+				first: collection ? input.limit : 2,
+				after: collection ? input.cursor : undefined,
+				...(search ? { term: input.query ?? ref } : {}),
+			},
 			z.object({ results: connection(issueSchema) }),
 			signal,
 		);
@@ -402,8 +411,7 @@ export function createLinearClient(
 			state = result.workflowStates.nodes[0];
 			if (state.name !== input.data.state)
 				throw new LinearError('response');
-		}
-		else {
+		} else {
 			const result = await graphql(
 				'query JamisDefaultCreateState($id: String!) { team(id: $id) { id defaultIssueState { id name team { id } } } }',
 				{ id: team.id },
@@ -447,8 +455,7 @@ export function createLinearClient(
 					return { status: 'failed' };
 				}
 				break;
-			}
-			catch (error) {
+			} catch (error) {
 				if (
 					attempt === 0
 					&& error instanceof LinearError
@@ -478,8 +485,7 @@ export function createLinearClient(
 				return { status: 'uncertain' };
 			}
 			return { status: 'succeeded', identifier: issue.identifier, url: issue.url };
-		}
-		catch {
+		} catch {
 			// Sent requests, partial errors, malformed/lost responses: never replay.
 			return { status: 'uncertain' };
 		}
@@ -523,8 +529,7 @@ export function createLinearClient(
 				operation: op,
 				outcome: { status: 'succeeded', identifier: issue.identifier, url: issue.url },
 			};
-		}
-		catch { return { status: 'unresolved' }; }
+		} catch { return { status: 'unresolved' }; }
 	}
 
 	return { readIdentityAndTeam, readIssues, prepareCreate, executeCreate, inspectCreate };

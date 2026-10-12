@@ -67,7 +67,9 @@ test('reads validated app identity and pinned team with the uniform read/create-
 test('coalesces simultaneous token requests without caching team evidence', async () => {
 	replies.push(Response.json({ data: evidence }));
 	const client = createLinearClient(config);
-	expect(await Promise.all([client.readIdentityAndTeam(), client.readIdentityAndTeam()])).toEqual([evidence, evidence]);
+	expect(
+		await Promise.all([client.readIdentityAndTeam(), client.readIdentityAndTeam()]),
+	).toEqual([evidence, evidence]);
 	expect(calls.filter(c => c.url.endsWith('/oauth/token'))).toHaveLength(1);
 });
 
@@ -80,8 +82,7 @@ test('renews tokens before expiry using server lifetime', async () => {
 		replies.push(Response.json(grant), Response.json({ data: evidence }));
 		await client.readIdentityAndTeam();
 		expect(calls.filter(c => c.url.endsWith('/oauth/token'))).toHaveLength(2);
-	}
-	finally {
+	} finally {
 		clock.mockRestore();
 	}
 });
@@ -137,8 +138,7 @@ test('rejected credentials and upstream failures expose only safe categories', a
 		try {
 			await createLinearClient(config).readIdentityAndTeam();
 			throw new Error('Expected rejection');
-		}
-		catch (error) {
+		} catch (error) {
 			expect(error).toBeInstanceOf(LinearError);
 			expect((error as LinearError).category).toBe(category);
 			expect(String(error)).not.toContain(config.LINEAR_CLIENT_SECRET);
@@ -176,8 +176,7 @@ test('bounds token and GraphQL waits, including response body consumption', asyn
 			await expect(createLinearClient(config).readIdentityAndTeam()).rejects.toThrow('Linear timeout failure.');
 		}
 		expect(timeout.mock.calls.every(([ms]) => ms === 10_000)).toBe(true);
-	}
-	finally {
+	} finally {
 		timeout.mockRestore();
 	}
 });
@@ -236,7 +235,9 @@ test('exact identifier and UUID resolve in-team before description reads; long t
 		expect(result).toMatchObject({ status: 'ok', partial: true, nextCursor: null, issue: { id: issue.id, truncated: true } });
 		expect(result.issue!.description).toHaveLength(8000);
 		expect(JSON.stringify(result)).not.toContain(grant.access_token);
-		expect(JSON.parse(calls.at(-2)!.init.body as string).variables.filter).toMatchObject({ team: { id: { eq: config.LINEAR_TEAM_ID } } });
+		expect(
+			JSON.parse(calls.at(-2)!.init.body as string).variables.filter,
+		).toMatchObject({ team: { id: { eq: config.LINEAR_TEAM_ID } } });
 	}
 });
 
@@ -271,15 +272,17 @@ test('comments and attachments retain only validated metadata with independent p
 		if (action === 'comments') {
 			expect(result.comments![0].body).toHaveLength(4000);
 			expect(result.comments![0].truncated).toBe(true);
-		}
-		else {
+		} else {
 			expect(result.attachments![0]).toEqual({ id: attachment.id, title: attachment.title, url: attachment.url });
 		}
 	}
 });
 
 test('untrusted content is returned as data, never executed or fetched', async () => {
-	replies.push(page(), Response.json({ data: { issue: { ...issue, comments: { nodes: [comment], pageInfo: completePage } } } }));
+	replies.push(
+		page(),
+		Response.json({ data: { issue: { ...issue, comments: { nodes: [comment], pageInfo: completePage } } } }),
+	);
 	expect(await createLinearClient(config).readIssues({ action: 'comments', reference: issue.id })).toMatchObject({ status: 'ok', comments: [{ body: comment.body }] });
 	expect(calls.every(call => call.url.startsWith('https://api.linear.app/'))).toBe(true);
 	expect(calls.every(call => !String(call.init.body).includes('mutation'))).toBe(true);
@@ -287,7 +290,11 @@ test('untrusted content is returned as data, never executed or fetched', async (
 
 test('unexpected cross-team list/search results fail closed', async () => {
 	for (const action of ['list', 'search'] as const) {
-		replies = [Response.json(grant), Response.json({ data: evidence }), page([{ ...issue, team: { id: evidence.viewer.id } }])];
+		replies = [
+			Response.json(grant),
+			Response.json({ data: evidence }),
+			page([{ ...issue, team: { id: evidence.viewer.id } }]),
+		];
 		await expect(createLinearClient(config).readIssues({ action, ...(action === 'search' ? { query: 'fixture' } : {}) })).rejects.toThrow('Linear team failure.');
 	}
 });
@@ -295,11 +302,28 @@ test('unexpected cross-team list/search results fail closed', async () => {
 test('team change between resolution and detail fetch, and nested mismatches, are refused', async () => {
 	for (const detail of [
 		{ ...issue, team: { id: evidence.viewer.id }, description: 'private other-team data' },
-		{ ...issue, comments: { nodes: [{ ...comment, issue: { id: issue.id, team: { id: evidence.viewer.id } } }], pageInfo: completePage } },
-		{ ...issue, attachments: { nodes: [{ ...attachment, issue: { id: evidence.viewer.id, team: issue.team } }], pageInfo: completePage } },
+		{
+			...issue,
+			comments: {
+				nodes: [{ ...comment, issue: { id: issue.id, team: { id: evidence.viewer.id } } }],
+				pageInfo: completePage,
+			},
+		},
+		{
+			...issue,
+			attachments: {
+				nodes: [{ ...attachment, issue: { id: evidence.viewer.id, team: issue.team } }],
+				pageInfo: completePage,
+			},
+		},
 	]) {
 		const action = 'description' in detail ? 'issue' : 'comments' in detail ? 'comments' : 'attachments';
-		replies = [Response.json(grant), Response.json({ data: evidence }), page(), Response.json({ data: { issue: detail } })];
+		replies = [
+			Response.json(grant),
+			Response.json({ data: evidence }),
+			page(),
+			Response.json({ data: { issue: detail } }),
+		];
 		await expect(createLinearClient(config).readIssues({ action, reference: 'JAM-64' })).rejects.toThrow('Linear team failure.');
 	}
 });
@@ -355,13 +379,22 @@ test('create proposal resolves the exact default or named state without sending 
 
 test('create proposals reject ambiguous, missing, or foreign workflow states', async () => {
 	for (const nodes of [[], [createState, createState], [{ ...createState, name: 'Other' }], [{ ...createState, team: { id: evidence.viewer.id } }]]) {
-		replies = [Response.json(grant), Response.json({ data: evidence }), Response.json({ data: { workflowStates: { nodes, pageInfo: { hasNextPage: false } } } })];
+		replies = [
+			Response.json(grant),
+			Response.json({ data: evidence }),
+			Response.json({ data: { workflowStates: { nodes, pageInfo: { hasNextPage: false } } } }),
+		];
 		await expect(createLinearClient(config).prepareCreate({ action: 'create', title: 'Test', state: 'Backlog' })).rejects.toBeInstanceOf(LinearError);
 	}
 });
 
 test('confirmed create rechecks identity/team/state and sends only allowlisted fields once', async () => {
-	replies = [Response.json(writeGrant), Response.json({ data: evidence }), stateReply(), Response.json({ data: { issueCreate: { success: true, issue: { ...issue, title: createOp.title } } } })];
+	replies = [
+		Response.json(writeGrant),
+		Response.json({ data: evidence }),
+		stateReply(),
+		Response.json({ data: { issueCreate: { success: true, issue: { ...issue, title: createOp.title } } } }),
+	];
 	expect(await createLinearClient(config, true).executeCreate(createOp)).toEqual({ status: 'succeeded', identifier: issue.identifier, url: issue.url });
 	expect(Object.fromEntries(calls[0].init.body as URLSearchParams).scope).toBe('read,issues:create');
 	expect(JSON.parse(calls.at(-1)!.init.body as string).variables).toEqual({ input: {
@@ -379,7 +412,11 @@ test('read client, unknown fields, foreign team, and changed workflow state cann
 	for (const op of [{ ...createOp, teamId: evidence.viewer.id }, { ...createOp, projectId: issue.id }])
 		expect(await createLinearClient(config, true).executeCreate(op)).toEqual({ status: 'failed' });
 	expect(calls).toHaveLength(0);
-	replies = [Response.json(writeGrant), Response.json({ data: evidence }), Response.json({ data: { workflowState: { ...createState, team: { id: evidence.viewer.id } } } })];
+	replies = [
+		Response.json(writeGrant),
+		Response.json({ data: evidence }),
+		Response.json({ data: { workflowState: { ...createState, team: { id: evidence.viewer.id } } } }),
+	];
 	expect(await createLinearClient(config, true).executeCreate(createOp)).toEqual({ status: 'failed' });
 	expect(calls.every(call => !String(call.init.body).includes('mutation'))).toBe(true);
 	for (const input of [{ action: 'update', title: 'Test' }, { action: 'comment', title: 'Test' }, { action: 'create', title: 'Test', teamId: issue.id }, { action: 'create', title: 'x'.repeat(201) }, { action: 'create', title: 'Test', description: 'x'.repeat(2001) }])
@@ -408,10 +445,22 @@ test('lost, partial, malformed, failed, and mismatched mutation responses are un
 });
 
 test('one exact-ID inspection verifies every proposed field and never mutates', async () => {
-	const found = { id: createOp.id, identifier: issue.identifier, title: createOp.title, description: createOp.description, url: issue.url, team: { id: createOp.teamId }, state: { id: createOp.stateId, name: createOp.stateName } };
+	const found = {
+		id: createOp.id,
+		identifier: issue.identifier,
+		title: createOp.title,
+		description: createOp.description,
+		url: issue.url,
+		team: { id: createOp.teamId },
+		state: { id: createOp.stateId, name: createOp.stateName },
+	};
 	for (const candidate of [found, null, { ...found, id: evidence.viewer.id }, { ...found, team: { id: evidence.viewer.id } }, { ...found, title: 'Other' }, { ...found, description: 'Other' }, { ...found, state: { ...found.state, id: evidence.viewer.id } }, { ...found, state: { ...found.state, name: 'Other' } }, { ...found, url: 'https://example.com/forged' }]) {
 		calls = [];
-		replies = [Response.json(grant), Response.json({ data: evidence }), Response.json({ data: { issue: candidate } })];
+		replies = [
+			Response.json(grant),
+			Response.json({ data: evidence }),
+			Response.json({ data: { issue: candidate } }),
+		];
 		const result = await createLinearClient(config).inspectCreate(createOp);
 		expect(result.status).toBe(candidate === found ? 'verified' : 'unresolved');
 		expect(calls.filter(call => String(call.init.body).includes('JamisInspectCreate'))).toHaveLength(1);

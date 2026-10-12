@@ -44,8 +44,7 @@ test('rethrows aborts instead of masking them', async () => {
 	try {
 		await fetchJson(`${base}/ok`, controller.signal);
 		expect.unreachable();
-	}
-	catch (error) {
+	} catch (error) {
 		expect((error as Error).name).toBe('AbortError');
 	}
 });
@@ -63,8 +62,7 @@ test('wraps connection failures as a class, detail to the server log', async () 
 	try {
 		await fetchJson(`http://localhost:${port}/ok`);
 		expect.unreachable();
-	}
-	catch (error) {
+	} catch (error) {
 		expect((error as Error).message).toBe('Service unreachable.');
 	}
 });

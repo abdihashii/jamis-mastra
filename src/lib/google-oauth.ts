@@ -84,8 +84,7 @@ export async function loadCredential(path: string = defaultCredentialPath()): Pr
 	let raw: string;
 	try {
 		raw = await readFile(path, 'utf8');
-	}
-	catch {
+	} catch {
 		return null;
 	}
 	try {
@@ -121,8 +120,7 @@ export async function loadCredential(path: string = defaultCredentialPath()): Pr
 			scope: parsed.scope,
 			...(calendars?.length ? { calendars } : {}),
 		};
-	}
-	catch {
+	} catch {
 		return null;
 	}
 }
@@ -309,7 +307,9 @@ export function generatePkceAndState(): {
 	return { codeVerifier, codeChallenge, state: randomBytes(16).toString('base64url') };
 }
 
-/** Consent URL for the loopback flow: offline access yields the refresh token, prompt=consent re-issues it on re-login. */
+/**
+ * Consent URL for the loopback flow: offline access yields the refresh token, prompt=consent re-issues it on re-login.
+ */
 export function buildAuthUrl(options: {
 	clientId: string;
 	redirectUri: string;

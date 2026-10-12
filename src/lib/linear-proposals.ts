@@ -44,7 +44,16 @@ async function ensureTables(sql: SqlLike): Promise<void> {
 					session_id TEXT NOT NULL,
 					source_message_id TEXT NOT NULL,
 					operation JSONB NOT NULL,
-					state TEXT NOT NULL CHECK (state IN ('pending', 'claimed', 'succeeded', 'failed', 'uncertain', 'canceled')),
+					state TEXT NOT NULL CHECK (
+						state IN (
+							'pending',
+							'claimed',
+							'succeeded',
+							'failed',
+							'uncertain',
+							'canceled'
+						)
+					),
 					outcome JSONB,
 					notified BOOLEAN NOT NULL DEFAULT FALSE,
 					UNIQUE (dm_id, source_message_id)
@@ -100,16 +109,38 @@ export function effectiveLinearOutcome(proposal: LinearProposal): LinearCreateOu
 /** Claim the sole inspection before HTTP; an interrupted read never grants another attempt. */
 export async function beginLinearInspection(id: string, sql: SqlLike = getSql()): Promise<boolean> {
 	await ensureTables(sql);
-	const rows = await sql`UPDATE linear_create_proposals SET inspection = ${{ status: 'unresolved' }}::jsonb
-		WHERE id = ${id} AND state = 'uncertain' AND inspection IS NULL RETURNING id`;
+	const rows = await sql`
+	UPDATE linear_create_proposals
+	SET
+		inspection = ${{ status: 'unresolved' }}::jsonb
+	WHERE
+		id = ${id}
+		AND state = 'uncertain'
+		AND inspection IS NULL
+	RETURNING
+		id
+`;
 	return rows.length === 1;
 }
 
-export async function finishLinearInspection(id: string, inspection: LinearCreateInspection, sql: SqlLike = getSql()): Promise<void> {
+export async function finishLinearInspection(
+	id: string,
+	inspection: LinearCreateInspection,
+	sql: SqlLike = getSql(),
+): Promise<void> {
 	const safe = linearCreateInspectionSchema.parse(inspection);
 	await ensureTables(sql);
-	const rows = await sql`UPDATE linear_create_proposals SET inspection = ${safe}::jsonb
-		WHERE id = ${id} AND state = 'uncertain' AND inspection->>'status' = 'unresolved' RETURNING id`;
+	const rows = await sql`
+	UPDATE linear_create_proposals
+	SET
+		inspection = ${safe}::jsonb
+	WHERE
+		id = ${id}
+		AND state = 'uncertain'
+		AND inspection ->> 'status' = 'unresolved'
+	RETURNING
+		id
+`;
 	if (rows.length !== 1)
 		throw new Error('Linear inspection persistence unavailable.');
 }
@@ -117,8 +148,16 @@ export async function finishLinearInspection(id: string, inspection: LinearCreat
 export async function receiveLinearMessage(dmId: string, messageId: string, sql: SqlLike = getSql()): Promise<boolean> {
 	return transaction(dmId, sql, async (tx) => {
 		const rows = await tx`
-			INSERT INTO linear_dm_receipts (dm_id, message_id) VALUES (${dmId}, ${messageId})
-			ON CONFLICT DO NOTHING RETURNING ordinal
+			INSERT INTO
+				linear_dm_receipts (dm_id, message_id)
+			VALUES
+				(
+					${dmId},
+					${messageId}
+				)
+			ON CONFLICT DO NOTHING
+			RETURNING
+				ordinal
 		`;
 		return rows.length === 1;
 	});
@@ -127,9 +166,20 @@ export async function receiveLinearMessage(dmId: string, messageId: string, sql:
 export async function readLinearProposal(dmId: string, sql: SqlLike = getSql()): Promise<LinearProposal | null> {
 	await ensureTables(sql);
 	const rows = await sql`
-		SELECT * FROM linear_create_proposals
-		WHERE dm_id = ${dmId} AND (state IN ('pending', 'claimed') OR NOT notified)
-		ORDER BY id LIMIT 1
+		SELECT
+			*
+		FROM
+			linear_create_proposals
+		WHERE
+			dm_id = ${dmId}
+			AND (
+				state IN ('pending', 'claimed')
+				OR NOT notified
+			)
+		ORDER BY
+			id
+		LIMIT
+			1
 	` as LinearProposal[];
 	return rows[0] ?? null;
 }
@@ -141,24 +191,50 @@ export async function readLinearContinuation(id: string, sql: SqlLike = getSql()
 	return rows[0] ?? null;
 }
 
-export async function readLatestLinearContinuation(dmId: string, sql: SqlLike = getSql()): Promise<LinearProposal | null> {
+export async function readLatestLinearContinuation(
+	dmId: string,
+	sql: SqlLike = getSql(),
+): Promise<LinearProposal | null> {
 	await ensureTables(sql);
-	const rows = await sql`SELECT p.* FROM linear_create_proposals p JOIN linear_dm_receipts r
-		ON r.dm_id = p.dm_id AND r.message_id = p.source_message_id
-		WHERE p.dm_id = ${dmId} AND p.continuation IS NOT NULL ORDER BY r.ordinal DESC LIMIT 1` as LinearProposal[];
+	const rows = await sql`
+	SELECT
+		p.*
+	FROM
+		linear_create_proposals p
+		JOIN linear_dm_receipts r ON r.dm_id = p.dm_id
+		AND r.message_id = p.source_message_id
+	WHERE
+		p.dm_id = ${dmId}
+		AND p.continuation IS NOT NULL
+	ORDER BY
+		r.ordinal DESC
+	LIMIT
+		1
+` as LinearProposal[];
 	return rows[0] ?? null;
 }
 
-export async function isLatestLinearMessage(dmId: string, messageId: string, sql: SqlLike = getSql()): Promise<boolean> {
+export async function isLatestLinearMessage(
+	dmId: string,
+	messageId: string,
+	sql: SqlLike = getSql(),
+): Promise<boolean> {
 	await ensureTables(sql);
 	const rows = await sql`SELECT message_id FROM linear_dm_receipts WHERE dm_id = ${dmId} ORDER BY ordinal DESC LIMIT 1` as { message_id: string }[];
 	return rows[0]?.message_id === messageId;
 }
 
-export async function isImmediatelyFollowingLinearMessage(dmId: string, messageId: string, sourceMessageId: string, sql: SqlLike = getSql()): Promise<boolean> {
+export async function isImmediatelyFollowingLinearMessage(
+	dmId: string,
+	messageId: string,
+	sourceMessageId: string,
+	sql: SqlLike = getSql(),
+): Promise<boolean> {
 	await ensureTables(sql);
 	const rows = await sql`SELECT message_id FROM linear_dm_receipts WHERE dm_id = ${dmId} ORDER BY ordinal DESC LIMIT 2` as { message_id: string }[];
-	return messageId !== sourceMessageId && rows[0]?.message_id === messageId && rows[1]?.message_id === sourceMessageId;
+	return messageId !== sourceMessageId
+		&& rows[0]?.message_id === messageId
+		&& rows[1]?.message_id === sourceMessageId;
 }
 
 export function formatLinearCreateProposal(op: LinearCreateOperation): string {
@@ -186,9 +262,31 @@ export async function postLinearCreateProposal(
 		if (active.length)
 			return false;
 		const inserted = await tx`
-			INSERT INTO linear_create_proposals (id, dm_id, session_id, source_message_id, operation, state, continuation, publication_ready)
-			VALUES (${op.id}, ${dmId}, ${sessionId}, ${sourceMessageId}, ${op}::jsonb, 'pending', ${bound}::jsonb, FALSE)
-			ON CONFLICT DO NOTHING RETURNING id
+			INSERT INTO
+				linear_create_proposals (
+					id,
+					dm_id,
+					session_id,
+					source_message_id,
+					operation,
+					state,
+					continuation,
+					publication_ready
+				)
+			VALUES
+				(
+					${op.id},
+					${dmId},
+					${sessionId},
+					${sourceMessageId},
+					${op}::jsonb,
+					'pending',
+					${bound}::jsonb,
+					FALSE
+				)
+			ON CONFLICT DO NOTHING
+			RETURNING
+				id
 		`;
 		if (inserted.length !== 1)
 			return false;
@@ -200,8 +298,7 @@ export async function postLinearCreateProposal(
 		// This write is sent only after posting and its transaction are acknowledged.
 		try {
 			await sql`UPDATE linear_create_proposals SET publication_ready = TRUE WHERE id = ${op.id} AND state = 'pending'`;
-		}
-		catch {
+		} catch {
 			// Publication is verified; an absent readiness write blocks confirmation, never reposts.
 			console.error('[linear] Proposal confirmation readiness unavailable.');
 		}
@@ -218,7 +315,16 @@ export async function claimLinearCreate(
 ): Promise<boolean> {
 	return transaction(proposal.dm_id, sql, async (tx) => {
 		const receipts = await tx`
-			SELECT message_id FROM linear_dm_receipts WHERE dm_id = ${proposal.dm_id} ORDER BY ordinal DESC LIMIT 2
+			SELECT
+				message_id
+			FROM
+				linear_dm_receipts
+			WHERE
+				dm_id = ${proposal.dm_id}
+			ORDER BY
+				ordinal DESC
+			LIMIT
+				2
 		` as { message_id: string }[];
 		const adjacent = sessionId === proposal.session_id
 			&& receipts[0]?.message_id === messageId && receipts[1]?.message_id === proposal.source_message_id;
@@ -226,25 +332,48 @@ export async function claimLinearCreate(
 		const allowed = confirmed === true && adjacent && publication[0]?.publication_ready === true;
 		const decision = { messageId, disposition: allowed ? 'confirmed' : adjacent && confirmed === 'declined' ? 'declined' : 'canceled' };
 		const rows = await tx`
-			UPDATE linear_create_proposals SET state = ${allowed ? 'claimed' : 'canceled'}, notified = ${!allowed}, decision = ${decision}::jsonb
-			WHERE id = ${proposal.id} AND state = 'pending' RETURNING id
+			UPDATE linear_create_proposals
+			SET
+				state = ${allowed ? 'claimed' : 'canceled'},
+				notified = ${!allowed},
+				decision = ${decision}::jsonb
+			WHERE
+				id = ${proposal.id}
+				AND state = 'pending'
+			RETURNING
+				id
 		`;
 		return allowed && rows.length === 1;
 	});
 }
 
-export async function finishLinearCreate(id: string, outcome: LinearCreateOutcome, sql: SqlLike = getSql()): Promise<void> {
+export async function finishLinearCreate(
+	id: string,
+	outcome: LinearCreateOutcome,
+	sql: SqlLike = getSql(),
+): Promise<void> {
 	const safe = linearCreateOutcomeSchema.parse(outcome);
 	await ensureTables(sql);
 	const rows = await sql`
-		UPDATE linear_create_proposals SET state = ${safe.status}, outcome = ${safe}::jsonb
-		WHERE id = ${id} AND state = 'claimed' RETURNING id
+		UPDATE linear_create_proposals
+		SET
+			state = ${safe.status},
+			outcome = ${safe}::jsonb
+		WHERE
+			id = ${id}
+			AND state = 'claimed'
+		RETURNING
+			id
 	`;
 	if (rows.length !== 1)
 		throw new Error('Linear outcome persistence unavailable.');
 }
 
-export async function notifyLinearOutcome(proposal: LinearProposal, post: (text: string) => Promise<unknown>, sql: SqlLike = getSql()): Promise<void> {
+export async function notifyLinearOutcome(
+	proposal: LinearProposal,
+	post: (text: string) => Promise<unknown>,
+	sql: SqlLike = getSql(),
+): Promise<void> {
 	const outcome = linearCreateOutcomeSchema.safeParse(proposal.outcome ? effectiveLinearOutcome(proposal) : null);
 	const result = outcome.success ? outcome.data : { status: 'uncertain' as const };
 	const text = result.status === 'succeeded' && result.identifier && result.url
@@ -257,8 +386,7 @@ export async function notifyLinearOutcome(proposal: LinearProposal, post: (text:
 		await finishLinearCreate(proposal.id, { status: 'uncertain' }, sql);
 	try {
 		await post(text);
-	}
-	catch {
+	} catch {
 		throw new Error('Linear result notification unavailable.');
 	}
 	await markLinearOutcomeNotified(proposal.id, sql);
