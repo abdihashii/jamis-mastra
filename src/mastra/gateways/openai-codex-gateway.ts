@@ -1,7 +1,3 @@
-import type { OpenAIProviderSettings } from '@ai-sdk/openai';
-
-import type { GatewayAuthResult, GatewayLanguageModel, ProviderConfig } from '@mastra/core/llm';
-import process from 'node:process';
 /**
  * Custom Mastra model gateway for the `openai-codex/*` namespace: Jamis's
  * OpenAI models resolve through the operator's ChatGPT/Codex subscription
@@ -21,6 +17,11 @@ import process from 'node:process';
  * - Live tokens flow only through the custom `fetch` closure below, never
  *   through `createOpenAI`'s apiKey parameter.
  */
+
+import type { OpenAIProviderSettings } from '@ai-sdk/openai';
+
+import type { GatewayAuthResult, GatewayLanguageModel, ProviderConfig } from '@mastra/core/llm';
+import process from 'node:process';
 import { createOpenAI } from '@ai-sdk/openai';
 import {
 
