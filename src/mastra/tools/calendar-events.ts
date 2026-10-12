@@ -78,18 +78,25 @@ function unusableData(action: string): Error {
 	return new Error('Calendar returned unusable data.');
 }
 
-async function calendarGet(url: string, signal?: AbortSignal): Promise<{ ok: boolean; status: number; json: unknown }> {
+async function calendarGet(
+	url: string,
+	signal?: AbortSignal,
+): Promise<{ ok: boolean; status: number; json: unknown }> {
 	// Same contract as gmailGet: silent refresh on expiry inside
 	// getUsableCredential; one forced refresh on a 401, then an auth failure.
 	let cred = await getUsableCredential(calendarAuth);
 	let res = await fetchJson(url, signal, { Authorization: `Bearer ${cred.access}` });
 	if (res.status === 401) {
-		console.error('[calendar-events] Calendar rejected the stored access token; forcing one refresh.');
+		console.error(
+			'[calendar-events] Calendar rejected the stored access token; forcing one refresh.',
+		);
 		cred = await refreshCredential(cred, calendarAuth);
 		res = await fetchJson(url, signal, { Authorization: `Bearer ${cred.access}` });
 	}
 	if (res.status === 401) {
-		console.error('[calendar-events] Calendar still 401 after a forced refresh. Re-login required.');
+		console.error(
+			'[calendar-events] Calendar still 401 after a forced refresh. Re-login required.',
+		);
 		throw new Error(GOOGLE_AUTH_FAILURE);
 	}
 	return res;
@@ -107,7 +114,9 @@ export async function listCalendarEvents(
 	const cred = await getUsableCredential(calendarAuth);
 	const pool = cred.calendars ?? [];
 	if (pool.length === 0) {
-		console.error('[calendar-events] no calendar pool stored. Log in with `bun scripts/google-login.ts`.');
+		console.error(
+			'[calendar-events] no calendar pool stored. Log in with `bun scripts/google-login.ts`.',
+		);
 		throw new Error(GOOGLE_AUTH_FAILURE);
 	}
 	const daysAhead = input.daysAhead ?? DEFAULT_DAYS_AHEAD;
@@ -135,7 +144,9 @@ export async function listCalendarEvents(
 			// A pool entry deleted or unshared after login must not fail every
 			// calendar ask; skip it and log. Real service errors still throw.
 			if (res.status === 403 || res.status === 404) {
-				console.error(`[calendar-events] events.list ${res.status} for one pool calendar; skipping. Re-run login:google to refresh the pool.`);
+				console.error(
+					`[calendar-events] events.list ${res.status} for one pool calendar; skipping. Re-run login:google to refresh the pool.`,
+				);
 				unavailableCalendars.push({ calendar: cal.summary, status: res.status });
 				continue;
 			}
@@ -185,8 +196,19 @@ export const calendarEventsTool = createTool({
 		+ 'q is optional free-text match across title, location, description, and attendee names ("dentist", "Sarah"). '
 		+ 'Timed start/end are UTC with operator-local presentations; all-day start/end stay bare dates.',
 	inputSchema: z.object({
-		daysAhead: z.number().int().min(1).max(90).optional().describe('Whole days to look ahead from today (default 1 = today only). Tomorrow alone: 2, then read the second day.'),
-		q: z.string().optional().describe('Optional free-text filter, e.g. "dentist" or "gym". Matches title, location, description, attendee names.'),
+		daysAhead: z.number()
+			.int()
+			.min(1)
+			.max(90)
+			.optional()
+			.describe(
+				'Whole days to look ahead from today (default 1 = today only). Tomorrow alone: 2, then read the second day.',
+			),
+		q: z.string()
+			.optional()
+			.describe(
+				'Optional free-text filter, e.g. "dentist" or "gym". Matches title, location, description, attendee names.',
+			),
 	}),
 	outputSchema: z.object({
 		from: z.string().describe('Window start, ISO 8601 with zone offset'),
@@ -197,14 +219,17 @@ export const calendarEventsTool = createTool({
 			status: z.union([z.literal(403), z.literal(404)]),
 		})).describe('Selected calendars that could not be read; available events do not establish complete coverage'),
 		events: z.array(z.object({
-			title: z.string().describe('Event title; "(Private event)" when Google withholds the name on private-visibility events'),
+			title: z.string()
+				.describe('Event title; "(Private event)" when Google withholds the name on private-visibility events'),
 			calendar: z.string().describe('Which of the operator\'s picked calendars this event belongs to'),
 			start: z.string().describe('ISO 8601 UTC instant, or a bare date for all-day events'),
 			end: z.string().describe('ISO 8601 UTC instant, or a bare date for all-day events'),
 			operatorLocalStart: z.string().optional().describe('Operator-local ISO 8601 value for timed events'),
 			operatorLocalEnd: z.string().optional().describe('Operator-local ISO 8601 value for timed events'),
 			location: z.string().optional(),
-			description: z.string().optional().describe('Raw event description (join links, meeting notes), capped at 1000 chars'),
+			description: z.string()
+				.optional()
+				.describe('Raw event description (join links, meeting notes), capped at 1000 chars'),
 		})),
 	}),
 	execute: async ({ daysAhead, q }, { abortSignal }) => {
