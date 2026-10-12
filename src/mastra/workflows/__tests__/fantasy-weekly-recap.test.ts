@@ -1,9 +1,9 @@
 import type { AnyExportedSpan } from '@mastra/core/observability';
-import { expect, test } from 'bun:test';
 import { SpanType, TracingEventType } from '@mastra/core/observability';
 import { Observability } from '@mastra/observability';
+import { expect, test } from 'bun:test';
 
-import { fantasyWeeklyRecapWorkflow } from './fantasy-weekly-recap';
+import { fantasyWeeklyRecapWorkflow } from '../fantasy-weekly-recap';
 
 test('scheduled recap creates an exported attempt trace without scheduler context', async () => {
 	const entry = fantasyWeeklyRecapWorkflow.stepGraph[0];
@@ -29,16 +29,21 @@ test('scheduled recap creates an exported attempt trace without scheduler contex
 	});
 	try {
 		const logger = { info: () => {} };
-		const result = await entry.step.execute!({ mastra: { observability, getLogger: () => logger }, tracingContext: undefined } as never);
+		const result = await entry.step.execute!({
+			mastra: { observability, getLogger: () => logger },
+			tracingContext: undefined,
+		} as never);
 		expect(result).toMatchObject({ outcome: 'skipped-unconfigured' });
 		await observability.flush();
 		const attempt = spans.find(span => span.name === 'fantasy-weekly-recap-attempt');
 		expect(attempt?.type).toBe(SpanType.WORKFLOW_RUN);
 		expect(attempt?.traceId).toMatch(/^[a-f0-9]{32}$/);
-		const withoutTracing = await entry.step.execute!({ mastra: { observability: { getDefaultInstance: () => undefined }, getLogger: () => logger }, tracingContext: undefined } as never);
+		const withoutTracing = await entry.step.execute!({
+			mastra: { observability: { getDefaultInstance: () => undefined }, getLogger: () => logger },
+			tracingContext: undefined,
+		} as never);
 		expect(withoutTracing).toMatchObject({ outcome: 'skipped-unconfigured' });
-	}
-	finally {
+	} finally {
 		await observability.shutdown();
 	}
 });

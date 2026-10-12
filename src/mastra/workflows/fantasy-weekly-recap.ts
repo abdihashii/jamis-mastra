@@ -33,8 +33,7 @@ const weeklyRecapStep = createStep({
 				traceId: attemptSpan?.externalTraceId,
 				tracingContext: attemptSpan ? { currentSpan: attemptSpan } : undefined,
 			});
-		}
-		finally {
+		} finally {
 			if (!currentSpan)
 				attemptSpan?.end();
 		}

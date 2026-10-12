@@ -91,9 +91,20 @@ export async function runLinearReplyFixture(mastra: Mastra, sql: SqlLike) {
 	mastra.addWorkflow(first.workflow);
 	await receiveLinearMessage(input.dmId, input.sourceMessageId, sql);
 	const continuation = await first.start(input);
-	assert.equal(await postLinearCreateProposal(input.operation, input.dmId, input.sessionId, input.sourceMessageId, async () => {
-		proposalPosts++;
-	}, sql, continuation), true);
+	assert.equal(
+		await postLinearCreateProposal(
+			input.operation,
+			input.dmId,
+			input.sessionId,
+			input.sourceMessageId,
+			async () => {
+				proposalPosts++;
+			},
+			sql,
+			continuation,
+		),
+		true,
+	);
 	const proposal = await readLinearProposal(input.dmId, sql);
 	assert.ok(proposal);
 	const decisionMessageId = randomUUID();
@@ -119,5 +130,14 @@ export async function runLinearReplyFixture(mastra: Mastra, sql: SqlLike) {
 	assert.equal(evidenceReads, 1);
 	assert.equal(proposalPosts, 1);
 	assert.equal(mutationAttempts, 1);
-	return { storedOutcomeRecovery: true, typedDraft: true, drafts, evidenceReads, proposalPosts, controlledMutationAttempts: mutationAttempts, duplicateMutations: 0, outboundMessages: 0 };
+	return {
+		storedOutcomeRecovery: true,
+		typedDraft: true,
+		drafts,
+		evidenceReads,
+		proposalPosts,
+		controlledMutationAttempts: mutationAttempts,
+		duplicateMutations: 0,
+		outboundMessages: 0,
+	};
 }

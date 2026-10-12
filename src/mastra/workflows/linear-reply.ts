@@ -19,8 +19,7 @@ export const linearReplyApiAdmission = {
 		let id;
 		try {
 			id = decodeURIComponent(context.req.path.split('/')[3] ?? '');
-		}
-		catch { return new Response('Invalid workflow path.', { status: 400 }); }
+		} catch { return new Response('Invalid workflow path.', { status: 400 }); }
 		return id === LINEAR_REPLY_WORKFLOW_ID && context.req.method !== 'GET'
 			? new Response('Linear reply execution requires the validated Operator DM.', { status: 403 })
 			: next();
@@ -100,7 +99,8 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 		const decision = linearDecisionSchema.safeParse(proposal?.decision);
 		const operation = linearCreateOperationSchema.safeParse(proposal?.operation);
 		if (!proposal || !continuation.success || continuation.data.runId !== runId
-			|| proposal.dm_id !== input.dmId || proposal.session_id !== input.sessionId || proposal.source_message_id !== input.sourceMessageId
+			|| proposal.dm_id !== input.dmId
+			|| proposal.session_id !== input.sessionId || proposal.source_message_id !== input.sourceMessageId
 			|| !operation.success || JSON.stringify(operation.data) !== JSON.stringify(input.operation)
 			|| !decision.success || decision.data.messageId !== messageId || decision.data.disposition === 'canceled') {
 			throw unavailable();
@@ -132,7 +132,8 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 				throw unavailable();
 			if (proposal.state === 'claimed' && !proposal.outcome)
 				return suspend({ operationId: inputData.operation.id });
-			const outcome = linearCreateOutcomeSchema.safeParse(proposal.outcome ? effectiveLinearOutcome(proposal) : null);
+			const outcome = linearCreateOutcomeSchema
+				.safeParse(proposal.outcome ? effectiveLinearOutcome(proposal) : null);
 			if (!outcome.success || (outcome.data.status !== proposal.state && !(proposal.state === 'uncertain' && outcome.data.status === 'succeeded')))
 				throw unavailable();
 			return outcome.data.status === 'succeeded' ? createdSchema.parse(outcome.data) : { status: outcome.data.status };
@@ -155,14 +156,21 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 				throw unavailable();
 			abortSignal.throwIfAborted();
 			try {
-				const draft = z.string().min(1).max(12000).parse(await options.prepareReply({ assignment: input.assignment, source: input.source, operation: input.operation, outcome }, { runId, abortSignal, tracingContext }));
+				const draft = z.string()
+					.min(1)
+					.max(12000)
+					.parse(await options.prepareReply({
+						assignment: input.assignment,
+						source: input.source,
+						operation: input.operation,
+						outcome,
+					}, { runId, abortSignal, tracingContext }));
 				abortSignal.throwIfAborted();
 				if (!draft.includes(outcome.url))
 					throw unavailable();
 				await authorize(requestContext, runId, input);
 				return { status: 'ready' as const, operationId: input.operation.id, identifier: outcome.identifier, url: outcome.url, draft };
-			}
-			catch {
+			} catch {
 				abortSignal.throwIfAborted();
 				await authorize(requestContext, runId, input);
 				return { status: 'partial' as const, operationId: input.operation.id, identifier: outcome.identifier, url: outcome.url, gap: 'draft_unavailable' as const };
@@ -220,8 +228,7 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 				throw unavailable();
 			}
 			return linearContinuationSchema.parse({ workflowId: workflow.id, runId: run.runId, waitStep: wait.id });
-		}
-		finally { authorities.delete(context); }
+		} finally { authorities.delete(context); }
 	}
 
 	async function resume(operationId: string, decisionMessageId: string) {
@@ -247,8 +254,7 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 				if (result.status === 'stopped') {
 					if (result.reason === 'declined' ? bound.state !== 'canceled' || bound.decision?.disposition !== 'declined' : bound.state !== result.reason || bound.outcome?.status !== result.reason)
 						throw unavailable();
-				}
-				else {
+				} else {
 					const outcome = createdSchema.parse(effectiveLinearOutcome(bound));
 					if (!['succeeded', 'uncertain'].includes(bound.state) || bound.decision?.disposition !== 'confirmed' || result.identifier !== outcome.identifier || result.url !== outcome.url)
 						throw unavailable();
@@ -270,15 +276,13 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 			const run = await workflow.createRun({ runId: continuation.runId });
 			try {
 				await run.resume({ step: wait, resumeData: { operationId }, requestContext: context });
-			}
-			catch (error) {
+			} catch (error) {
 				if (!(error instanceof MastraError) || error.id !== 'WORKFLOW_RESUME_ALREADY_CLAIMED')
 					throw error;
 				// A competing resume owns execution; inspect its saved state without retrying.
 			}
 			return await workflow.getWorkflowRunById(continuation.runId);
-		}
-		finally { authorities.delete(context); }
+		} finally { authorities.delete(context); }
 	}
 
 	function result(state: Awaited<ReturnType<typeof workflow.getWorkflowRunById>>) {
@@ -301,8 +305,7 @@ export function createLinearReplyProcedure(options: LinearReplyOptions) {
 			const run = await workflow.createRun({ runId: state!.runId });
 			await run.resume({ step: acceptance, resumeData: { operationId }, requestContext: context });
 			return await workflow.getWorkflowRunById(state!.runId);
-		}
-		finally { authorities.delete(context); }
+		} finally { authorities.delete(context); }
 	}
 
 	async function cancel(runId: string) {

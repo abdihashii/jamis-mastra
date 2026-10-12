@@ -1,16 +1,16 @@
-import type { LinearReplyOptions } from './linear-reply';
+import type { LinearReplyOptions } from '../linear-reply';
 
-import { SQL } from 'bun';
-import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import process from 'node:process';
 import { Mastra } from '@mastra/core/mastra';
 import { RequestContext } from '@mastra/core/request-context';
 import { PostgresStore } from '@mastra/pg';
+import { SQL } from 'bun';
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { Hono } from 'hono';
-import { claimLinearCreate, finishLinearCreate, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../lib/linear-proposals';
-import { linearReplyFixtureInput, runLinearReplyFixture } from './__tests__/linear-reply.fixture';
-import { createLinearReplyProcedure, LINEAR_OUTCOME_WAIT_ID, LINEAR_REPLY_WORKFLOW_ID, linearReplyApiAdmission } from './linear-reply';
+import { claimLinearCreate, finishLinearCreate, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../../lib/linear-proposals';
+import { createLinearReplyProcedure, LINEAR_OUTCOME_WAIT_ID, LINEAR_REPLY_WORKFLOW_ID, linearReplyApiAdmission } from '../linear-reply';
+import { linearReplyFixtureInput, runLinearReplyFixture } from './linear-reply.fixture';
 
 const databaseUrl = process.env.JAMIS_TEST_DATABASE_URL;
 describe('stored Linear reply boundary, real native Postgres', () => {
@@ -33,13 +33,39 @@ describe('stored Linear reply boundary, real native Postgres', () => {
 	beforeAll(async () => {
 		await root.unsafe(`CREATE SCHEMA "${schema}"`);
 		await store.init();
-		await sql`CREATE TABLE linear_create_proposals (
-			id UUID PRIMARY KEY, dm_id TEXT NOT NULL, session_id TEXT NOT NULL, source_message_id TEXT NOT NULL,
-			operation JSONB NOT NULL, state TEXT NOT NULL, outcome JSONB, notified BOOLEAN NOT NULL DEFAULT FALSE,
-			UNIQUE (dm_id, source_message_id)
-		)`;
-		await sql`INSERT INTO linear_create_proposals (id, dm_id, session_id, source_message_id, operation, state)
-			VALUES (${legacy.operation.id}, ${legacy.dmId}, ${legacy.sessionId}, ${legacy.sourceMessageId}, ${legacy.operation}::jsonb, 'pending')`;
+		await sql`
+	CREATE TABLE linear_create_proposals (
+		id UUID PRIMARY KEY,
+		dm_id TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		source_message_id TEXT NOT NULL,
+		operation JSONB NOT NULL,
+		state TEXT NOT NULL,
+		outcome JSONB,
+		notified BOOLEAN NOT NULL DEFAULT FALSE,
+		UNIQUE (dm_id, source_message_id)
+	)
+`;
+		await sql`
+	INSERT INTO
+		linear_create_proposals (
+			id,
+			dm_id,
+			session_id,
+			source_message_id,
+			operation,
+			state
+		)
+	VALUES
+		(
+			${legacy.operation.id},
+			${legacy.dmId},
+			${legacy.sessionId},
+			${legacy.sourceMessageId},
+			${legacy.operation}::jsonb,
+			'pending'
+		)
+`;
 	}, 30000);
 	afterAll(async () => {
 		await store.close();
@@ -66,13 +92,25 @@ describe('stored Linear reply boundary, real native Postgres', () => {
 		await receiveLinearMessage(input.dmId, input.sourceMessageId, sql);
 		const continuation = await procedure.start(input);
 		async function decide(decision: boolean | 'declined' = true, saveOutcome = true) {
-			expect(await postLinearCreateProposal(input.operation, input.dmId, input.sessionId, input.sourceMessageId, async () => {
-				posts++;
-			}, sql, continuation)).toBe(true);
+			expect(
+				await postLinearCreateProposal(
+					input.operation,
+					input.dmId,
+					input.sessionId,
+					input.sourceMessageId,
+					async () => {
+						posts++;
+					},
+					sql,
+					continuation,
+				),
+			).toBe(true);
 			const proposal = (await readLinearProposal(input.dmId, sql))!;
 			const messageId = randomUUID();
 			await receiveLinearMessage(input.dmId, messageId, sql);
-			expect(await claimLinearCreate(proposal, input.sessionId, messageId, decision, sql)).toBe(decision === true);
+			expect(
+				await claimLinearCreate(proposal, input.sessionId, messageId, decision, sql),
+			).toBe(decision === true);
 			if (decision === true && saveOutcome)
 				await finishLinearCreate(input.operation.id, issue, sql);
 			return messageId;
@@ -104,7 +142,16 @@ describe('stored Linear reply boundary, real native Postgres', () => {
 	});
 
 	test('native typed Accounts tool continues the exact notified operation from a stored wait once', async () => {
-		expect(await runLinearReplyFixture(mastra, sql)).toMatchObject({ storedOutcomeRecovery: true, typedDraft: true, drafts: 1, evidenceReads: 1, duplicateMutations: 0, outboundMessages: 0 });
+		expect(
+			await runLinearReplyFixture(mastra, sql),
+		).toMatchObject({
+			storedOutcomeRecovery: true,
+			typedDraft: true,
+			drafts: 1,
+			evidenceReads: 1,
+			duplicateMutations: 0,
+			outboundMessages: 0,
+		});
 	}, 30000);
 
 	test('unpublished waits and missing outcomes never publish, execute, or draft on recovery', async () => {
@@ -143,11 +190,12 @@ describe('stored Linear reply boundary, real native Postgres', () => {
 			return update(args);
 		});
 		try {
-			const results = await Promise.all([f.procedure.resume(f.input.operation.id, decision), other.resume(f.input.operation.id, decision)]);
+			const results = await Promise.all(
+				[f.procedure.resume(f.input.operation.id, decision), other.resume(f.input.operation.id, decision)],
+			);
 			expect(results.some(result => result?.status === 'suspended')).toBe(true);
 			expect({ attempts, claimed, ...f.counts() }).toEqual({ attempts: 2, claimed: 1, drafts: 1, posts: 1 });
-		}
-		finally { spy.mockRestore(); }
+		} finally { spy.mockRestore(); }
 	}, 30000);
 
 	test('missing stored run cannot restart the procedure', async () => {
@@ -198,7 +246,11 @@ describe('stored Linear reply boundary, real native Postgres', () => {
 		await expect(direct.start({ inputData: f.input, requestContext: forged })).rejects.toThrow('unavailable');
 		await f.decide();
 		const resume = await f.procedure.workflow.createRun({ runId: f.continuation.runId });
-		const result = await resume.resume({ step: LINEAR_OUTCOME_WAIT_ID, resumeData: { operationId: f.input.operation.id }, requestContext: forged });
+		const result = await resume.resume({
+			step: LINEAR_OUTCOME_WAIT_ID,
+			resumeData: { operationId: f.input.operation.id },
+			requestContext: forged,
+		});
 		expect(result.status).toBe('failed');
 		expect(f.counts().drafts).toBe(0);
 	});
@@ -229,11 +281,21 @@ describe('stored Linear reply boundary, real native Postgres', () => {
 		const f = await fixture();
 		const decision = await f.decide();
 		const storage = (await store.getStore('workflows'))!;
-		const snapshot = (await storage.loadWorkflowSnapshot({ workflowName: LINEAR_REPLY_WORKFLOW_ID, runId: f.continuation.runId }))!;
+		const snapshot = (
+			await storage.loadWorkflowSnapshot(
+				{ workflowName: LINEAR_REPLY_WORKFLOW_ID, runId: f.continuation.runId },
+			))!;
 		snapshot.requestContext = { authority: { approved: true }, MastraMemory: { thread: { id: 'old-session' } }, stale: 'PRIVATE_ARCHITECTURE_SENTINEL' };
-		await storage.persistWorkflowSnapshot({ workflowName: LINEAR_REPLY_WORKFLOW_ID, runId: f.continuation.runId, snapshot });
+		await storage.persistWorkflowSnapshot({
+			workflowName: LINEAR_REPLY_WORKFLOW_ID,
+			runId: f.continuation.runId,
+			snapshot,
+		});
 		expect((await f.procedure.resume(f.input.operation.id, decision))?.status).toBe('suspended');
-		const saved = await storage.loadWorkflowSnapshot({ workflowName: LINEAR_REPLY_WORKFLOW_ID, runId: f.continuation.runId });
+		const saved = await storage.loadWorkflowSnapshot({
+			workflowName: LINEAR_REPLY_WORKFLOW_ID,
+			runId: f.continuation.runId,
+		});
 		expect(saved?.requestContext).toEqual({});
 		expect(f.counts().drafts).toBe(1);
 	});
@@ -251,8 +313,7 @@ describe('stored Linear reply boundary, real native Postgres', () => {
 		});
 		try {
 			await expect(f.procedure.cancel(f.continuation.runId)).rejects.toThrow('could not be persisted');
-		}
-		finally { spy.mockRestore(); }
+		} finally { spy.mockRestore(); }
 		const recovered = createLinearReplyProcedure(f.options);
 		mastra.addWorkflow(recovered.workflow, `fixture-canceled-${randomUUID()}`);
 		await expect(recovered.resume(f.input.operation.id, decision)).rejects.toThrow('unavailable');
