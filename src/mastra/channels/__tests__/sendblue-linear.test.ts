@@ -1,11 +1,9 @@
 import type { ChannelConfig } from '@mastra/core/channels';
 import type { Message, Thread } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
-import type { LinearCreateOperation } from '../../lib/linear';
-import type { SqlLike } from '../../lib/operator-time-zone';
+import type { LinearCreateOperation } from '../../../lib/linear';
+import type { SqlLike } from '../../../lib/operator-time-zone';
 
-import { SQL } from 'bun';
-import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import process from 'node:process';
 import { Agent } from '@mastra/core/agent';
@@ -17,12 +15,14 @@ import { createTool, noopObserve } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import { Observability } from '@mastra/observability';
 import { PostgresStore } from '@mastra/pg';
+import { SQL } from 'bun';
+import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
 import { z } from 'zod';
-import { claimLinearCreate, finishLinearCreate, isImmediatelyFollowingLinearMessage, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../lib/linear-proposals';
-import { clearOperatorTimeZoneConversation, saveOperatorTimeZoneProposal } from '../../lib/operator-time-zone';
-import { redactChannelRenderContext } from '../observability';
-import { specialistClarificationKey } from '../specialist-clarification';
+import { claimLinearCreate, finishLinearCreate, isImmediatelyFollowingLinearMessage, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../../lib/linear-proposals';
+import { clearOperatorTimeZoneConversation, saveOperatorTimeZoneProposal } from '../../../lib/operator-time-zone';
+import { redactChannelRenderContext } from '../../observability';
+import { specialistClarificationKey } from '../../specialist-clarification';
 
 const databaseUrl = process.env.JAMIS_TEST_DATABASE_URL;
 if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
@@ -210,11 +210,11 @@ else {
 		finally { await restart.close(); }
 	});
 
-	const { CODEX_AUTH_CHANNEL_ERROR, EMPTY_REPLY_CHANNEL_ERROR, formatSendblueError, handleSendblueDirectMessage, OPENAI_LOGIN_FAILURE, proposeLinearCreate, registerLinearReplyProcedure, requireSendbluePostAcceptance, startJamisDmSession } = await import('./sendblue');
-	const { recordAccountsGmailRead } = await import('../tools/invoke-specialist');
-	const { linearCreateProposalTool, linearReadTool } = await import('../tools/linear');
-	const { createJamisAgent } = await import('../agents/jamis');
-	const { boundaryModel } = await import('../agents/__tests__/specialist-boundary.fixture');
+	const { CODEX_AUTH_CHANNEL_ERROR, EMPTY_REPLY_CHANNEL_ERROR, formatSendblueError, handleSendblueDirectMessage, OPENAI_LOGIN_FAILURE, proposeLinearCreate, registerLinearReplyProcedure, requireSendbluePostAcceptance, startJamisDmSession } = await import('../sendblue');
+	const { recordAccountsGmailRead } = await import('../../tools/invoke-specialist');
+	const { linearCreateProposalTool, linearReadTool } = await import('../../tools/linear');
+	const { createJamisAgent } = await import('../../agents/jamis');
+	const { boundaryModel } = await import('../../agents/__tests__/specialist-boundary.fixture');
 	const originalFetch = globalThis.fetch;
 	type Action = { tool: string; input: Record<string, unknown> } | { text: string } | { error: string };
 	function model(actions: Action[], prompts: unknown[]) {
