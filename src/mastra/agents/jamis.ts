@@ -8,6 +8,7 @@ import { Memory } from '@mastra/memory';
 import { getFantasyConfig } from '../../fantasy/config';
 import { createFantasyGroupHandler } from '../../fantasy/ingest';
 import { currentSpecialistClarification, formatSendblueError, getSendblueChannelCapability, handleSendblueDirectMessage, operatorTimeZoneChangeTool, retainSpecialistClarification, sendblueAdapter } from '../channels/sendblue';
+import { createConversationContextProcessor } from '../processors/conversation-context';
 import { createProjectWorkspace } from '../project-workspace';
 import { createSpecialistTools } from '../specialist-invocations';
 import { checkMonitoringTool } from '../tools/check-monitoring';
@@ -130,11 +131,12 @@ export function createJamisAgent(config: Partial<Pick<AgentConfig, 'mastra' | 'm
 		take: currentSpecialistClarification,
 		save: retainSpecialistClarification,
 	});
+	const contextUsage = createConversationContextProcessor();
 	return new Agent({
 		...jamisConfig,
 		...overrides,
-		inputProcessors: [authority],
-		outputProcessors: [authority],
+		inputProcessors: [authority, contextUsage],
+		outputProcessors: [authority, contextUsage],
 		tools: async context => ({
 			...typeof config.tools === 'function' ? await config.tools(context) : config.tools ?? await jamisConfig.tools(),
 			...invocations,

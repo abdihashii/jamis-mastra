@@ -36,6 +36,50 @@ else {
 	const { createJamisAgent } = await import('../jamis');
 	const { forcingStoreFalse } = await import('../../gateways/openai-codex-gateway');
 	const { applyCodexBodyRules } = await import('../../gateways/openai-codex-auth');
+	const { readConversationContext } = await import('../../processors/conversation-context');
+	const { boundaryModel } = await import('./specialist-boundary.fixture');
+	const { createTool } = await import('@mastra/core/tools');
+	const { z } = await import('zod');
+
+	for (const mode of ['generate', 'stream'] as const) {
+		test(`${mode}: production Jamis captures usage before its direct tool executes`, async () => {
+			const snapshots: unknown[] = [];
+			const model = boundaryModel([{ tool: 'inspect_context', input: {} }, { text: 'Fixture answer.' }]);
+			const jamis = createJamisAgent({
+				mastra: new Mastra({ logger: false }),
+				model,
+				memory: undefined,
+				workspace: undefined,
+				channels: undefined,
+				tools: { inspect_context: createTool({
+					id: 'inspect_context',
+					description: 'Inspect the current fixture request.',
+					inputSchema: z.object({}),
+					execute: async (_, context) => {
+						snapshots.push(readConversationContext(context.requestContext));
+						return { inspected: true };
+					},
+				}) },
+				specialists: { weather: { model }, research: { model }, personalAccounts: { model } },
+			});
+			if (mode === 'stream') {
+				const result = await jamis.stream('Inspect context.');
+				await result.consumeStream();
+			} else {
+				await jamis.generate('Inspect context.');
+			}
+			expect(snapshots).toEqual([{
+				model: {
+					provider: model.provider,
+					modelId: model.modelId,
+					stepNumber: 0,
+					inputTokens: 1,
+					capacityTokens: null,
+				},
+				observationalMemory: null,
+			}]);
+		});
+	}
 
 	test('the first weather request includes only object-root function schemas', async () => {
 		const requests: Array<{ tools: Array<{ type: string; name: string; description: string; parameters: Record<string, unknown> }> }> = [];
