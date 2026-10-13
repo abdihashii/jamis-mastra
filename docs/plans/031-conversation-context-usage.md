@@ -44,19 +44,52 @@ Capture current-step provider input usage and actual model identity before tool 
 
 **Proposed commit:** `feat: capture request-local Jamis context measurements`.
 
-### 2. Expose context usage through a direct chat tool
+### 2. Expose context usage through a direct chat tool (TDD)
 
-**Goal:** answer ordinary context-usage questions using those measurements, not model guesses or historical Monitoring.
+**Goal:** answer ordinary context-usage questions using Stage 1 measurements, not model guesses or historical Monitoring. Stage 2 remains unimplemented. The steps below are red/green cycles inside one independently committable stage, not separate commits containing intentionally failing tests.
 
-**Critical files:** new `src/mastra/tools/conversation-context.ts` and focused tests; `src/mastra/agents/jamis.ts`; relevant agent/provider-schema tests; `docs/CONTEXT.md` only for a concise terminology distinction.
+**Critical files:** new `src/mastra/tools/conversation-context.ts` and `src/mastra/tools/__tests__/conversation-context.test.ts`; `src/mastra/agents/jamis.ts`; `src/mastra/agents/__tests__/provider-tool-schema.test.ts` for actual-registration/SDK proofs; existing capture tests as regression checks; `docs/CONTEXT.md` only if a concise terminology distinction is needed. Reuse the existing isolated agent fixture; do not refactor other suites or add test infrastructure.
 
-Register one no-argument read-only tool on Jamis. Return separately labeled model-context and OM results, measurement timing, numeric values, and explicit availability. Include verified capacity-derived values only when available. Instructions route current-conversation context questions to this tool while retaining historical token-use requests on Monitoring. No specialist delegation is needed.
+**Contract:** one no-argument, read-only direct tool, with new Mastra ID `conversation_context`. It reads the current request's captured snapshot, returns separate model-context and OM results with explicit availability and measurement timing, and exposes no message/observation contents or caller-selected session. Model identity accompanies available usage. Capacity and derived percentage/headroom remain explicitly unavailable because the actual gateway declares no verified capacity. Explain that the measurement precedes the final answer, OM thresholds trigger compaction, and input headroom would not guarantee remaining output. Current-context questions route to this tool; historical token-use requests stay on Monitoring. No specialist delegation, new storage reads/writes, persisted history, warnings, dependencies, or services.
 
-**Verification:** tool-schema and output tests cover both successful measurements, partial/unavailable results, no active request context, and zero usage. A deterministic agent integration test calls the actual registered tool and verifies it receives the current request's snapshot. Preserve existing Monitoring/delegation/session regressions. Run the repository gate.
+#### 2.1. Establish the baseline and write the first RED tests
 
-**Demoable acceptance:** ask “How much context are we using?” in a deterministic test conversation and inspect the tool result: current model input tokens and OM token/threshold pairs are separate; unknown capacity is explicit. A real operator DM smoke is a separate acceptance check, subject to credential/deployment availability.
+1. Run the existing Stage 1 capture/provider-schema/delegation tests before changing implementation. Record the full repository gate separately so known failures cannot be mistaken for the new feature's RED state.
+2. Derive a small output contract and literal expected results from JAM-76's ACs. First write representative registration and normal-result integration tests against the actual default `createJamisAgent` tool registration, on both generate and stream paths. Do not inject a replacement context tool through `config.tools`, stub the snapshot reader, or compute expected values with the implementation under test.
+3. Use known provider/OM fixture values, for example current-step input `222`, messages `123/30000`, and observations `456/40000`. Expected results must assert these independent literals, model identity, separate measurements, unknown capacity, and timing metadata. Inspect the actual tool result, not just the scripted model's final text.
+4. Run the tests and record command, exit status, test names and the expected failure. Start from existing agent registration so absence of the new tool produces an assertion failure, not a missing-module/import error. A broken fixture, failed network call, or unrelated baseline failure does not count as RED. Fix test setup only until the tests reach the intended feature assertion.
+
+**Mandatory Operator checkpoint:** show the proposed output contract, test diff, remaining case checklist and observed RED evidence. Stop for approval before writing tool implementation or registration. Do not commit a knowingly red intermediate state. This checkpoint approval is not commit/push/deploy approval.
+
+#### 2.2. GREEN, then repeat one behavior at a time
+
+After red-test approval, implement only enough tool/registration behavior to pass the first tests. Reuse `readConversationContext` and the Stage 1 processor; no new cache or snapshot setter for tests. Then add each missing contract case, observe its meaningful failure, make the minimum change, and rerun all Stage 2 tests:
+
+- **Partial availability:** missing provider usage with available OM; available model usage with disabled/unavailable OM; neither measurement; absent or finalized request context. One unavailable result must not hide the other.
+- **Zero and unknowns:** zero input/OM counts are available zero, not missing; unavailable counts/capacity/derived values are explicit and never fabricated. No numerical output-capacity guarantee.
+- **Latest-step identity:** multiple local tool steps use the latest completed Jamis call, not summed input/output or specialist usage. Use different literal counts across calls; keep both generate/stream proofs.
+- **Privacy and scope:** schema has an object root and no arguments, and rejects caller-supplied thread/session selectors. Request/session isolation remains intact; sentinel message/observation contents never appear in tool output. Tool execution adds no storage reads/writes. Keep existing collector tests rather than duplicating its complete suite.
+- **Routing and compatibility:** assert new tool registration/SDK schema and the instruction distinction between current context and historical Monitoring. Preserve the existing Monitoring/delegation/session behavior; scripted-provider tests prove plumbing, not a real model's choice of tool.
+
+Keep approved expected results fixed while implementing. Do not delete/skip failing cases, loosen assertions, copy implementation logic into expected values, or alter the contract merely to obtain green. If a test expectation is genuinely wrong, explain the conflict with the ticket and obtain approval before changing it. Refactor only if it simplifies the green implementation without expanding scope. No mutation-testing dependency or multi-agent pipeline is needed.
+
+**Focused red/green command:** `bun test src/mastra/tools/__tests__/conversation-context.test.ts src/mastra/agents/__tests__/provider-tool-schema.test.ts`. Run existing capture/delegation regression tests after each meaningful change. New schema/execution behavior must have its own observed RED evidence; already-green checks are retained regressions, not claimed as new TDD cycles. Do not break already-correct behavior merely to manufacture RED.
+
+#### 2.3. Verify, review and obtain commit approval
+
+- Confirm all new/affected tests pass and temporarily remove the new registration to prove the actual-tool integration assertion fails; restore it immediately and rerun green. This guards against a test that never exercises the registered tool.
+- Run the repository gate and report scoped results, skips and unchanged baseline failures separately. Investigate any new regression introduced by Stage 2. Do not repair unrelated baseline tests/lint/typecheck or relax global checks to make this PR green; obtain explicit acknowledgement of remaining baseline failures at sign-off.
+- Review the contract tests and implementation together for ticket correctness, privacy and scope. Record RED/GREEN evidence and the diff summary, then wait for explicit commit approval. Push/deployment remain separate approvals.
+
+**Demoable acceptance:** a deterministic question invokes the actual registered tool and returns current model input tokens and OM token/threshold pairs separately, with explicit unknown capacity and pre-answer timing. After authorized deployment, a real Operator DM asks “How much context are we using?”; confirm actual tool execution in the trace, compare reported model input with the preceding provider call, and check the response for both measurements, availability and terminology. Protected traces omit tool outputs; use an authorized request result if available, otherwise explicitly report the live OM verification limit. Do not add diagnostic logging/persistence to expose the snapshot. Mock success is not live acceptance. Do not assert exact natural-language wording from a scripted provider.
 
 **Proposed commit:** `feat: let Jamis report conversation context usage`.
+
+**Research behind this approach:**
+
+- [Simon Willison, Red/green TDD](https://simonwillison.net/guides/agentic-engineering-patterns/red-green-tdd/): write tests first, observe failure, then implement; a test that already passes may not exercise the new behavior.
+- [Anthropic, Claude Code best practices](https://code.claude.com/docs/en/best-practices#give-claude-a-way-to-verify-its-work): give the coding agent runnable verification and require evidence; fresh-context review can check correctness and scope without accepting the writer's confidence as proof.
+- [Augment Code, Spec + TDD](https://www.augmentcode.com/guides/spec-tdd-shippable-ai-generated-code): practitioner guidance warns about tests mirroring generated implementation or being weakened to pass. Use ticket-derived expectations and minimum red/green steps, not its larger commercial workflow.
 
 ## Stage 1 implementation and verification
 
