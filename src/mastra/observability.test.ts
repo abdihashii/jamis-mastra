@@ -145,7 +145,24 @@ test('standalone specialist, invocation, and workflow roots protect their first 
 			expect(root.input).toBe('PRIVATE_ARCHITECTURE_SENTINEL');
 			expect(root.output).toBe('PRIVATE_ARCHITECTURE_SENTINEL');
 		}
+		const jamis = instance.startSpan({ name: 'Jamis', type: SpanType.AGENT_RUN, entityId: 'jamis' });
+		const contextTool = jamis.createChildSpan({
+			name: 'PRIVATE_ARCHITECTURE_SENTINEL',
+			type: SpanType.TOOL_CALL,
+			entityId: 'conversation_context',
+			entityName: 'PRIVATE_ARCHITECTURE_SENTINEL',
+			input: 'PRIVATE_ARCHITECTURE_SENTINEL',
+			metadata: { private: 'PRIVATE_ARCHITECTURE_SENTINEL' },
+		});
+		instance.getLoggerContext?.(contextTool).error('PRIVATE_ARCHITECTURE_SENTINEL');
+		instance.getMetricsContext?.(contextTool).emit('context_fixture_duration', 1, { private: 'PRIVATE_ARCHITECTURE_SENTINEL' });
+		contextTool.end({ output: 'PRIVATE_ARCHITECTURE_SENTINEL' });
+		jamis.end();
 		await instance.flush();
+		expect(events.some(event => event.type === TracingEventType.SPAN_ENDED
+			&& event.span.entityId === 'conversation_context' && event.span.entityName === 'conversation_context')).toBe(true);
+		expect(logs.some(log => log.correlationContext?.entityId === 'conversation_context')).toBe(true);
+		expect(metrics.some(metric => metric.correlationContext?.entityId === 'conversation_context')).toBe(true);
 		expect(JSON.stringify({ events, logs, metrics })).not.toContain('PRIVATE_ARCHITECTURE_SENTINEL');
 		expect(logs.filter(log => roots.includes(log.correlationContext?.rootEntityId ?? ''))).toHaveLength(roots.length);
 		expect(metrics.filter(metric => metric.name === 'architecture_duration')).toHaveLength(roots.length);

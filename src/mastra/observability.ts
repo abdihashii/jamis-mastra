@@ -71,6 +71,7 @@ const protectedRootEntityIds = [
 const safeTraceEntityIds = [
 	...protectedRootEntityIds,
 	'checkMonitoring',
+	'conversation_context',
 	'currentTime',
 	'proposeOperatorTimeZoneChange',
 	'triageIncident',
