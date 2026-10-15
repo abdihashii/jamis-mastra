@@ -210,6 +210,8 @@ if (!process.env.JAMIS_PROVIDER_SCHEMA_TEST) {
 			]);
 			const instructions = await jamis.getInstructions();
 			expect(instructions).toEqual(expect.stringContaining('call conversation_context directly'));
+			expect(instructions).toEqual(expect.stringContaining('Report the tool\'s provider and modelId'));
+			expect(instructions).toEqual(expect.stringContaining('never guess model identity'));
 			expect(instructions).toEqual(expect.stringContaining('historical token usage'));
 			expect(instructions).toEqual(expect.stringContaining('call checkMonitoring with the application scope'));
 		});
