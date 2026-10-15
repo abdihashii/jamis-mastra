@@ -39,6 +39,15 @@ _Example_: Personal Accounts owns the calendar portion of the plan and uses its 
 An internal subagent that provides a reusable skill, such as research, for a focused contribution while the task owner retains responsibility for the overall task.
 _Example_: Research evaluates official weather-alert sources and returns supported findings to Jamis; Jamis owns the combined weather report.
 
+**Fantasy Football Pundit**:
+The accepted next Domain specialist for fantasy-football reporting. It selects awards, quotes and stories and prepares reports from scoped league, chat and public NFL evidence. A scheduled workflow can invoke it without a Jamis conversation; it has no channel or independent publication authority. This replaces the current recap agent's limited editorial role, not the supporting domain services. See [ADR 0023](adrs/0023-fantasy-pundit-editorial-workflow.md) and [plan 032](plans/032-fantasy-pundit-editorial-workflow.md). Not implemented.
+
+**Broadcaster**:
+The accepted next Capability specialist for delivering exact saved reports to an authorized destination. It does not rewrite reports, choose publication authority or replace durable delivery state. The initial scope is the existing Fantasy group; broader channel support remains deferred. It is distinct from the currently implemented Fantasy broadcast drafter. See [ADR 0023](adrs/0023-fantasy-pundit-editorial-workflow.md). Not implemented.
+
+**Fantasy editorial validation**:
+A required model-backed review of a proposed recap against the same scoped evidence, checking grounding, award criteria, fairness and voice. It returns issues to the Pundit rather than becoming another writer. Deterministic validation separately checks structure, references, exact source text and rendered constraints; neither layer proves every semantic claim correct. See [ADR 0023](adrs/0023-fantasy-pundit-editorial-workflow.md). Not implemented.
+
 **Tool**:
 A callable operation that performs a predefined action for an agent or workflow, such as retrieving data or applying an authorized change, while the task owner retains responsibility for the overall outcome.
 _Examples (illustrative)_: `read_file`, `write_file`, `get_forecast`, `get_current_time`, `search_web`, and `scrape_page`.

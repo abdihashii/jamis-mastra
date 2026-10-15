@@ -2,6 +2,8 @@
 
 The Fantasy Companion passively observes one Sleeper league's iMessage group and publishes one concise recap after each completed fantasy week.
 
+This glossary describes the current implementation. The accepted next design in [ADR 0023](../../docs/adrs/0023-fantasy-pundit-editorial-workflow.md) and [plan 032](../../docs/plans/032-fantasy-pundit-editorial-workflow.md) is not implemented. It replaces the high/low/closest award definitions below with evidence-backed editorial selection, adds a genuine attributed Quote of the Week and relevant Alexandria NFL evidence, and introduces separate deterministic and editorial validation. The Fantasy Football Pundit owns the reporting; Broadcaster delivers exact saved content under application authority. During implementation, this supporting context and domain code move to `src/lib/fantasy`, and the glossary and its links must move with them. Historical reports and saved retry text retain their original contract.
+
 ## Language
 
 **Fantasy group**:

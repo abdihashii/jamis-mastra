@@ -1,5 +1,7 @@
 # JAM-72: Fantasy recap structure and commentary
 
+Successor design: [ADR 0023](../adrs/0023-fantasy-pundit-editorial-workflow.md) and [plan 032](032-fantasy-pundit-editorial-workflow.md) record the accepted, not-yet-implemented Pundit workflow. They prospectively replace this plan's facts-only high/low/closest awards and paraphrase-only editorial contract, add an attributed quote and NFL research, and require deterministic plus model-backed editorial validation. Expanded-report budgets and delivery formatting still need explicit acceptance; this plan's limits are not automatically the new specification. This plan remains historical implementation/verification evidence, including its outstanding checks; saved reports and retry text are not rewritten.
+
 Status: Stage 1 committed and pushed (`b9d4e34`). Stage 2 implemented and reviewed; no-send empty-chat preview passed. Archived-chat/database acceptance remains pending. User approved this version for commit; push is not approved.
 
 Tracking: [JAM-72](https://linear.app/abdirahman-haji/issue/JAM-72/sharpen-fantasy-recap-award-commentary).
