@@ -121,8 +121,7 @@ export function createJamisSpecialistProcessor(channelRequest: (context: Request
 				if (authority?.nextClarification)
 					await authority.saveClarification?.(authority.nextClarification);
 				return messageList;
-			}
-			finally {
+			} finally {
 				if (requestContext)
 					revokeSpecialistAuthority(requestContext);
 			}
@@ -259,8 +258,7 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 				if (config.id === 'invoke_research')
 					authority.researchResults.set(assignment, handback);
 				return recordClarification(authority, config.id, assignment, handback, childAuthority?.originalAccountsRequest);
-			}
-			finally {
+			} finally {
 				if (calleeContext)
 					revokeSpecialistAuthority(calleeContext);
 				throwIfCanceled(context.abortSignal);
@@ -280,8 +278,7 @@ export async function normalizeSpecialistResult<R extends Record<string, unknown
 		if (isValidationError(value))
 			throw new Error('Tool validation failed.');
 		return specialistHandbackSchema(resultSchema).parse(value);
-	}
-	catch (error) {
+	} catch (error) {
 		if (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))
 			throw error;
 		const parsed = resultSchema.safeParse(progress);

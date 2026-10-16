@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { SqlLike } from '../../../fantasy/recaps';
+import type { SqlLike } from '../../../lib/fantasy/recaps';
 import { describe, expect, test } from 'bun:test';
 import { SpanType } from '@mastra/core/observability';
 import { TraceStatus } from '@mastra/core/storage';
@@ -137,7 +137,7 @@ describe('Deployment monitoring Stage 1', () => {
 		const start = new Date(now - 3_600_000);
 		const calls: { text: string; values: unknown[] }[] = [];
 		const sql: SqlLike = async (strings, ...values) => {
-			calls.push({ text: strings.join('?'), values });
+			calls.push({ text: strings.join('?').replace(/\s+/g, ' ').trim(), values });
 			return [{
 				createdAt: new Date(start.getTime() - 1_000),
 				updatedAt: new Date(start.getTime() + 1_000),

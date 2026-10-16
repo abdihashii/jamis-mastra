@@ -5,7 +5,7 @@ Successor design: [ADR 0023](../adrs/0023-fantasy-pundit-editorial-workflow.md) 
 Status: Stage 1 committed and pushed (`b9d4e34`). Stage 2 implemented and reviewed; no-send empty-chat preview passed. Archived-chat/database acceptance remains pending. User approved this version for commit; push is not approved.
 
 Tracking: [JAM-72](https://linear.app/abdirahman-haji/issue/JAM-72/sharpen-fantasy-recap-award-commentary).
-Terminology: [Fantasy Companion glossary](../../src/fantasy/CONTEXT.md).
+Terminology: [Fantasy Companion glossary](../../src/lib/fantasy/CONTEXT.md).
 
 ## Agreed design
 

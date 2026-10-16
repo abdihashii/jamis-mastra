@@ -1,32 +1,31 @@
-import type { MatchupResult, WeekFacts } from '../src/fantasy/analysis';
-import type { FantasyConfig } from '../src/fantasy/config';
-import type { ChatContextMessage, RecapShaping } from '../src/fantasy/generate';
-import type { RecapGenerationRecord } from '../src/fantasy/recaps';
+import type { MatchupResult, WeekFacts } from '../src/lib/fantasy/analysis';
+import type { FantasyConfig } from '../src/lib/fantasy/config';
+import type { ChatContextMessage, RecapShaping } from '../src/lib/fantasy/generate';
+import type { RecapGenerationRecord } from '../src/lib/fantasy/recaps';
 
-import type { SleeperManager } from '../src/fantasy/sleeper';
+import type { SleeperManager } from '../src/lib/fantasy/sleeper';
 import { SQL } from 'bun';
 import { readFile } from 'node:fs/promises';
 import process from 'node:process';
 import { Mastra } from '@mastra/core/mastra';
 import { PostgresStore } from '@mastra/pg';
-import { buildWeekFacts } from '../src/fantasy/analysis';
-import { parseFantasyConfig } from '../src/fantasy/config';
-import { confirmSent, retryWeek } from '../src/fantasy/coordinator';
-import { runDailyRecap } from '../src/fantasy/daily';
+import { buildWeekFacts } from '../src/lib/fantasy/analysis';
+import { parseFantasyConfig } from '../src/lib/fantasy/config';
+import { confirmSent, retryWeek } from '../src/lib/fantasy/coordinator';
+import { runDailyRecap } from '../src/lib/fantasy/daily';
 import {
 	buildRecapPrompt,
-	createFantasyAgent,
 	DEFAULT_RECAP_MODEL,
 	FANTASY_GENERATOR_VERSION,
 	recapShapingSchema,
 	ShapingValidationError,
 	toChatContext,
 	validateShaping,
-} from '../src/fantasy/generate';
+} from '../src/lib/fantasy/generate';
 
-import { ensureFantasyRecapsTable, getFantasySql, recordClaimedGeneration } from '../src/fantasy/recaps';
-import { RECAP_MAX_LENGTH, renderWeekRecap } from '../src/fantasy/render';
-import { createRunsStore } from '../src/fantasy/runs';
+import { ensureFantasyRecapsTable, getFantasySql, recordClaimedGeneration } from '../src/lib/fantasy/recaps';
+import { RECAP_MAX_LENGTH, renderWeekRecap } from '../src/lib/fantasy/render';
+import { createRunsStore } from '../src/lib/fantasy/runs';
 import {
 	championshipWeek,
 	getLeague,
@@ -38,7 +37,8 @@ import {
 	isWeekComplete,
 	SleeperDataError,
 	withBracketRounds,
-} from '../src/fantasy/sleeper';
+} from '../src/lib/fantasy/sleeper';
+import { createFantasyFootballPundit } from '../src/mastra/agents/fantasy-football-pundit';
 import { openAICodexGateway } from '../src/mastra/gateways/openai-codex-gateway.js';
 
 const usage = [
@@ -67,7 +67,7 @@ async function main() {
 		// Same flow the scheduled workflow runs; the local shim only adds gateways/storage.
 		const shim = new Mastra({
 			gateways: { 'openai-codex': openAICodexGateway },
-			agents: { fantasy: createFantasyAgent(DEFAULT_RECAP_MODEL) },
+			agents: { 'fantasy-football-pundit': createFantasyFootballPundit(DEFAULT_RECAP_MODEL) },
 			storage: new PostgresStore({ id: 'fantasy-cli-storage', connectionString: process.env.DATABASE_URL! }),
 		});
 		const result = await runDailyRecap(config, shim);
@@ -160,15 +160,13 @@ async function loadChatFixture(path: string, managers: SleeperManager[]) {
 	let raw: string;
 	try {
 		raw = await readFile(path, 'utf8');
-	}
-	catch {
+	} catch {
 		throw new SleeperDataError(`--chat file is unreadable: ${path}`);
 	}
 	let entries: ChatFixtureEntry[];
 	try {
 		entries = JSON.parse(raw) as ChatFixtureEntry[];
-	}
-	catch {
+	} catch {
 		throw new SleeperDataError(`--chat file is not valid JSON: ${path}`);
 	}
 	const displayNameByUserId = new Map(managers.map(m => [m.userId, m.displayName]));
@@ -200,8 +198,7 @@ async function readThreadMessages(groupId: string, since?: Date) {
 			orderBy: { field: 'createdAt', direction: 'DESC' },
 		});
 		return messages;
-	}
-	catch {
+	} catch {
 		throw new Error('Archived chat could not be read in preview mode');
 	}
 }
@@ -223,8 +220,22 @@ async function recapRowCounts(sql: SQL, leagueId: string): Promise<{ generations
 		throw new Error('Preview database connection is not read-only');
 	const [row] = await sql`
 		SELECT
-			(SELECT count(*)::int FROM fantasy_recap_generations WHERE league_id = ${leagueId}) AS generations,
-			(SELECT count(*)::int FROM fantasy_recap_runs WHERE league_id = ${leagueId}) AS runs
+			(
+				SELECT
+					count(*)::int
+				FROM
+					fantasy_recap_generations
+				WHERE
+					league_id = ${leagueId}
+			) AS generations,
+			(
+				SELECT
+					count(*)::int
+				FROM
+					fantasy_recap_runs
+				WHERE
+					league_id = ${leagueId}
+			) AS runs
 	` as Array<{ generations: number; runs: number }>;
 	if (!row)
 		throw new Error('Preview database row counts unavailable');
@@ -257,8 +268,7 @@ async function factsFor(
 	try {
 		const scores = scoresByWeek.get(week) ?? [];
 		players = await getPlayers(scores.flatMap(score => [...score.players, ...score.starters]));
-	}
-	catch (error) {
+	} catch (error) {
 		console.warn('[fantasy-recap] player catalog unavailable; continuing without player stories:', error);
 	}
 	return buildWeekFacts({ league, week, managers, bracket, scoresByWeek, nextWeekScores, players });
@@ -269,10 +279,10 @@ function shapingGenerator(model: string) {
 	// A bare Mastra instance only so custom gateways (openai-codex/*) resolve.
 	const mastra = new Mastra({
 		gateways: { 'openai-codex': openAICodexGateway },
-		agents: { fantasy: createFantasyAgent(model) },
+		agents: { 'fantasy-football-pundit': createFantasyFootballPundit(model) },
 	});
 	return async (facts: WeekFacts, context: ReturnType<typeof toChatContext>): Promise<RecapShaping> => {
-		const result = await mastra.getAgent('fantasy').generate(buildRecapPrompt(facts, context), {
+		const result = await mastra.getAgent('fantasy-football-pundit').generate(buildRecapPrompt(facts, context), {
 			structuredOutput: { schema: recapShapingSchema },
 			tracingOptions: { hideInput: true, hideOutput: true },
 		});
@@ -284,7 +294,7 @@ function shapingGenerator(model: string) {
 
 async function coordinatorDeps(config: FantasyConfig) {
 	// Dynamic import: inspect/preview must never require Sendblue env vars.
-	const { sendblueSendClient } = await import('../src/fantasy/deliver');
+	const { sendblueSendClient } = await import('../src/lib/fantasy/deliver');
 	const sql = getFantasySql();
 	return {
 		runs: createRunsStore(config.sleeperLeagueId, sql),
@@ -329,8 +339,7 @@ function print(facts: WeekFacts, provisional: boolean) {
 		for (const candidate of facts.playerStoryCandidates) {
 			if (candidate.kind === 'top-starter') {
 				console.log(`  Top starter: ${candidate.player.name} (${candidate.player.position}) scored ${candidate.points} for ${candidate.team.displayName}`);
-			}
-			else {
+			} else {
 				console.log(`  Bench flip: ${candidate.benchedPlayer.name} (${candidate.benchedPoints}) over ${candidate.startedPlayer.name} (${candidate.startedPoints}) would add ${candidate.pointSwing} for ${candidate.team.displayName}, above the ${candidate.lossMargin}-point loss to ${candidate.opponent.displayName}`);
 			}
 		}
@@ -338,11 +347,9 @@ function print(facts: WeekFacts, provisional: boolean) {
 
 	if (facts.upcoming === null) {
 		console.log('\nUpcoming: none — the championship is decided.');
-	}
-	else if (facts.upcoming.length === 0) {
+	} else if (facts.upcoming.length === 0) {
 		console.log('\nUpcoming: no resolvable matchups yet.');
-	}
-	else {
+	} else {
 		console.log(`\nUpcoming week ${facts.week + 1}:`);
 		for (const pair of facts.upcoming) console.log(`  ${pair.a.displayName} vs ${pair.b.displayName}`);
 	}

@@ -1,11 +1,11 @@
-import type { SqlLike } from '../lib/operator-time-zone';
+import type { SqlLike } from '../operator-time-zone';
 import type { FantasyConfig } from './config';
 import type { SendOutcome } from './deliver';
 
 import { createHash, randomUUID } from 'node:crypto';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { isImmediatelyFollowingLinearMessage, isLatestLinearMessage } from '../lib/linear-proposals';
+import { isImmediatelyFollowingLinearMessage, isLatestLinearMessage } from '../linear-proposals';
 import { getFantasyConfig } from './config';
 import { getFantasySql } from './recaps';
 
@@ -58,28 +58,67 @@ export interface BroadcastRecord {
 	notified: boolean;
 }
 
-export async function readPendingBroadcast(dmId: string, sql: SqlLike = getFantasySql()): Promise<BroadcastRecord | null> {
+export async function readPendingBroadcast(
+	dmId: string,
+	sql: SqlLike = getFantasySql(),
+): Promise<BroadcastRecord | null> {
 	await ensureFantasyBroadcastsTable(sql);
-	const rows = await sql`SELECT * FROM fantasy_broadcasts WHERE dm_id = ${dmId}
-		AND (status IN ('reviewing', 'pending', 'sending') OR (status IN ('sent', 'send_attempted') AND NOT notified))
-		ORDER BY created_at LIMIT 1` as BroadcastRecord[];
+	const rows = await sql`
+	SELECT
+		*
+	FROM
+		fantasy_broadcasts
+	WHERE
+		dm_id = ${dmId}
+		AND (
+			status IN ('reviewing', 'pending', 'sending')
+			OR (
+				status IN ('sent', 'send_attempted')
+				AND NOT notified
+			)
+		)
+	ORDER BY
+		created_at
+	LIMIT
+		1
+` as BroadcastRecord[];
 	return rows[0] ?? null;
 }
 
 export async function cancelBroadcast(dmId: string, messageId: string, sql: SqlLike = getFantasySql(), disposition: 'canceled' | 'declined' = 'canceled'): Promise<void> {
 	await ensureFantasyBroadcastsTable(sql);
-	await sql`UPDATE fantasy_broadcasts SET status = 'canceled', notified = TRUE,
-		decision = ${{ messageId, disposition }}::jsonb, updated_at = now()
-		WHERE dm_id = ${dmId} AND status IN ('reviewing', 'pending')`;
+	await sql`
+	UPDATE fantasy_broadcasts
+	SET
+		status = 'canceled',
+		notified = TRUE,
+		decision = ${{ messageId, disposition }}::jsonb,
+		updated_at = now()
+	WHERE
+		dm_id = ${dmId}
+		AND status IN ('reviewing', 'pending')
+`;
 }
 
-export async function notifyBroadcast(row: BroadcastRecord, post: (text: string) => Promise<unknown>, sql: SqlLike = getFantasySql()): Promise<void> {
+export async function notifyBroadcast(
+	row: BroadcastRecord,
+	post: (text: string) => Promise<unknown>,
+	sql: SqlLike = getFantasySql(),
+): Promise<void> {
 	// A recovered claim may already have reached Sendblue. Never replay it.
 	if (row.status === 'sending') {
-		await sql`UPDATE fantasy_broadcasts SET status = 'send_attempted',
-			outcome = ${{ kind: 'unknown', error: 'Send outcome unavailable.' }}::jsonb WHERE id = ${row.id} AND status = 'sending'`;
+		await sql`
+	UPDATE fantasy_broadcasts
+	SET
+		status = 'send_attempted',
+		outcome = ${{ kind: 'unknown', error: 'Send outcome unavailable.' }}::jsonb
+	WHERE
+		id = ${row.id}
+		AND status = 'sending'
+`;
 	}
-	// shortcut: outcome notifications are at least once, add provider idempotency if duplicate status replies become material.
+	// shortcut: outcome notifications are at least once, add provider idempotency if duplicate status replies become
+	// material.
 	await post(row.status === 'sent' && row.outcome?.kind === 'sent'
 		? 'Fantasy broadcast accepted by Sendblue.'
 		: row.outcome?.kind === 'failed'
@@ -88,7 +127,13 @@ export async function notifyBroadcast(row: BroadcastRecord, post: (text: string)
 	await sql`UPDATE fantasy_broadcasts SET notified = TRUE WHERE id = ${row.id}`;
 }
 
-const draftOutputSchema = z.object({ ok: z.boolean(), draftId: z.string().optional(), text: z.string().optional(), error: z.string().optional() });
+const draftOutputSchema = z
+	.object({
+		ok: z.boolean(),
+		draftId: z.string().optional(),
+		text: z.string().optional(),
+		error: z.string().optional(),
+	});
 const sendOutputSchema = z.object({ ok: z.boolean(), outcome: z.enum(['sent', 'unknown', 'failed', 'blocked']).optional(), error: z.string().optional() });
 
 /** The channel owns review and decision authority; model context and draft IDs cannot recreate it. */
@@ -99,14 +144,14 @@ export function createBroadcastTools(config: FantasyConfig | null, sql: SqlLike 
 		inputSchema: z.object({ note: z.string().min(1).max(2000), text: z.string().min(1).max(2000) }).strict(),
 		outputSchema: draftOutputSchema,
 		toModelOutput: async (output) => {
-			const { markBroadcastDraftAttempt } = await import('../mastra/channels/sendblue');
+			const { markBroadcastDraftAttempt } = await import('../../mastra/channels/sendblue');
 			markBroadcastDraftAttempt();
 			return { type: 'text', value: JSON.stringify(output) };
 		},
 		execute: async (inputData, context): Promise<z.infer<typeof draftOutputSchema>> => {
 			if (!config || context.agent?.agentId !== 'fantasy-broadcast-agent')
 				return { ok: false, error: 'Fantasy drafting is unavailable in this context.' };
-			const { getBroadcastPreparation } = await import('../mastra/channels/sendblue');
+			const { getBroadcastPreparation } = await import('../../mastra/channels/sendblue');
 			const authority = await getBroadcastPreparation();
 			if (!authority)
 				return { ok: false, error: 'A fresh Operator DM is required for review.' };
@@ -119,9 +164,33 @@ export function createBroadcastTools(config: FantasyConfig | null, sql: SqlLike 
 				await db.begin(async (tx) => {
 					if (!await isLatestLinearMessage(authority.dmId, authority.sourceMessageId, tx))
 						throw new Error('Broadcast source is no longer current.');
-					const rows = await tx`INSERT INTO fantasy_broadcasts (id, draft_text, draft_digest, dm_id, session_id, source_message_id, group_id, status)
-						VALUES (${id}, ${inputData.text}, ${createHash('sha256').update(inputData.text).digest('hex')}, ${authority.dmId}, ${authority.sessionId}, ${authority.sourceMessageId}, ${config.sendblueGroupId}, 'reviewing')
-						ON CONFLICT DO NOTHING RETURNING id`;
+					const rows = await tx`
+	INSERT INTO
+		fantasy_broadcasts (
+			id,
+			draft_text,
+			draft_digest,
+			dm_id,
+			session_id,
+			source_message_id,
+			group_id,
+			status
+		)
+	VALUES
+		(
+			${id},
+			${inputData.text},
+			${createHash('sha256').update(inputData.text).digest('hex')},
+			${authority.dmId},
+			${authority.sessionId},
+			${authority.sourceMessageId},
+			${config.sendblueGroupId},
+			'reviewing'
+		)
+	ON CONFLICT DO NOTHING
+	RETURNING
+		id
+`;
 					if (rows.length !== 1)
 						throw new Error('Another broadcast is pending.');
 					await authority.post(`Fantasy draft:\n\n${inputData.text}\n\nNext reply: confirm | decline. Any other reply cancels.`);
@@ -131,9 +200,9 @@ export function createBroadcastTools(config: FantasyConfig | null, sql: SqlLike 
 					throw new Error('Broadcast review readiness unavailable.');
 				authority.ready();
 				return { ok: true, draftId: id, text: inputData.text };
-			}
-			catch {
-				// A readiness write may have committed despite a lost acknowledgement. Revoke it before reporting failure.
+			} catch {
+				// A readiness write may have committed despite a lost acknowledgement. Revoke it before reporting
+				// failure.
 				await db`UPDATE fantasy_broadcasts SET status = 'canceled', notified = TRUE, updated_at = now()
 					WHERE id = ${id} AND status IN ('reviewing', 'pending')`;
 				return { ok: false, error: 'Fantasy draft review unavailable. Nothing is authorized.' };
@@ -146,14 +215,22 @@ export function createBroadcastTools(config: FantasyConfig | null, sql: SqlLike 
 		inputSchema: z.object({ draftId: z.string().min(6).max(36) }).strict(),
 		outputSchema: sendOutputSchema,
 		execute: async ({ draftId }): Promise<z.infer<typeof sendOutputSchema>> => {
-			const { getBroadcastDecision } = await import('../mastra/channels/sendblue');
+			const { getBroadcastDecision } = await import('../../mastra/channels/sendblue');
 			const authority = getBroadcastDecision(draftId);
 			if (!config || !authority)
 				return { ok: false, outcome: 'blocked', error: 'Validated Operator confirmation is required.' };
 			const db = authority.sql ?? sql;
 			await ensureFantasyBroadcastsTable(db);
-			if (!await isImmediatelyFollowingLinearMessage(authority.dmId, authority.messageId, authority.sourceMessageId, db))
+			if (
+				!await isImmediatelyFollowingLinearMessage(
+					authority.dmId,
+					authority.messageId,
+					authority.sourceMessageId,
+					db,
+				)
+			) {
 				return { ok: false, outcome: 'blocked', error: 'Confirmation is no longer adjacent.' };
+			}
 			const rows = await db`UPDATE fantasy_broadcasts SET status = 'sending', updated_at = now(),
 				decision = ${{ messageId: authority.messageId, disposition: 'confirmed' }}::jsonb
 				WHERE id = ${draftId} AND status = 'pending' AND publication_ready
@@ -171,8 +248,7 @@ export function createBroadcastTools(config: FantasyConfig | null, sql: SqlLike 
 			try {
 				const { sendblueSendClient } = await import('./deliver');
 				outcome = await sendblueSendClient.sendExactToGroup(config.sendblueGroupId, rows[0].draft_text);
-			}
-			catch {
+			} catch {
 				outcome = { kind: 'unknown', error: 'Send outcome unavailable.' };
 			}
 			await db`UPDATE fantasy_broadcasts SET status = ${outcome.kind === 'sent' ? 'sent' : 'send_attempted'},

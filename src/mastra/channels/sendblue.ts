@@ -21,7 +21,7 @@ import { createTool, noopObserve } from '@mastra/core/tools';
 
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
 import { z } from 'zod';
-import { broadcastTools, cancelBroadcast, notifyBroadcast, readPendingBroadcast } from '../../fantasy/broadcast';
+import { broadcastTools, cancelBroadcast, notifyBroadcast, readPendingBroadcast } from '../../lib/fantasy/broadcast';
 import { createLinearClient, linearCreateOperationSchema } from '../../lib/linear';
 import { beginLinearInspection, cancelLinearConversation, claimLinearCreate, finishLinearCreate, finishLinearInspection, getLinearSql, isImmediatelyFollowingLinearMessage, markLinearOutcomeNotified, notifyLinearOutcome, postLinearCreateProposal, readLatestLinearContinuation, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../lib/linear-proposals';
 import { clearOperatorTimeZoneConversation, clearPendingOperatorTimeZoneNotification, consumePendingOperatorTimeZoneChange, readPendingOperatorTimeZoneNotification, readPendingOperatorTimeZoneProposal, saveOperatorTimeZoneProposal, withOperatorTimeZoneTransaction } from '../../lib/operator-time-zone';
@@ -75,18 +75,31 @@ export const sendblueAdapter = Object.assign(adapter, {
 	// Chat SDK discards the raw response in Thread.post; validate before that boundary.
 	postMessage: async (...args: Parameters<typeof adapter.postMessage>) => {
 		const raw = z.object({ raw: z.string().min(1) }).safeParse(args[1]);
-		const result = raw.success ? await postExactSendblueMessage(adapter, args[0], raw.data.raw) : await postMessage(...args);
+		const result = raw.success
+			? await postExactSendblueMessage(adapter, args[0], raw.data.raw)
+			: await postMessage(...args);
 		requireSendbluePostAcceptance(result);
 		return result;
 	},
 });
 
 /** Raw review text bypasses the adapter's Markdown normalization, only for a DM. */
-export async function postExactSendblueMessage(adapter: ReturnType<typeof createSendblueAdapter>, threadId: string, text: string) {
+export async function postExactSendblueMessage(
+	adapter: ReturnType<typeof createSendblueAdapter>,
+	threadId: string,
+	text: string,
+) {
 	const decoded = adapter.decodeThreadId(threadId);
 	if (decoded.groupId)
 		throw new Error('Exact draft review requires a DM.');
-	const raw = await adapter.getSdk().messages.send({ number: decoded.contactNumber!, from_number: decoded.fromNumber, content: text }, { maxRetries: 0, signal: AbortSignal.timeout(15_000), timeout: 15_000 });
+	const raw = await adapter
+		.getSdk()
+		.messages
+		.send({
+			number: decoded.contactNumber!,
+			from_number: decoded.fromNumber,
+			content: text,
+		}, { maxRetries: 0, signal: AbortSignal.timeout(15_000), timeout: 15_000 });
 	const result = { id: raw.message_handle ?? '', threadId, raw };
 	requireSendbluePostAcceptance(result);
 	return result;
@@ -212,9 +225,17 @@ export async function getBroadcastPreparation() {
 	turn.broadcastAttempted = true;
 	const session = z.object({ thread: z.object({ id: z.string().min(1) }) }).safeParse(turn.requestContext.getRaw('MastraMemory'));
 	const memory = await turn.mastra?.getStorage()?.getStore('memory');
-	if (!session.success || !memory || await findJamisSession(memory, turn.capability.threadId, turn.capability.thread.channelId) !== session.data.thread.id || await readLinearProposal(turn.capability.threadId, turn.sql)
+	if (
+		!session.success
+		|| !memory
+		|| await findJamisSession(
+			memory,
+			turn.capability.threadId,
+			turn.capability.thread.channelId,
+		) !== session.data.thread.id || await readLinearProposal(turn.capability.threadId, turn.sql)
 		|| await readPendingOperatorTimeZoneProposal(turn.sql)
-		|| await readPendingBroadcast(turn.capability.threadId, turn.sql)) {
+		|| await readPendingBroadcast(turn.capability.threadId, turn.sql)
+	) {
 		return undefined;
 	}
 	return {
@@ -226,7 +247,9 @@ export async function getBroadcastPreparation() {
 		post: async (text: string) => {
 			if (!turn.active)
 				throw new Error('Broadcast turn ended.');
-			const result = z.object({ id: z.string().min(1) }).safeParse(await turn.capability.thread.post({ raw: text }));
+			const result = z
+				.object({ id: z.string().min(1) })
+				.safeParse(await turn.capability.thread.post({ raw: text }));
 			if (!result.success)
 				throw new Error('Fantasy review posting unavailable.');
 			turn.broadcastPosted = true;
@@ -234,7 +257,13 @@ export async function getBroadcastPreparation() {
 	};
 }
 
-async function handleBroadcastConfirmation(thread: Thread, message: Message, context: ChannelHandlerContext, fresh: boolean, sql?: SqlLike): Promise<boolean> {
+async function handleBroadcastConfirmation(
+	thread: Thread,
+	message: Message,
+	context: ChannelHandlerContext,
+	fresh: boolean,
+	sql?: SqlLike,
+): Promise<boolean> {
 	const row = await readPendingBroadcast(thread.id, sql);
 	if (!row)
 		return false;
@@ -261,16 +290,25 @@ async function handleBroadcastConfirmation(thread: Thread, message: Message, con
 		}
 		return false;
 	}
-	const decision = { draftId: row.id, dmId: thread.id, sessionId: sessionId!, sourceMessageId: row.source_message_id, messageId: message.id, sql, active: true };
+	const decision = {
+		draftId: row.id,
+		dmId: thread.id,
+		sessionId: sessionId!,
+		sourceMessageId: row.source_message_id,
+		messageId: message.id,
+		sql,
+		active: true,
+	};
 	try {
-		await broadcastDecisions.run(decision, () => broadcastTools.sendGroupMessage.execute!({ draftId: row.id }, { observe: noopObserve }));
-	}
-	finally { decision.active = false; }
+		await broadcastDecisions.run(
+			decision,
+			() => broadcastTools.sendGroupMessage.execute!({ draftId: row.id }, { observe: noopObserve }),
+		);
+	} finally { decision.active = false; }
 	const outcome = await readPendingBroadcast(thread.id, sql);
 	if (outcome && ['sending', 'sent', 'send_attempted'].includes(outcome.status)) {
 		await notifyBroadcast(outcome, text => postLinearText(thread, text), sql);
-	}
-	else {
+	} else {
 		await cancelBroadcast(thread.id, message.id, sql);
 		await postLinearText(thread, 'Fantasy broadcast canceled.');
 	}
@@ -319,8 +357,7 @@ export function registerLinearReplyProcedure(mastra: Mastra, sql: SqlLike = getL
 				if (result.case !== 'completed')
 					throw new Error('Linked reply draft unavailable.');
 				return result.result.replyText;
-			}
-			finally { revokeSpecialistAuthority(requestContext); }
+			} finally { revokeSpecialistAuthority(requestContext); }
 		},
 	});
 	mastra.addWorkflow(procedure.workflow, LINEAR_REPLY_WORKFLOW_ID);
@@ -358,8 +395,7 @@ async function postLinearText(thread: Thread, text: string): Promise<void> {
 		const result = z.object({ id: z.string().min(1) }).safeParse(await thread.post(text));
 		if (!result.success)
 			throw new Error('Posting not accepted');
-	}
-	catch {
+	} catch {
 		throw new Error('Linear channel posting unavailable.');
 	}
 }
@@ -377,27 +413,44 @@ export async function proposeLinearCreate(raw: z.input<typeof linearCreateInputS
 	const procedure = turn.mastra && linearReplyProcedures.get(turn.mastra);
 	try {
 		const op = await createLinearClient().prepareCreate(raw);
-		if (await readPendingOperatorTimeZoneProposal(turn.sql) || await readPendingBroadcast(turn.capability.threadId, turn.sql))
+		if (
+			await readPendingOperatorTimeZoneProposal(turn.sql)
+			|| await readPendingBroadcast(turn.capability.threadId, turn.sql)
+		) {
 			return { status: 'denied' };
+		}
 		if (source) {
 			if (!procedure || !assignment)
 				throw new Error('Linear reply procedure is unavailable.');
-			continuation = await procedure.start({ dmId: turn.capability.threadId, sessionId: session.data.thread.id, sourceMessageId: turn.capability.messageId, assignment, source, operation: op });
+			continuation = await procedure.start({
+				dmId: turn.capability.threadId,
+				sessionId: session.data.thread.id,
+				sourceMessageId: turn.capability.messageId,
+				assignment,
+				source,
+				operation: op,
+			});
 		}
-		const saved = await postLinearCreateProposal(op, turn.capability.threadId, session.data.thread.id, turn.capability.messageId, text => postLinearText(turn.capability.thread, text), turn.sql, continuation);
+		const saved = await postLinearCreateProposal(
+			op,
+			turn.capability.threadId,
+			session.data.thread.id,
+			turn.capability.messageId,
+			text => postLinearText(turn.capability.thread, text),
+			turn.sql,
+			continuation,
+		);
 		turn.proposalPosted = saved;
 		if (saved)
 			turn.proposalOperationId = op.id;
 		else if (continuation)
 			await procedure!.cancel(continuation.runId);
 		return { status: saved ? 'proposed' : 'denied' };
-	}
-	catch {
+	} catch {
 		if (continuation) {
 			try {
 				await procedure!.cancel(continuation.runId);
-			}
-			catch { console.error('[linear] Unpublished reply procedure cancellation unavailable.'); }
+			} catch { console.error('[linear] Unpublished reply procedure cancellation unavailable.'); }
 		}
 		return { status: 'unavailable' };
 	}
@@ -419,11 +472,17 @@ async function findJamisSession(memory: MemoryStorage, dmId: string, channelId?:
 	return legacy.threads.find(candidate => !('channel_ownerId' in (candidate.metadata ?? {})))?.id ?? null;
 }
 
-async function beginSpecialistClarificationTurn(context: ChannelHandlerContext, thread: Thread, messageId: string, sql?: SqlLike) {
+async function beginSpecialistClarificationTurn(
+	context: ChannelHandlerContext,
+	thread: Thread,
+	messageId: string,
+	sql?: SqlLike,
+) {
 	const memory = await context.mastra?.getStorage()?.getStore('memory');
 	const sessionId = memory ? await activeJamisSession(context, thread) : null;
 	const pending = memory && sessionId ? await takeSpecialistClarification(memory, sessionId) : undefined;
-	const clarification = pending && await isImmediatelyFollowingLinearMessage(thread.id, messageId, pending.sourceMessageId, sql)
+	const clarification = pending
+		&& await isImmediatelyFollowingLinearMessage(thread.id, messageId, pending.sourceMessageId, sql)
 		? pending.clarification
 		: undefined;
 	specialistClarificationTurns.set(context.requestContext, { context, thread, messageId, clarification });
@@ -442,11 +501,16 @@ async function cancelOldLinearReply(context: ChannelHandlerContext, thread: Thre
 		if ((await procedure.workflow.getWorkflowRunById(proposal.continuation.runId))?.status === 'success')
 			return;
 		await procedure.cancel(proposal.continuation.runId);
-	}
-	catch { console.error('[linear] Superseded reply procedure cancellation unavailable.'); }
+	} catch { console.error('[linear] Superseded reply procedure cancellation unavailable.'); }
 }
 
-async function continueLinearReply(proposalId: string, thread: Thread, message: Message, context: ChannelHandlerContext, sql?: SqlLike) {
+async function continueLinearReply(
+	proposalId: string,
+	thread: Thread,
+	message: Message,
+	context: ChannelHandlerContext,
+	sql?: SqlLike,
+) {
 	let proposal = await readLinearContinuation(proposalId, sql);
 	if (!proposal || proposal.decision?.messageId !== message.id)
 		throw new Error('Linear continuation decision unavailable.');
@@ -460,8 +524,7 @@ async function continueLinearReply(proposalId: string, thread: Thread, message: 
 				const inspection = await createLinearClient().inspectCreate(proposal.operation);
 				await finishLinearInspection(proposal.id, inspection, sql);
 			}
-		}
-		catch { console.error('[linear] Exact create inspection unavailable.'); }
+		} catch { console.error('[linear] Exact create inspection unavailable.'); }
 		proposal = (await readLinearContinuation(proposalId, sql))!;
 	}
 	const procedure = context.mastra && linearReplyProcedures.get(context.mastra);
@@ -472,8 +535,7 @@ async function continueLinearReply(proposalId: string, thread: Thread, message: 
 			throw new Error('Linear reply procedure unavailable.');
 		state = await procedure.resume(proposal.id, message.id);
 		result = procedure.result(state);
-	}
-	catch {
+	} catch {
 		console.error('[linear] Linked reply continuation unavailable.');
 		if (!proposal.notified)
 			await notifyLinearOutcome(proposal, text => postLinearText(thread, text.startsWith('Created') ? `${text}\n\nThe requested reply draft is unavailable.` : text), sql);
@@ -502,16 +564,31 @@ export function currentSpecialistClarification(requestContext: RequestContext): 
 	return clarification;
 }
 
-export async function retainSpecialistClarification(requestContext: RequestContext, clarification: SpecialistClarification): Promise<void> {
+export async function retainSpecialistClarification(
+	requestContext: RequestContext,
+	clarification: SpecialistClarification,
+): Promise<void> {
 	const turn = specialistClarificationTurns.get(requestContext);
 	const memory = await turn?.context.mastra?.getStorage()?.getStore('memory');
 	const session = z.object({ thread: z.object({ id: z.string().min(1) }) }).safeParse(requestContext.getRaw('MastraMemory'));
-	if (!turn || !memory || !session.success || session.data.thread.id !== await activeJamisSession(turn.context, turn.thread))
+	if (
+		!turn
+		|| !memory
+		|| !session.success
+		|| session.data.thread.id !== await activeJamisSession(turn.context, turn.thread)
+	) {
 		throw new Error('The current specialist clarification could not be retained.');
+	}
 	await saveSpecialistClarification(memory, session.data.thread.id, turn.messageId, clarification);
 }
 
-async function handleLinearConfirmation(thread: Thread, message: Message, context: ChannelHandlerContext, fresh: boolean, sql?: SqlLike): Promise<boolean> {
+async function handleLinearConfirmation(
+	thread: Thread,
+	message: Message,
+	context: ChannelHandlerContext,
+	fresh: boolean,
+	sql?: SqlLike,
+): Promise<boolean> {
 	const latest = await readLatestLinearContinuation(thread.id, sql);
 	const proposal = await readLinearProposal(thread.id, sql)
 		?? (!fresh && latest?.decision?.messageId === message.id ? latest : null);
@@ -520,8 +597,7 @@ async function handleLinearConfirmation(thread: Thread, message: Message, contex
 	if (proposal.state !== 'pending') {
 		if (proposal.continuation && !fresh && proposal.decision?.messageId === message.id) {
 			await continueLinearReply(proposal.id, thread, message, context, sql);
-		}
-		else {
+		} else {
 			if (fresh)
 				await cancelOldLinearReply(context, thread, message.id, sql);
 			if (!proposal.notified && proposal.state !== 'canceled')
@@ -534,7 +610,8 @@ async function handleLinearConfirmation(thread: Thread, message: Message, contex
 	const confirmation = message.text.trim().toLowerCase() === 'confirm';
 	const declined = message.text.trim().toLowerCase() === 'decline';
 	const timeZone = await readPendingOperatorTimeZoneProposal(sql);
-	const adjacent = !timeZone && await isImmediatelyFollowingOperatorMessage(thread, message, proposal.source_message_id);
+	const adjacent = !timeZone
+		&& await isImmediatelyFollowingOperatorMessage(thread, message, proposal.source_message_id);
 	const claimed = await claimLinearCreate(proposal, await activeJamisSession(context, thread), message.id, adjacent && confirmation ? true : adjacent && declined ? 'declined' : false, sql);
 	if (!claimed) {
 		if (proposal.continuation) {
@@ -553,15 +630,19 @@ async function handleLinearConfirmation(thread: Thread, message: Message, contex
 	try {
 		const op = linearCreateOperationSchema.parse(proposal.operation);
 		outcome = await createLinearClient(process.env, true).executeCreate(op);
-	}
-	catch {
+	} catch {
 		outcome = { status: 'uncertain' as const };
 	}
 	await finishLinearCreate(proposal.id, outcome, sql);
-	if (proposal.continuation)
+	if (proposal.continuation) {
 		await continueLinearReply(proposal.id, thread, message, context, sql);
-	else
-		await notifyLinearOutcome({ ...proposal, state: outcome.status, outcome }, text => postLinearText(thread, text), sql);
+	} else {
+		await notifyLinearOutcome({
+			...proposal,
+			state: outcome.status,
+			outcome,
+		}, text => postLinearText(thread, text), sql);
+	}
 	return true;
 }
 
@@ -578,8 +659,14 @@ export async function proposeOperatorTimeZoneChange(
 	if (!capability || capability.used)
 		return { status: 'denied' };
 	capability.used = true;
-	if (await readPendingBroadcast(capability.threadId, sql ?? linearTurns.getStore()?.sql) || await readLinearProposal(capability.threadId, sql ?? linearTurns.getStore()?.sql))
+	if (
+		await readPendingBroadcast(
+			capability.threadId,
+			sql ?? linearTurns.getStore()?.sql,
+		) || await readLinearProposal(capability.threadId, sql ?? linearTurns.getStore()?.sql)
+	) {
 		return { status: 'denied' };
+	}
 
 	const proposed = timeZone === null ? null : timeZone.trim();
 	if (proposed !== null && !isIanaTimeZone(proposed)) {
@@ -636,15 +723,18 @@ function isOperatorTimeZoneDecline(text: string): boolean {
 	return /^(?:no|decline|cancel)[.!]?$/i.test(text.trim());
 }
 
-async function isImmediatelyFollowingOperatorMessage(thread: Thread, message: Message, proposalMessageId: string): Promise<boolean> {
+async function isImmediatelyFollowingOperatorMessage(
+	thread: Thread,
+	message: Message,
+	proposalMessageId: string,
+): Promise<boolean> {
 	try {
 		const { messages } = await thread.adapter.fetchMessages(thread.id, { limit: 50 });
 		const operatorMessages = messages
 			.filter(candidate => candidate.threadId === thread.id && isOperator(candidate));
 		const currentIndex = operatorMessages.findIndex(candidate => candidate.id === message.id);
 		return currentIndex > 0 && operatorMessages[currentIndex - 1]?.id === proposalMessageId;
-	}
-	catch {
+	} catch {
 		console.error('[operator-time-zone] Failed to verify confirmation adjacency with Sendblue.');
 		return false;
 	}
@@ -655,7 +745,8 @@ async function deliverPendingOperatorTimeZoneNotification(thread: Thread, sql?: 
 	if (!pending || pending.threadId !== thread.id)
 		return;
 	const effective = pending.overrideTimeZone ?? requireOperatorTimeZone();
-	// ponytail: acknowledgment delivery is at least once; add provider idempotency only if duplicate status messages become material.
+	// ponytail: acknowledgment delivery is at least once; add provider idempotency only if duplicate status messages
+	// become material.
 	await thread.post(pending.overrideTimeZone
 		? `Operator time zone changed to ${effective} (override).`
 		: `Operator time zone reset to ${effective} (default).`);
@@ -690,8 +781,7 @@ async function handleOpenAILoginCommand(thread: Thread): Promise<{ completion?: 
 	}).then(async () => {
 		try {
 			await thread.post(OPENAI_LOGIN_SUCCESS);
-		}
-		catch {
+		} catch {
 			console.error('[openai-codex] Device login status=complete detail=notification_failed.');
 		}
 	}, async (error) => {
@@ -700,8 +790,7 @@ async function handleOpenAILoginCommand(thread: Thread): Promise<{ completion?: 
 		console.error(`[openai-codex] Device login status=${status}.`);
 		try {
 			await thread.post(timedOut ? OPENAI_LOGIN_TIMEOUT : OPENAI_LOGIN_FAILURE);
-		}
-		catch {
+		} catch {
 			console.error(`[openai-codex] Device login status=${status} detail=notification_failed.`);
 		}
 	}).finally(() => {
@@ -759,11 +848,14 @@ export async function handleSendblueDirectMessage(
 					replyPosted = true;
 					if (!deliveryFailed && !replyMissing) {
 						boundarySpan?.update({ metadata: { stage: 'reply_delivery', classification: 'delivered' } });
-						settleDeploymentSnapshotReply(thread.id, message.id, postable !== GENERIC_CHANNEL_ERROR && postable !== CODEX_AUTH_CHANNEL_ERROR);
+						settleDeploymentSnapshotReply(
+							thread.id,
+							message.id,
+							postable !== GENERIC_CHANNEL_ERROR && postable !== CODEX_AUTH_CHANNEL_ERROR,
+						);
 					}
 					return result;
-				}
-				catch (error) {
+				} catch (error) {
 					deliveryFailed = true;
 					boundarySpan?.update({ metadata: { stage: 'reply_delivery', classification: 'failed' } });
 					settleDeploymentSnapshotReply(thread.id, message.id, false);
@@ -803,17 +895,21 @@ export async function handleSendblueDirectMessage(
 						await cancelLinearConversation(thread.id, sql);
 						await cancelOldLinearReply(linearContext, thread, message.id, sql);
 					}
-				}
-				catch {
+				} catch {
 					// Later confirmations still require durable intake and provider-history adjacency.
 					console.error('[linear] Failed to clear a pending proposal during OpenAI login.');
 				}
 				const { completion } = await handleOpenAILoginCommand(observedThread);
 				if (correlation) {
 					try {
-						await consumePendingOperatorTimeZoneChange(thread.id, message.id, correlation.messageAt, false, sql);
-					}
-					catch {
+						await consumePendingOperatorTimeZoneChange(
+							thread.id,
+							message.id,
+							correlation.messageAt,
+							false,
+							sql,
+						);
+					} catch {
 						console.error('[operator-time-zone] Failed to clear a pending proposal during OpenAI login.');
 					}
 				}
@@ -843,8 +939,7 @@ export async function handleSendblueDirectMessage(
 							await cancelOldLinearReply(context, thread, message.id, sql);
 						clearDeploymentSnapshot(thread.id);
 					});
-				}
-				catch {
+				} catch {
 					console.error(deliveryFailed
 						? '[jamis-dm-session] Setting notification acceptance failed.'
 						: '[jamis-dm-session] Session rollover failed.');
@@ -857,8 +952,7 @@ export async function handleSendblueDirectMessage(
 				if (result.status !== 'superseded') {
 					try {
 						await observedThread.post(NEW_SESSION_SUCCESS);
-					}
-					catch {
+					} catch {
 						console.error('[jamis-dm-session] Session started; confirmation acceptance failed.');
 					}
 				}
@@ -868,12 +962,26 @@ export async function handleSendblueDirectMessage(
 			if (linearContext && freshLinearTurn)
 				await beginSpecialistClarificationTurn(linearContext, thread, message.id, sql);
 			await deliverPendingOperatorTimeZoneNotification(observedThread, sql);
-			if (linearContext && await handleBroadcastConfirmation(observedThread, message, linearContext, freshLinearTurn, sql))
+			if (
+				linearContext
+				&& await handleBroadcastConfirmation(observedThread, message, linearContext, freshLinearTurn, sql)
+			) {
 				return;
-			if (linearContext && await handleLinearConfirmation(observedThread, message, linearContext, freshLinearTurn, sql)) {
+			}
+			if (
+				linearContext
+				&& await handleLinearConfirmation(observedThread, message, linearContext, freshLinearTurn, sql)
+			) {
 				// Never allow one confirm to authorize both kinds of proposal.
-				if (correlation)
-					await consumePendingOperatorTimeZoneChange(thread.id, message.id, correlation.messageAt, false, sql);
+				if (correlation) {
+					await consumePendingOperatorTimeZoneChange(
+						thread.id,
+						message.id,
+						correlation.messageAt,
+						false,
+						sql,
+					);
+				}
 				return;
 			}
 			if (linearContext && freshLinearTurn)
@@ -884,7 +992,13 @@ export async function handleSendblueDirectMessage(
 				const confirmed = !!proposal
 					&& proposal.threadId === thread.id
 					&& await isImmediatelyFollowingOperatorMessage(observedThread, message, proposal.messageId);
-				const pending = await consumePendingOperatorTimeZoneChange(thread.id, message.id, correlation.messageAt, confirmed, sql);
+				const pending = await consumePendingOperatorTimeZoneChange(
+					thread.id,
+					message.id,
+					correlation.messageAt,
+					confirmed,
+					sql,
+				);
 				if (!pending)
 					return;
 				if (pending.applied) {
@@ -907,7 +1021,18 @@ export async function handleSendblueDirectMessage(
 				await ensureReply();
 				return;
 			}
-			const turn = { capability, requestContext: correlation!.context.requestContext, mastra: context?.mastra, sql, active: true, proposalAttempted: false, proposalPosted: false, broadcastPosted: false, broadcastAttempted: false, broadcastReady: false };
+			const turn = {
+				capability,
+				requestContext: correlation!.context.requestContext,
+				mastra: context?.mastra,
+				sql,
+				active: true,
+				proposalAttempted: false,
+				proposalPosted: false,
+				broadcastPosted: false,
+				broadcastAttempted: false,
+				broadcastReady: false,
+			};
 			try {
 				// Keep native channel errors visible. The proposal itself uses observedThread.
 				const replyThread = new Proxy(observedThread, {
@@ -919,13 +1044,13 @@ export async function handleSendblueDirectMessage(
 								return Reflect.apply(target.post, target, [postable]);
 							if (turn.broadcastAttempted)
 								return;
-							// Accounts can fail before a proposal attempt; its reply envelope still stays off the channel.
+							// Accounts can fail before a proposal attempt; its reply envelope still stays off the
+							// channel.
 							const text = typeof postable === 'string' ? postable : z.object({ markdown: z.string() }).safeParse(postable).data?.markdown;
 							let parsed: unknown;
 							try {
 								parsed = JSON.parse(text ?? '');
-							}
-							catch {
+							} catch {
 								if (!turn.proposalAttempted)
 									return Reflect.apply(target.post, target, [postable]);
 								return;
@@ -934,8 +1059,7 @@ export async function handleSendblueDirectMessage(
 							if (answers.success) {
 								for (const answer of answers.data.otherAnswers)
 									await Reflect.apply(target.post, target, [answer]);
-							}
-							else if (!turn.proposalAttempted) {
+							} else if (!turn.proposalAttempted) {
 								return Reflect.apply(target.post, target, [postable]);
 							}
 						};
@@ -947,18 +1071,15 @@ export async function handleSendblueDirectMessage(
 				if (turn.broadcastAttempted && !turn.broadcastReady)
 					await observedThread.post('Fantasy draft review unavailable. Nothing is authorized.');
 				await ensureReply();
-			}
-			finally {
+			} finally {
 				turn.active = false;
 			}
 		});
-	}
-	catch (error) {
+	} catch (error) {
 		if (!defaultHandlerStarted && !deliveryFailed)
 			span?.update({ metadata: { stage: 'channel_intake', classification: 'failed' } });
 		throw error;
-	}
-	finally {
+	} finally {
 		if (correlation) {
 			sendblueChannelCapabilities.delete(correlation.context.requestContext);
 			specialistClarificationTurns.delete(correlation.context.requestContext);

@@ -272,7 +272,7 @@ describe('runWeeklyRecap delivery state machine', () => {
 		expect(row.deliverySource).toBe('api');
 		expect(row.finalText).toBe(sends[0]);
 		expect(row.sendAttemptAt).toEqual(new Date(NOW));
-		expect(recorded[0].generatorVersion).toBe('fantasy-recap-v10');
+		expect(recorded[0].generatorVersion).toBe('fantasy-recap-v11');
 		expect(recorded[0].finalText).toBe(sends[0]);
 		expect(dms).toEqual([]);
 	});
@@ -600,7 +600,7 @@ describe('fantasy recap run schema', () => {
 
 		const queryCalls: Array<{ statement: string; values: unknown[] }> = [];
 		const querySql = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
-			queryCalls.push({ statement: strings.join(' '), values });
+			queryCalls.push({ statement: strings.join(' ').replace(/\s+/g, ' '), values });
 			return [];
 		}) as SqlLike;
 		const windowStart = new Date('2026-09-01T00:00:00.000Z');

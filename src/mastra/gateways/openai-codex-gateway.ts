@@ -57,8 +57,7 @@ function recordAuthFailure(error: CodexAuthFailure): void {
 			type: SpanType.GENERIC,
 			metadata: { reasonCode: error.reason, occurredAtUtc: new Date().toISOString() },
 		});
-	}
-	catch {
+	} catch {
 		console.error('[openai-codex] Auth failure observability unavailable.');
 	}
 }
@@ -66,8 +65,7 @@ function recordAuthFailure(error: CodexAuthFailure): void {
 async function observeAuthFailure<T>(operation: () => Promise<T>): Promise<T> {
 	try {
 		return await operation();
-	}
-	catch (error) {
+	} catch (error) {
 		if (error instanceof CodexAuthFailure)
 			recordAuthFailure(error);
 		throw error;
@@ -97,14 +95,12 @@ async function sseResponseAsJson(response: Response): Promise<Response> {
 		let payload: Record<string, unknown>;
 		try {
 			payload = JSON.parse(data) as Record<string, unknown>;
-		}
-		catch {
+		} catch {
 			continue;
 		}
 		if (payload.type === 'response.output_item.done' && typeof payload.output_index === 'number') {
 			outputs.set(payload.output_index, payload.item as Record<string, unknown>);
-		}
-		else if (payload.type === 'response.completed') {
+		} else if (payload.type === 'response.completed') {
 			final = payload.response as Record<string, unknown>;
 		}
 	}
@@ -158,8 +154,7 @@ export async function codexFetch(input: RequestInfo | URL, init?: RequestInit): 
 			const parsed = JSON.parse(body) as Record<string, unknown>;
 			wasStreaming = parsed.stream === true;
 			body = JSON.stringify(applyCodexBodyRules(parsed));
-		}
-		catch {
+		} catch {
 			// Not JSON: pass through; the backend rejects it, loudly.
 		}
 	}

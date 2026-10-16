@@ -506,8 +506,9 @@ describe('generation records', () => {
 		};
 
 		expect(await recordClaimedGeneration(record, 'claim-1', sql)).toBe(true);
-		expect(calls[0].strings.join('')).toContain('status = \'started\' AND claim_token =');
-		expect(calls[0].strings.join('')).toContain('FROM claimed');
+		const statement = calls[0].strings.join(' ').replace(/\s+/g, ' ');
+		expect(statement).toContain('status = \'started\' AND claim_token =');
+		expect(statement).toContain('FROM claimed');
 	});
 
 	it('creates the table with the version-history primary key', async () => {

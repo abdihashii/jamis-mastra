@@ -48,7 +48,13 @@ export async function runDailyRecap(
 
 		const deps = {
 			runs,
-			recaps: { ensureSchema: () => ensureFantasyRecapsTable(sql), record: (record: Parameters<typeof recordClaimedGeneration>[0], claimToken: string) => recordClaimedGeneration(record, claimToken, sql) },
+			recaps: {
+				ensureSchema: () => ensureFantasyRecapsTable(sql),
+				record: (
+					record: Parameters<typeof recordClaimedGeneration>[0],
+					claimToken: string,
+				) => recordClaimedGeneration(record, claimToken, sql),
+			},
 			groupId: config.sendblueGroupId,
 			leagueId: config.sleeperLeagueId,
 			readThreadMessages: async (since?: Date): Promise<MastraDBMessage[]> => {
@@ -63,8 +69,7 @@ export async function runDailyRecap(
 						orderBy: { field: 'createdAt', direction: 'DESC' },
 					});
 					return messages;
-				}
-				catch (error) {
+				} catch (error) {
 					console.error('[fantasy-recap] could not read chat context; proceeding with none:', error);
 					return [];
 				}
@@ -74,7 +79,7 @@ export async function runDailyRecap(
 		};
 
 		const model = DEFAULT_RECAP_MODEL;
-		const agent = mastra.getAgent('fantasy');
+		const agent = mastra.getAgent('fantasy-football-pundit');
 		const generate = async (factsNow: WeekFacts, context: ChatContextMessage[]): Promise<RecapShaping> => {
 			const result = await agent.generate(buildRecapPrompt(factsNow, context), {
 				...(overrides?.tracingContext ? { tracingContext: overrides.tracingContext } : {}),
@@ -100,14 +105,12 @@ export async function runDailyRecap(
 			traceId: overrides?.traceId,
 			generate,
 		}, deps);
-	}
-	catch (error) {
+	} catch (error) {
 		// The completed week could not be identified, so no authoritative run exists yet.
 		const message = error instanceof Error ? error.message.slice(0, 200) : 'unknown Sleeper failure';
 		try {
 			await send.directMessage(`[fantasy-recap] recap blocked: Sleeper facts unavailable (${message}).`);
-		}
-		catch { /* alerting must never mask the underlying failure */ }
+		} catch { /* alerting must never mask the underlying failure */ }
 		return { outcome: 'error', week: null, error: message };
 	}
 }
@@ -124,13 +127,14 @@ async function factsForWeek(
 	for (let w = 1; w <= week; w += 1) {
 		scoresByWeek.set(w, await getScores(config.sleeperLeagueId, w));
 	}
-	const nextWeekScores = week + 1 < league.playoffWeekStart ? await getScores(config.sleeperLeagueId, week + 1) : undefined;
+	const nextWeekScores = week + 1 < league.playoffWeekStart
+		? await getScores(config.sleeperLeagueId, week + 1)
+		: undefined;
 	let players: Awaited<ReturnType<typeof getPlayers>> = [];
 	try {
 		const scores = scoresByWeek.get(week) ?? [];
 		players = await getPlayers(scores.flatMap(score => [...score.players, ...score.starters]));
-	}
-	catch (error) {
+	} catch (error) {
 		console.warn('[fantasy-recap] player catalog unavailable; continuing without player stories:', error);
 	}
 	return buildWeekFacts({ league, week, managers, bracket, scoresByWeek, nextWeekScores, players });

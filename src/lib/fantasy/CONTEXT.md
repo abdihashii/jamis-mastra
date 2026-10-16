@@ -2,7 +2,7 @@
 
 The Fantasy Companion passively observes one Sleeper league's iMessage group and publishes one concise recap after each completed fantasy week.
 
-This glossary describes the current implementation. The accepted next design in [ADR 0023](../../docs/adrs/0023-fantasy-pundit-editorial-workflow.md) and [plan 032](../../docs/plans/032-fantasy-pundit-editorial-workflow.md) is not implemented. It replaces the high/low/closest award definitions below with evidence-backed editorial selection, adds a genuine attributed Quote of the Week and relevant Alexandria NFL evidence, and introduces separate deterministic and editorial validation. The Fantasy Football Pundit owns the reporting; Broadcaster delivers exact saved content under application authority. During implementation, this supporting context and domain code move to `src/lib/fantasy`, and the glossary and its links must move with them. Historical reports and saved retry text retain their original contract.
+This glossary describes the current implementation. The editorial expansion in [ADR 0023](../../../docs/adrs/0023-fantasy-pundit-editorial-workflow.md) and [plan 032](../../../docs/plans/032-fantasy-pundit-editorial-workflow.md) is not implemented. It replaces the high/low/closest award definitions below with evidence-backed editorial selection, adds a genuine attributed Quote of the Week and relevant Alexandria NFL evidence, and introduces separate deterministic and editorial validation. The Fantasy Football Pundit owns the reporting; Broadcaster delivers exact saved content under application authority. Stage 1 relocates this context and support code to `src/lib/fantasy` and the existing Agent definition to `src/mastra/agents/fantasy-football-pundit.ts`, preserving current reporting and delivery behavior. The Operator's identity amendment names the Agent Fantasy Football Pundit (`fantasy-football-pundit`) and replaces the old group-facing persona; this prompt-only revision is generator v11. Historical reports and saved retry text retain their original contract.
 
 ## Language
 
@@ -46,8 +46,8 @@ _Avoid_: memory, lore, chat summary
 The editorial component that turns Fantasy facts and Fantasy recap chat context into final message text.
 _Avoid_: recap pipeline (too broad), permanent template
 
-**Fantasy Agent**:
-The private agent that composes Fantasy weekly recaps from supplied Fantasy facts and bounded stored Fantasy group messages. Fantasy group channel events never invoke it directly, and it does not fetch fantasy data itself.
+**Fantasy Football Pundit**:
+The channel-less agent (`id: 'fantasy-football-pundit'`) that currently composes Fantasy weekly recaps from supplied Fantasy facts and bounded stored Fantasy group messages. Fantasy group channel events never invoke it directly, and it does not fetch fantasy data itself.
 _Avoid_: Jamis, fantasy bot
 
 **Fantasy recap run**:

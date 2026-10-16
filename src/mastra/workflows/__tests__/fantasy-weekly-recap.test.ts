@@ -1,8 +1,9 @@
 import type { AnyExportedSpan } from '@mastra/core/observability';
+import { expect, spyOn, test } from 'bun:test';
 import { SpanType, TracingEventType } from '@mastra/core/observability';
 import { Observability } from '@mastra/observability';
-import { expect, test } from 'bun:test';
 
+import * as fantasyConfig from '../../../lib/fantasy/config';
 import { fantasyWeeklyRecapWorkflow } from '../fantasy-weekly-recap';
 
 test('scheduled recap creates an exported attempt trace without scheduler context', async () => {
@@ -27,6 +28,7 @@ test('scheduled recap creates an exported attempt trace without scheduler contex
 			},
 		},
 	});
+	const config = spyOn(fantasyConfig, 'getFantasyConfig').mockReturnValue(null);
 	try {
 		const logger = { info: () => {} };
 		const result = await entry.step.execute!({
@@ -44,6 +46,7 @@ test('scheduled recap creates an exported attempt trace without scheduler contex
 		} as never);
 		expect(withoutTracing).toMatchObject({ outcome: 'skipped-unconfigured' });
 	} finally {
+		config.mockRestore();
 		await observability.shutdown();
 	}
 });

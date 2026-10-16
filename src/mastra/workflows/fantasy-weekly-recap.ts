@@ -3,8 +3,8 @@ import { createStep, createWorkflow } from '@mastra/core/workflows';
 
 import { z } from 'zod';
 
-import { getFantasyConfig } from '../../fantasy/config';
-import { runDailyRecap } from '../../fantasy/daily';
+import { getFantasyConfig } from '../../lib/fantasy/config';
+import { runDailyRecap } from '../../lib/fantasy/daily';
 
 const outcomeSchema = z.object({
 	outcome: z.union([

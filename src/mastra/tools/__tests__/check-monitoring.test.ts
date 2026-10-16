@@ -1,12 +1,12 @@
 import type { z } from 'zod';
-import type { SqlLike } from '../../../fantasy/recaps';
-import type { FantasyMonitoringRun } from '../../../fantasy/runs';
+import type { SqlLike } from '../../../lib/fantasy/recaps';
+import type { FantasyMonitoringRun } from '../../../lib/fantasy/runs';
 import type { MonitoringStore } from '../check-monitoring';
 
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-import { listFantasyMonitoringRuns } from '../../../fantasy/runs';
+import { listFantasyMonitoringRuns } from '../../../lib/fantasy/runs';
 import { checkMonitoringTool, readFantasyMonitoring, readMonitoring } from '../check-monitoring';
 
 type MetricArgs = Parameters<MonitoringStore['getMetricAggregate']>[0];

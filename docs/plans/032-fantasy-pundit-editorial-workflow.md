@@ -2,7 +2,7 @@
 
 Status: planned, not implemented. The Operator approved writing the architecture decision and delivery plan, not implementation, provider execution, database operations, publication, deployment, or commits. No production or editorial-quality acceptance is claimed here.
 
-Product authority: [Fantasy Football Pundit specification](../fantasy-football-pundit.md). Design authority: [ADR 0023](../adrs/0023-fantasy-pundit-editorial-workflow.md). Existing boundaries: [ADR 0009 typed execution amendment](../adrs/0009-jamis-as-mastra-supervisor.md#typed-execution-boundaries-jam-77-2026-10-10-utc), [ADR 0017](../adrs/0017-fantasy-group-is-passive-channel-context.md), and [ADR 0018](../adrs/0018-durable-recap-state-owns-delivery-correctness.md). Terminology belongs to [Jamis CONTEXT](../CONTEXT.md), [Fantasy CONTEXT](../../src/fantasy/CONTEXT.md), and [CONTEXT-MAP](../../CONTEXT-MAP.md). Their path migration is implementation scope, not evidence that code has moved.
+Product authority: [Fantasy Football Pundit specification](../fantasy-football-pundit.md). Design authority: [ADR 0023](../adrs/0023-fantasy-pundit-editorial-workflow.md). Existing boundaries: [ADR 0009 typed execution amendment](../adrs/0009-jamis-as-mastra-supervisor.md#typed-execution-boundaries-jam-77-2026-10-10-utc), [ADR 0017](../adrs/0017-fantasy-group-is-passive-channel-context.md), and [ADR 0018](../adrs/0018-durable-recap-state-owns-delivery-correctness.md). Terminology belongs to [Jamis CONTEXT](../CONTEXT.md), [Fantasy CONTEXT](../../src/lib/fantasy/CONTEXT.md), and [CONTEXT-MAP](../../CONTEXT-MAP.md). Their path migration is implementation scope, not evidence that code has moved.
 
 ## Scope and non-goals
 
@@ -86,13 +86,36 @@ Every stage below is separately committable, but none is authorized by this docu
 
 **Critical files:** all `src/fantasy/*.ts`, `__tests__` and fixtures; new `src/lib/fantasy`; `src/mastra/agents/fantasy-football-pundit.ts`; `src/mastra/index.ts`; `scripts/fantasy-recap.ts`; imports in Jamis, the broadcast drafter, Sendblue, scheduled workflow, Monitoring, Incident triage and deployment-evidence tools/tests. Include `src/fantasy/CONTEXT.md`, `docs/CONTEXT.md`, `CONTEXT-MAP.md` and affected documentation links.
 
-**Work:** move deterministic domain, integration, analysis, prompt/evidence shaping, rendering, validation, persistence and coordination together. Extract the existing Agent construction into the accepted agent file; preserve its current runtime ID, registration and behavior temporarily. Move shared voice text without changing the Operator drafter's contract. Update static and dynamic imports, script fixtures and links in the same stage. Do not rename SQL tables, archive threads or historical IDs. Retain historical plan wording while making maintained links resolve to the new paths; do not bulk-rewrite historical evidence as if it described the new pipeline.
+**Work:** move deterministic domain, integration, analysis, prompt/evidence shaping, rendering, validation, persistence and coordination together. Extract the existing Agent construction into the accepted agent file; preserve its model, shaping and delivery contracts, subject to the identity amendment below. Move shared voice text without changing the Operator drafter's contract. Update static and dynamic imports, script fixtures and links in the same stage. Do not rename SQL tables, archive threads or historical IDs. Retain historical plan wording while making maintained links resolve to the new paths; do not bulk-rewrite historical evidence as if it described the new pipeline.
 
 **Verify:** relocated analysis/generator/coordinator/delivery/ingest suites, native broadcast/session fixtures, Monitoring/Incident consumers and full gate. Search all callers and stale source paths, including test subprocess strings and dynamic imports. A path-only change does not bump the generator version.
 
-**Demo:** `rtk bun test src/lib/fantasy/__tests__/generate.test.ts src/lib/fantasy/__tests__/coordinator.test.ts` renders the same synthetic v10 report and preserves saved-retry/unknown-send assertions. Inspect the complete fixture text and import graph; zero provider calls.
+**Demo:** `rtk bun test src/lib/fantasy/__tests__/generate.test.ts src/lib/fantasy/__tests__/coordinator.test.ts` renders the same synthetic report text and preserves saved-retry/unknown-send assertions. Inspect the complete fixture text and import graph; zero provider calls.
 
-**Proposed commit:** `refactor: move fantasy support into lib and extract recap agent`.
+**Identity amendment (Operator-approved, 2026-10-15 UTC):** use runtime ID and registration key `fantasy-football-pundit`, display name Fantasy Football Pundit, and factory `createFantasyFootballPundit`. Replace the ibn Jamis persona in active recap/broadcast instructions. This changes prompt identity, so bump the generator to v11 while retaining the existing model and facts-only shaping contract; historical saved reports are not rewritten. Keep legacy `fantasy-agent` telemetry lookup and protect the renamed root from its first event. The root remains registered until the later internal-only cutover. The Operator also approved fixing the affected native broadcast fixture's pre-existing broken relative imports.
+
+**Verification snapshot (2026-10-16 UTC):** relocation, extraction and the identity amendment are implemented. The Operator's lint fixes were preserved and the authorized repository lint cleanup is complete. SQL test fakes, assertions and fault injectors now tolerate formatting whitespace; unconfigured fixtures no longer inherit ambient Fantasy configuration.
+
+| Check | Observed result |
+| --- | --- |
+| Typecheck, infra, whitespace | Pass; 4 infra tests |
+| Focused Fantasy/Agent/tracing suites | 133 pass; additional incident identity schema check passes |
+| Native broadcast/session/provider-schema contracts | 12 pass against disposable loopback PostgreSQL |
+| Full suite | 505 pass, 0 fail, 1 Linux-only mount smoke skip (506 tests across 52 files) |
+| Full lint | Pass: 0 errors, 206 line-length warnings; rules unchanged |
+| Build | Default `bun run build` passes, including dependency installation and Studio; no skip-install flag |
+| Read-only review | Four fresh final lanes (correctness, contracts, security, integration/Ponytail): no findings |
+
+Tests used fixture credentials and an OS-level external-network deny allowing only loopback and local Unix sockets. The default build used separately approved build-only network access, fixture credentials, empty HOME and disabled telemetry. No live models, provider sends or production database operations. **All repository gates and final reviews pass without a baseline exception. The Operator approved committing and pushing Stage 1, including the gate repairs.** Deployment and the live no-send preview remain Operator-run acceptance checks.
+
+**Gate repairs (Operator-approved, completed 2026-10-16 UTC):**
+
+1. **Restore test fixtures, not production policy.** Critical files: the Sendblue/Linear, incident, Monitoring, current-time and Deployment evidence tests. Normalize SQL-fake/fault-injection whitespace and explicitly supply the disabled-league fixture. Allow local Unix sockets in the temporary verification sandbox while preserving external-network denial. Verify: full suite now 505 pass, 0 fail, 1 Linux-only smoke skip; typecheck and 4 infra tests pass. Proposed separate commit, if the diff can be isolated coherently: `test: make SQL fixtures independent of formatting`.
+2. **Finish lint and verify the standard build.** Critical files: ESLint-reported source/tests/scripts; do not relax lint rules, alter package versions, or change runtime behavior. Preserve the Operator's earlier formatting work, apply autofixes, then minimally address any remaining errors. The Operator permits build-only network access for existing dependency installation with fixture credentials, empty HOME and telemetry disabled; tests remain externally network-denied. Verify: typecheck, full tests, lint, default build, infra and whitespace checks, followed by fresh read-only review. Proposed separate commit, where feasible: `chore: restore repository lint gate`.
+
+These repairs satisfy the runtime gate prerequisites for Stage 1 acceptance. The Operator approved grouping them with Stage 1 in one commit; Stage 2 and merging remain unauthorized. Package manifests, lockfiles and lint rules remain unchanged.
+
+**Approved commit:** `refactor: extract Fantasy Football Pundit and restore repository gates`.
 
 ### 2. Prove NFL source, privacy and model contracts off the live path
 
