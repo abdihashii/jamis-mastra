@@ -211,7 +211,7 @@ export class OpenAICodexGateway extends MastraModelGateway {
 				gateway: 'openai-codex',
 				/** No env var serves these models; auth is the OAuth credential. */
 				apiKeyEnvVar: '',
-				models: ['gpt-5.6-terra'],
+				models: ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-luna'],
 				url: CODEX_API_ENDPOINT,
 				npm: '@ai-sdk/openai',
 			},
