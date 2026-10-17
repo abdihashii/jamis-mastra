@@ -117,6 +117,16 @@ These repairs satisfy the runtime gate prerequisites for Stage 1 acceptance. The
 
 **Approved commit:** `refactor: extract Fantasy Football Pundit and restore repository gates`.
 
+**Live-smoke follow-up (Operator-approved for commit and push):** the week-5 no-send preview rejected a new sentence because it overlapped a prior recap in mapped chat. Read-only triage found four complete recap blocks in the last 200 archived messages. Exclude messages containing all three award headings on separate lines from model context, not from archival storage; retain ordinary award discussion and all existing copy/attribution checks. Bump the changed input contract to v12; do not rewrite historical reports or saved retries. This is one independently committable bug fix, not Stage 2.
+
+The corrected preview also exposed a sentence-shape failure: preview bypassed the scheduled path's existing single repair, and that repair lacked feedback. Move validation and that same repair budget into shared `generate.ts`, feeding the rejected draft and exact issue only to the same writer with existing trace-content hiding. State the existing per-field sentence and four-word overlap rules explicitly. A second invalid candidate still hard-fails; no extra review model, retry loop or Stage 4 editorial-review machinery.
+
+- **Goal/files:** shared context/repair ownership in `generate.ts`, used by `coordinator.ts`, `daily.ts` and the CLI; explicit Agent instructions; regression tests for context admission, unchanged archives, budgets, issue-aware repair, max-two calls, provider failures and valid-only persistence; version assertions and Fantasy CONTEXT.
+- **Verify:** failing regressions reproduced before both fixes; focused 140/140; full suite 515 pass, 0 fail, 1 Linux-only skip (516 tests, 52 files); typecheck, lint (0 errors, 206 existing warnings), standard build, infra (4 tests) and whitespace checks pass. Three fresh final read-only correctness/contracts/privacy-Ponytail reviews returned no findings.
+- **Live acceptance:** the final week-5 no-send preview passed on its first draft using the deployed image's Mastra 1.71.0 dependencies: v12, 761/2000 characters, 2 callbacks, 195 mapped messages; database counts stayed at 5 generations and 5 runs. The shared repair's two-attempt limit and failure paths are fixture-tested, not inferred from that successful first draft. A temporary source copy was used with auto-install disabled; production source remained at `0125dee`, the app was not restarted, and no packages, archived messages or saved reports were changed. The in-memory warning belongs to the intentionally ephemeral preview Mastra instance; archived chat was read separately through read-only PostgreSQL connections. Earlier source-runner probes used the VPS's older 1.61.0 dependencies and are not the final compatibility evidence.
+- **Approval:** implementation and verification complete; the Operator approved committing and pushing this Stage 1 follow-up on the existing feature branch. Merging, deployment and Stage 2 remain unauthorized. No iMessage delivery test was performed.
+- **Approved commit:** `fix: clean recap context and repair invalid previews`.
+
 ### 2. Prove NFL source, privacy and model contracts off the live path
 
 **Goal:** establish the concrete source/model boundary before any editorial feature depends on it.

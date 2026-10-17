@@ -1,6 +1,6 @@
 import type { MatchupResult, WeekFacts } from '../src/lib/fantasy/analysis';
 import type { FantasyConfig } from '../src/lib/fantasy/config';
-import type { ChatContextMessage, RecapShaping } from '../src/lib/fantasy/generate';
+import type { ChatContextMessage, RecapGenerator } from '../src/lib/fantasy/generate';
 import type { RecapGenerationRecord } from '../src/lib/fantasy/recaps';
 
 import type { SleeperManager } from '../src/lib/fantasy/sleeper';
@@ -17,10 +17,10 @@ import {
 	buildRecapPrompt,
 	DEFAULT_RECAP_MODEL,
 	FANTASY_GENERATOR_VERSION,
+	generateWithRepair,
 	recapShapingSchema,
 	ShapingValidationError,
 	toChatContext,
-	validateShaping,
 } from '../src/lib/fantasy/generate';
 
 import { ensureFantasyRecapsTable, getFantasySql, recordClaimedGeneration } from '../src/lib/fantasy/recaps';
@@ -134,7 +134,7 @@ async function main() {
 		? await loadChatFixture(chatPath, managers)
 		: toChatContext(await readThreadMessages(config.sendblueGroupId), config, managers);
 
-	const shaping = await shapingGenerator(model)(facts, context);
+	const shaping = await generateWithRepair(shapingGenerator(model), facts, context);
 	const text = renderWeekRecap(facts, shaping, context);
 	const after = previewSql ? await recapRowCounts(previewSql, config.sleeperLeagueId) : null;
 	if (before && after && (before.generations !== after.generations || before.runs !== after.runs))
@@ -275,20 +275,20 @@ async function factsFor(
 }
 
 /** Structured-output generation for one model id; the one call shape both run and preview share. */
-function shapingGenerator(model: string) {
+function shapingGenerator(model: string): RecapGenerator {
 	// A bare Mastra instance only so custom gateways (openai-codex/*) resolve.
 	const mastra = new Mastra({
 		gateways: { 'openai-codex': openAICodexGateway },
 		agents: { 'fantasy-football-pundit': createFantasyFootballPundit(model) },
 	});
-	return async (facts: WeekFacts, context: ReturnType<typeof toChatContext>): Promise<RecapShaping> => {
-		const result = await mastra.getAgent('fantasy-football-pundit').generate(buildRecapPrompt(facts, context), {
+	return async (facts, context, correction) => {
+		const result = await mastra.getAgent('fantasy-football-pundit').generate(buildRecapPrompt(facts, context, correction), {
 			structuredOutput: { schema: recapShapingSchema },
 			tracingOptions: { hideInput: true, hideOutput: true },
 		});
 		if (!result.object)
 			throw new ShapingValidationError('the model returned no structured recap output');
-		return validateShaping(result.object, context, facts);
+		return result.object;
 	};
 }
 

@@ -6,12 +6,12 @@ import type { WeekFacts } from './analysis';
 import type { FantasyConfig } from './config';
 import type { CoordinatorOutcome } from './coordinator';
 import type { SendClient } from './deliver';
-import type { ChatContextMessage, RecapShaping } from './generate';
+import type { RecapGenerator } from './generate';
 import type { SleeperManager } from './sleeper';
 
 import { buildWeekFacts } from './analysis';
 import { runWeeklyRecap } from './coordinator';
-import { buildRecapPrompt, DEFAULT_RECAP_MODEL, recapShapingSchema, ShapingValidationError, validateShaping } from './generate';
+import { buildRecapPrompt, DEFAULT_RECAP_MODEL, recapShapingSchema, ShapingValidationError } from './generate';
 import { ensureFantasyRecapsTable, getFantasySql, recordClaimedGeneration } from './recaps';
 import { createRunsStore } from './runs';
 import { getLeague, getManagers, getNflState, getPlayers, getScores, getWinnersBracket, latestCompletedWeek, withBracketRounds } from './sleeper';
@@ -80,8 +80,8 @@ export async function runDailyRecap(
 
 		const model = DEFAULT_RECAP_MODEL;
 		const agent = mastra.getAgent('fantasy-football-pundit');
-		const generate = async (factsNow: WeekFacts, context: ChatContextMessage[]): Promise<RecapShaping> => {
-			const result = await agent.generate(buildRecapPrompt(factsNow, context), {
+		const generate: RecapGenerator = async (factsNow, context, correction) => {
+			const result = await agent.generate(buildRecapPrompt(factsNow, context, correction), {
 				...(overrides?.tracingContext ? { tracingContext: overrides.tracingContext } : {}),
 				structuredOutput: { schema: recapShapingSchema },
 				// The prompt carries raw group chat and the output carries recap prose;
@@ -90,7 +90,7 @@ export async function runDailyRecap(
 			});
 			if (!result.object)
 				throw new ShapingValidationError('the model returned no structured recap output');
-			return validateShaping(result.object, context, factsNow);
+			return result.object;
 		};
 		return await runWeeklyRecap({
 			config,

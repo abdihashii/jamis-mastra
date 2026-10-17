@@ -272,7 +272,7 @@ describe('runWeeklyRecap delivery state machine', () => {
 		expect(row.deliverySource).toBe('api');
 		expect(row.finalText).toBe(sends[0]);
 		expect(row.sendAttemptAt).toEqual(new Date(NOW));
-		expect(recorded[0].generatorVersion).toBe('fantasy-recap-v11');
+		expect(recorded[0].generatorVersion).toBe('fantasy-recap-v12');
 		expect(recorded[0].finalText).toBe(sends[0]);
 		expect(dms).toEqual([]);
 	});
@@ -562,6 +562,27 @@ describe('runWeeklyRecap delivery state machine', () => {
 		await runWeeklyRecap({ config, week: 2, loadFacts: async () => ({ facts: factsStub(), managers }), model: 'm1', generate }, deps);
 		expect(sinceWasCalled).toBe(true);
 		expect(seenSince).toBe(priorSentAt);
+	});
+
+	it('repairs an invalid draft before persisting or sending anything', async () => {
+		const runs = memoryRuns();
+		const { client, sends } = sendClient([], []);
+		const { deps, recorded } = depsFor({ runs, send: client });
+		const invalid = { editorial: [{ sentences: [
+			{ text: 'PRIVATE_REJECTED_PROSE happened. Another sentence followed.', callbackMessageId: null },
+			{ text: 'The result mattered.', callbackMessageId: null },
+		] }] };
+		let calls = 0;
+		const generateDraft = async () => {
+			calls++;
+			return calls === 1 ? invalid : shaping;
+		};
+		const result = await runWeeklyRecap({ config, week: 2, loadFacts: async () => ({ facts: factsStub(), managers }), model: 'm1', generate: generateDraft }, deps);
+		expect(result.outcome).toBe('sent');
+		expect(calls).toBe(2);
+		expect(recorded).toHaveLength(1);
+		expect(sends).toHaveLength(1);
+		expect(recorded[0].finalText).not.toContain('PRIVATE_REJECTED_PROSE');
 	});
 
 	it('marks failed with an operator alert when generation exceeds its one repair attempt', async () => {

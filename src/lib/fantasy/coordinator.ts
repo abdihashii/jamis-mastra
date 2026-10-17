@@ -4,13 +4,13 @@ import type { WeekFacts } from './analysis';
 
 import type { FantasyConfig } from './config';
 import type { SendClient } from './deliver';
-import type { ChatContextMessage, RecapShaping } from './generate';
+import type { RecapGenerator } from './generate';
 import type { RecapGenerationRecord } from './recaps';
 import type { RecapFailureClassification, RecapFailureStage, RunsStore } from './runs';
 import type { SleeperManager } from './sleeper';
 import { createHash, randomUUID } from 'node:crypto';
 
-import { FANTASY_GENERATOR_VERSION, ShapingValidationError, toChatContext, validateShaping } from './generate';
+import { FANTASY_GENERATOR_VERSION, generateWithRepair, ShapingValidationError, toChatContext } from './generate';
 import { renderWeekRecap } from './render';
 
 const LEASE_MS = 15 * 60 * 1000;
@@ -62,22 +62,6 @@ async function alertUnmappedSenders(senders: string[], deps: CoordinatorDeps): P
 		const isNew = await deps.runs.alertUnmappedSenderOnce(hash);
 		if (isNew)
 			await tryDm(deps.send, `[fantasy-recap] a sender in the fantasy group isn't in FANTASY_MANAGER_MAP: ${sender}. They read as "unknown sender" in recaps until mapped.`);
-	}
-}
-
-/** Structured generation with the plan's single repair attempt for validation failures. */
-async function generateWithRepair(
-	generate: (facts: WeekFacts, context: ChatContextMessage[]) => Promise<RecapShaping>,
-	facts: WeekFacts,
-	context: ChatContextMessage[],
-): Promise<RecapShaping> {
-	try {
-		return await generate(facts, context);
-	} catch (error) {
-		if (!(error instanceof ShapingValidationError))
-			throw error;
-		console.warn(`[fantasy-recap] shaping rejected (${error.message}); the one repair attempt follows`);
-		return generate(facts, context);
 	}
 }
 
@@ -178,7 +162,7 @@ export interface RunWeeklyArgs {
 	loadFacts: (() => Promise<{ facts: WeekFacts; managers: SleeperManager[] }>) | null;
 	model: string;
 	traceId?: string;
-	generate: (facts: WeekFacts, context: ChatContextMessage[]) => Promise<RecapShaping>;
+	generate: RecapGenerator;
 }
 
 export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps): Promise<CoordinatorResult> {
@@ -236,7 +220,6 @@ export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps)
 
 		failureStage = 'model';
 		const shaping = await generateWithRepair(args.generate, facts, context);
-		validateShaping(shaping, context, facts);
 		const text = renderWeekRecap(facts, shaping, context);
 
 		return await deliverStoredText(week, claimToken, text, { model: args.model, facts }, deps);

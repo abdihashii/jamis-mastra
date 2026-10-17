@@ -9,7 +9,7 @@ test('Pundit uses its identifying name while retaining the model and effect-free
 	expect(agent.name).toBe('Fantasy Football Pundit');
 	expect(agent.model).toBe(DEFAULT_RECAP_MODEL);
 	expect(DEFAULT_RECAP_MODEL).toBe('openai-codex/gpt-6.1-sol');
-	expect(FANTASY_GENERATOR_VERSION).toBe('fantasy-recap-v11');
+	expect(FANTASY_GENERATOR_VERSION).toBe('fantasy-recap-v12');
 	expect(await agent.getDefaultOptions()).toEqual({ providerOptions: { openai: { reasoningEffort: 'xhigh' } } });
 	expect(agent.getChannels()).toBeNull();
 	expect(await agent.listTools()).toEqual({});
@@ -24,5 +24,7 @@ test('extracted recap Agent keeps the existing facts-only instructions and share
 	expect(instructions).not.toContain('ibn Jamis');
 	expect(instructions).toContain('Awards are facts-only and supplied by the renderer.');
 	expect(instructions).toContain('paraphrases rather than quotes the source');
+	expect(instructions).toContain('Each sentence entry must contain exactly one complete sentence');
+	expect(instructions).toContain('Four or more consecutive words from any archived message count as copying');
 	expect(instructions).toContain(FANTASY_VOICE);
 });

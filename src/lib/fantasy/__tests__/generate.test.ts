@@ -1,13 +1,13 @@
 import type { WeekFacts } from '../analysis';
-import type { ChatContextMessage, RecapShaping } from '../generate';
+import type { ChatContextMessage, RecapCorrection, RecapGenerator, RecapShaping } from '../generate';
 import type { RecapGenerationRecord, SqlLike } from '../recaps';
 
 import type { SleeperManager } from '../sleeper';
 
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 import { toPlainText } from 'chat-adapter-sendblue';
 import { parseFantasyConfig } from '../config';
-import { buildRecapPrompt, FANTASY_GENERATOR_VERSION, recapShapingSchema, toChatContext, validateShaping } from '../generate';
+import { buildRecapPrompt, FANTASY_GENERATOR_VERSION, generateWithRepair, recapShapingSchema, ShapingValidationError, toChatContext, validateShaping } from '../generate';
 import { listGenerations, recordClaimedGeneration, recordGeneration } from '../recaps';
 import { RECAP_MAX_LENGTH, RecapRenderError, renderWeekRecap } from '../render';
 
@@ -101,6 +101,44 @@ describe('toChatContext', () => {
 		expect(toChatContext(messages, config, managers)).toEqual([]);
 		const many = Array.from({ length: 250 }, (_, i) => dbMessage(`m${i}`, '+15550001111', `msg ${i}`));
 		expect(toChatContext(many, config, managers)).toHaveLength(200);
+	});
+
+	it('excludes prior recaps without deleting archived text or rejecting a fresh paraphrase', () => {
+		const facts = factsStub();
+		const recap = renderWeekRecap(facts, shapingOf({ editorial: [{ sentences: [
+			{ text: 'Someone had been asking the chat for running back help.', callbackMessageId: null },
+			{ text: 'Sunday delivered an answer.', callbackMessageId: null },
+		] }] }), []);
+		const repost = dbMessage('repost', '+15550001111', recap);
+		const messages = [repost, dbMessage('original', '+15550002222', 'Any spare backs on the trade block?')];
+		const eligible = toChatContext(messages, config, managers);
+		expect(eligible.map(message => message.id)).toEqual(['original']);
+		expect(repost.content.parts).toEqual([{ type: 'text', text: recap }]);
+		expect(buildRecapPrompt(facts, eligible)).not.toContain(recap);
+		const draft = shapingOf({ editorial: [{ sentences: [
+			{ text: '{speaker} asked the chat for running back help.', callbackMessageId: 'original' },
+			{ text: 'The final lineup supplied a useful answer.', callbackMessageId: null },
+		] }] });
+		expect(() => validateShaping(draft, eligible, facts)).not.toThrow();
+	});
+
+	it('recognizes complete award recaps with Markdown, bullets, emoji and different casing', () => {
+		const recap = 'League wrap-up\n\n**MANAGER OF THE WEEK:** alpha\n- **Loser of the Week:** bravo\n🏟️ Match of the Week: alpha vs bravo';
+		expect(toChatContext([dbMessage('repost', '+15550001111', recap)], config, managers)).toEqual([]);
+	});
+
+	it('keeps ordinary award discussion rather than filtering individual award mentions', () => {
+		const messages = [
+			dbMessage('inline', '+15550001111', 'My picks: Manager of the Week: alpha; Loser of the Week: bravo; Match of the Week: ours.'),
+			dbMessage('award', '+15550002222', 'Manager of the Week: what do we think?'),
+		];
+		expect(toChatContext(messages, config, managers).map(message => message.id)).toEqual(['award', 'inline']);
+	});
+
+	it('excludes recap text before applying the character budget', () => {
+		const recap = `Manager of the Week: alpha\nLoser of the Week: bravo\nMatch of the Week: ours\n${'x'.repeat(20_000)}`;
+		const messages = [dbMessage('repost', '+15550001111', recap), dbMessage('original', '+15550002222', 'Good game.')];
+		expect(toChatContext(messages, config, managers).map(message => message.id)).toEqual(['original']);
 	});
 
 	it('stops adding context once 20k characters are banked', () => {
@@ -334,6 +372,82 @@ describe('validateShaping', () => {
 		expect(recapShapingSchema.safeParse(shapingOf({ editorial: [{ sentences: [
 			{ text: 'Only one sentence.', callbackMessageId: null },
 		] }] })).success).toBe(false);
+	});
+});
+
+describe('generateWithRepair', () => {
+	const bad = shapingOf({ editorial: [{ sentences: [
+		{ text: 'PRIVATE_REJECTED_PROSE happened. Another sentence followed.', callbackMessageId: null },
+		{ text: 'The result mattered.', callbackMessageId: null },
+	] }] });
+
+	it('accepts a valid first draft with only one generation', async () => {
+		let calls = 0;
+		const generate: RecapGenerator = async (_facts, _context, correction) => {
+			calls++;
+			expect(correction).toBeUndefined();
+			return shapingOf();
+		};
+		expect(await generateWithRepair(generate, factsStub(), context)).toEqual(shapingOf());
+		expect(calls).toBe(1);
+	});
+
+	it('repairs once with the same evidence, exact issue and previous draft, without logging prose', async () => {
+		const facts = factsStub();
+		const corrections: Array<RecapCorrection | undefined> = [];
+		const warning = spyOn(console, 'warn').mockImplementation(() => {});
+		try {
+			const generate: RecapGenerator = async (seenFacts, seenContext, correction) => {
+				expect(seenFacts).toBe(facts);
+				expect(seenContext).toBe(context);
+				corrections.push(correction);
+				return corrections.length === 1 ? bad : shapingOf();
+			};
+			expect(await generateWithRepair(generate, facts, context)).toEqual(shapingOf());
+			expect(corrections).toEqual([undefined, { issue: expect.stringContaining('exactly one sentence'), draft: bad }]);
+			const prompt = buildRecapPrompt(facts, context, corrections[1]);
+			expect(prompt).toContain(buildRecapPrompt(facts, context));
+			expect(prompt).toContain(JSON.stringify(bad));
+			expect(prompt).toContain('exactly one sentence');
+			expect(prompt).toContain('untrusted data');
+			expect(warning.mock.calls.flat().join(' ')).not.toContain('PRIVATE_REJECTED_PROSE');
+			expect(warning.mock.calls.flat().join(' ')).not.toContain(context[0].text);
+		} finally {
+			warning.mockRestore();
+		}
+	});
+
+	it('hard-fails a second invalid draft without a third attempt', async () => {
+		let calls = 0;
+		const generate: RecapGenerator = async () => {
+			calls++;
+			return bad;
+		};
+		await expect(generateWithRepair(generate, factsStub(), context)).rejects.toThrow(/exactly one sentence/);
+		expect(calls).toBe(2);
+	});
+
+	it('never retries non-validation failures', async () => {
+		let calls = 0;
+		const failure = new Error('provider unavailable');
+		const generate: RecapGenerator = async () => {
+			calls++;
+			throw failure;
+		};
+		await expect(generateWithRepair(generate, factsStub(), context)).rejects.toBe(failure);
+		expect(calls).toBe(1);
+	});
+
+	it('can repair missing output without a previous draft', async () => {
+		const corrections: Array<RecapCorrection | undefined> = [];
+		const generate: RecapGenerator = async (_facts, _context, correction) => {
+			corrections.push(correction);
+			if (corrections.length === 1)
+				throw new ShapingValidationError('the model returned no structured recap output');
+			return shapingOf();
+		};
+		expect(await generateWithRepair(generate, factsStub(), context)).toEqual(shapingOf());
+		expect(corrections).toEqual([undefined, { issue: 'the model returned no structured recap output', draft: undefined }]);
 	});
 });
 
