@@ -1,6 +1,6 @@
 # 032: Fantasy Football Pundit editorial workflow
 
-Status: planned, not implemented. The Operator approved writing the architecture decision and delivery plan, not implementation, provider execution, database operations, publication, deployment, or commits. No production or editorial-quality acceptance is claimed here.
+Status: **Stage 1 complete. Stages 2–6 pending.**
 
 Product authority: [Fantasy Football Pundit specification](../fantasy-football-pundit.md). Design authority: [ADR 0023](../adrs/0023-fantasy-pundit-editorial-workflow.md). Existing boundaries: [ADR 0009 typed execution amendment](../adrs/0009-jamis-as-mastra-supervisor.md#typed-execution-boundaries-jam-77-2026-10-10-utc), [ADR 0017](../adrs/0017-fantasy-group-is-passive-channel-context.md), and [ADR 0018](../adrs/0018-durable-recap-state-owns-delivery-correctness.md). Terminology belongs to [Jamis CONTEXT](../CONTEXT.md), [Fantasy CONTEXT](../../src/lib/fantasy/CONTEXT.md), and [CONTEXT-MAP](../../CONTEXT-MAP.md). Their path migration is implementation scope, not evidence that code has moved.
 
@@ -81,6 +81,13 @@ Each slice has an independently observable outcome. Until Stage 6, the currently
 Every stage below is separately committable, but none is authorized by this document. Paths for new tests/modules are proposed, not existing APIs. The full repository gate and reviews below apply to **each** stage, in addition to its focused checks. Show the diff summary, evidence and proposed commit; wait for explicit user **ok before committing**, then begin the next stage. Push, deployment, live model/source calls, private-data reads and sends require their own authorization.
 
 ### 1. Relocate Fantasy support without changing behavior
+
+**Status: complete.**
+
+- Committed and pushed: `0125dee`, `5a20844`, `c7b89c1`.
+- Verification: 518 tests passed, 1 Linux-only skip; typecheck, lint, build and infra passed.
+- GPT-6-Astra xhigh `review-code` and `ponytail-review`: no findings.
+- Real-data no-send preview and inspection passed. No iMessage delivery test performed.
 
 **Goal:** establish the accepted file ownership without changing the active recap, Operator draft flow, models or delivery state.
 
