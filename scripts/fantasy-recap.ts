@@ -1,4 +1,4 @@
-import type { MatchupResult, WeekFacts } from '../src/lib/fantasy/analysis';
+import type { WeekFacts } from '../src/lib/fantasy/analysis';
 import type { FantasyConfig } from '../src/lib/fantasy/config';
 import type { ChatContextMessage, RecapGenerator } from '../src/lib/fantasy/generate';
 import type { RecapGenerationRecord } from '../src/lib/fantasy/recaps';
@@ -24,7 +24,7 @@ import {
 } from '../src/lib/fantasy/generate';
 
 import { ensureFantasyRecapsTable, getFantasySql, recordClaimedGeneration } from '../src/lib/fantasy/recaps';
-import { RECAP_MAX_LENGTH, renderWeekRecap } from '../src/lib/fantasy/render';
+import { RECAP_MAX_LENGTH, renderResult, renderWeekRecap } from '../src/lib/fantasy/render';
 import { createRunsStore } from '../src/lib/fantasy/runs';
 import {
 	championshipWeek,
@@ -353,13 +353,6 @@ function print(facts: WeekFacts, provisional: boolean) {
 		console.log(`\nUpcoming week ${facts.week + 1}:`);
 		for (const pair of facts.upcoming) console.log(`  ${pair.a.displayName} vs ${pair.b.displayName}`);
 	}
-}
-
-function renderResult(result: MatchupResult): string {
-	const score = `${result.aPoints}–${result.bPoints}`;
-	if (!result.winner)
-		return `${result.a.displayName} ties ${result.b.displayName} (${score})`;
-	return `${result.winner.displayName} def. ${result.loser!.displayName} (${score}, margin ${result.margin})`;
 }
 
 function fail(message: string, code: number): never {

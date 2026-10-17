@@ -1,10 +1,19 @@
-import type { ScoringExtreme, WeekFacts } from './analysis';
+import type { MatchupResult, ScoringExtreme, WeekFacts } from './analysis';
 import type { ChatContextMessage, RecapShaping } from './generate';
 import { managerReferences, resolveManagerReferences } from './generate';
 
 export const RECAP_MAX_LENGTH = 2000;
 
 export class RecapRenderError extends Error {}
+
+export function renderResult(result: MatchupResult): string {
+	const score = result.winner?.rosterId === result.b.rosterId
+		? `${result.bPoints}–${result.aPoints}`
+		: `${result.aPoints}–${result.bPoints}`;
+	if (!result.winner)
+		return `${result.a.displayName} ties ${result.b.displayName} (${score})`;
+	return `${result.winner.displayName} def. ${result.loser!.displayName} (${score}, margin ${result.margin})`;
+}
 
 /** Assembles the final recap text. Every number comes from facts; the model only lent flavor. */
 export function renderWeekRecap(facts: WeekFacts, shaping: RecapShaping, context: ChatContextMessage[]): string {
