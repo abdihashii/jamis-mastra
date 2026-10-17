@@ -1,6 +1,6 @@
 # 032: Fantasy Football Pundit editorial workflow
 
-Status: **Stages 1–2 complete. Stages 3–6 pending.**
+Status: **Stages 1–2 complete. Stage 3 in progress. Stages 4–6 pending.**
 
 Product authority: [Fantasy Football Pundit specification](../fantasy-football-pundit.md). Design authority: [ADR 0023](../adrs/0023-fantasy-pundit-editorial-workflow.md). Existing boundaries: [ADR 0009 typed execution amendment](../adrs/0009-jamis-as-mastra-supervisor.md#typed-execution-boundaries-jam-77-2026-10-10-utc), [ADR 0017](../adrs/0017-fantasy-group-is-passive-channel-context.md), and [ADR 0018](../adrs/0018-durable-recap-state-owns-delivery-correctness.md). Terminology belongs to [Jamis CONTEXT](../CONTEXT.md), [Fantasy CONTEXT](../../src/lib/fantasy/CONTEXT.md), and [CONTEXT-MAP](../../CONTEXT-MAP.md). Their path migration is implementation scope, not evidence that code has moved.
 
@@ -136,13 +136,15 @@ The corrected preview also exposed a sentence-shape failure: preview bypassed th
 
 ### 2. Prove NFL source, privacy and model contracts off the live path
 
-**Status: complete. The Operator approved commit and push; deployment remains Operator-run.**
+**Status: complete, committed and pushed as `adf070e`. Operator deployment and the live reader smoke passed.**
+
+**Post-deployment acceptance (2026-10-17 23:19 UTC):** the Operator-run smoke verified the exact `adf070e` reader source and the running image's Firecrawl 4.41.0 dependencies. It returned seven injury records, ten news summaries correctly marked truncated, and thirty weekly QB results. One catalogue lookup and three reads cost 15 credits; zero model calls, sends or database access. This tests the isolated reader, not scheduled integration or delivery; the reader remains off the live recap path.
 
 1. **Live contract proof complete (2026-10-17 UTC).** Five catalogue lookups cost zero credits. Six data attempts cost 20 credits: KC week-5 injury report empty (5), official KC news with dated headlines/summaries (5), KC week-6 injury report with seven records (5), two FFToday season queries returning upstream 502 (0 each), and StartWho week-5 QB projected-versus-actual results with 30 records (5). After FFToday failed, the Operator explicitly approved testing StartWho as the primary projection source, not a runtime fallback. Each execution was quoted at 5 credits before dispatch; no identical-query retry, private context, terms acceptance or send occurred.
 2. **Model proof complete.** The actual Codex gateway on Mastra 1.71.0/OpenAI SDK 3.0.88 accepted `openai-codex/gpt-6-astra` with `providerOptions.openai.reasoningEffort: 'xhigh'` and `openai-codex/gpt-6-luna` with `'max'`. Each completed one inert tool call followed by strict object-root JSON: four HTTP 200 responses total, exact backend model identities, no fallback or auth refresh, `store:false` and parallel tools disabled. This proves request acceptance and protocol compatibility, not internal reasoning allocation, token-cap enforcement or editorial quality.
 3. **Implemented:** isolated `src/lib/fantasy/research.ts`, synthetic native-SDK/HTTP fixtures, and the verified model catalog/provider regressions. Retrieval is deterministic, with no new agent or live caller. Sol remains active until cutover; unrelated Research defaults are unchanged.
 
-**Verification (2026-10-17 UTC):** 548 tests passed, one Linux-only mount smoke skipped (549 tests, 54 files); 68 focused source/gateway tests passed. Typecheck, standard build, lint (zero errors, 206 pre-existing warnings), four infra tests and whitespace checks pass. Four fresh Astra review lanes covered correctness, contracts/spend, privacy/security and integration/Ponytail. One zero-row truncation finding was reproduced with two failing tests, fixed, and independently rechecked with no remaining finding. The final full gate passed after the fix. Offline replay of the captured live contracts/responses normalized all seven injury records, ten news summaries and thirty weekly results with zero external calls. Tests used fixture credentials, disposable loopback PostgreSQL and external-network denial; the standard build used the approved build-only wrapper. No manifests, lockfiles or lint rules changed. The Operator approved committing and pushing Stage 2. Deployment remains Operator-run; Stage 3 activation and sends are not authorized.
+**Verification (2026-10-17 UTC):** 548 tests passed, one Linux-only mount smoke skipped (549 tests, 54 files); 68 focused source/gateway tests passed. Typecheck, standard build, lint (zero errors, 206 pre-existing warnings), four infra tests and whitespace checks pass. Four fresh Astra review lanes covered correctness, contracts/spend, privacy/security and integration/Ponytail. One zero-row truncation finding was reproduced with two failing tests, fixed, and independently rechecked with no remaining finding. The final full gate passed after the fix. Offline replay of the captured live contracts/responses normalized all seven injury records, ten news summaries and thirty weekly results with zero external calls. Tests used fixture credentials, disposable loopback PostgreSQL and external-network denial; the standard build used the approved build-only wrapper. No manifests, lockfiles or lint rules changed. Stage 2 was committed, pushed and Operator-deployed; post-deployment acceptance is recorded above. The active recap remains unchanged; no new send path is activated.
 
 **Coverage limits:** StartWho has no season selector: reject older-season projection requests, and preserve its scoring preset rather than treating its points as Sleeper scoring. A provider-described pregame projection is not an immutable pre-kickoff snapshot. Injury practice dates are source-effective calendar dates, distinct from retrieval time. News supplies recent headlines/summaries, not full article text or guaranteed historical coverage. Empty, unavailable and truncated remain different outcomes; unknown licensing remains unknown.
 
@@ -161,6 +163,8 @@ The corrected preview also exposed a sentence-shape failure: preview bypassed th
 **Approved commit:** `feat: add bounded fantasy NFL research contracts`.
 
 ### 3. Assemble frozen league, chat and NFL evidence for preview
+
+**Status: in progress: boundary inspection and evidence-admission decisions.**
 
 **Goal:** produce one reproducible evidence packet with explicit temporal and coverage limits, without report/run writes or publication.
 
