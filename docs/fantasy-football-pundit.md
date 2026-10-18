@@ -94,7 +94,7 @@ Consider:
 - **Meaningful stakes:** A playoff berth, seeding battle, elimination game, or rivalry supported by league history or chat.
 - **Chat drama:** Predictions, trash talk, or celebrations that made the result more entertaining.
 
-The write-up should name both teams, give the final scope and winning margin, and explain what made this matchup stand out. Highlight players or decisions that shaped the result.
+The write-up should name both teams, give the final score and winning margin, and explain what made this matchup stand out. Highlight players or decisions that shaped the result.
 
 A close score alone does not guarantee the award. A high-scoring showdown or consequential upset may be more compelling than two struggling teams barely separating themselves.
 
@@ -160,15 +160,13 @@ Stories may expand on an award when there is a distinct angle, but should not si
 
 {{write-up}}
 
-### Quote of the week
+### Quote of the week: {{manager}}
 
 > {{verbatim_quote}}
 
 {{context_and_commentary}}
 
 ## Stories of the week
-
-### Stories of the week
 
 ### {{story_headline}}
 
