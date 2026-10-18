@@ -3,6 +3,20 @@ import type { NflSourceRecord, NflSourceResult } from './nfl-sources.types';
 import { z } from 'zod';
 import { clubs, position, scoring, season, team, week } from './nfl-sources.schema';
 
+/** Canonical public club identity, never an arbitrary research query. */
+export function nflTeamCode(value: string | null): keyof typeof clubs | null {
+	if (!value)
+		return null;
+	const code = value.trim().toUpperCase();
+	const aliases: Record<string, keyof typeof clubs> = { ARI: 'AZ', JAC: 'JAX', WSH: 'WAS' };
+	const parsed = team.safeParse(Object.hasOwn(aliases, code) ? aliases[code] : code);
+	if (parsed.success)
+		return parsed.data;
+	const slug = value.trim().toLowerCase().replace(/\s+/g, '-');
+	return (Object.entries(clubs).find(([, name]) => name === slug)?.[0] as keyof typeof clubs | undefined) ?? null;
+}
+
+
 const routes = {
 	'injuries': { provider: 'nfl-com', capability: 'sports-league-data/injury_report', key: '', field: 'reports' },
 	'news': { provider: 'nfl-com', capability: 'sports-league-data/news', key: '', field: 'articles' },
