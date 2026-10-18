@@ -1,6 +1,6 @@
 # 032: Fantasy Football Pundit editorial workflow
 
-Status: **Stages 1–3 implemented and verified. Stage 3 commit and push approved; deployment/live acceptance pending. Stages 4–6 pending.**
+Status: **Stages 1–3 complete. Stage 4 in progress: deterministic candidate contract first, checked editorial preview second. Stages 5–6 pending.**
 
 Product authority: [Fantasy Football Pundit specification](../fantasy-football-pundit.md). Design authority: [ADR 0023](../adrs/0023-fantasy-pundit-editorial-workflow.md). Existing boundaries: [ADR 0009 typed execution amendment](../adrs/0009-jamis-as-mastra-supervisor.md#typed-execution-boundaries-jam-77-2026-10-10-utc), [ADR 0017](../adrs/0017-fantasy-group-is-passive-channel-context.md), and [ADR 0018](../adrs/0018-durable-recap-state-owns-delivery-correctness.md). Terminology belongs to [Jamis CONTEXT](../CONTEXT.md), [Fantasy CONTEXT](../../src/lib/fantasy/CONTEXT.md), and [CONTEXT-MAP](../../CONTEXT-MAP.md). Their path migration is implementation scope, not evidence that code has moved.
 
@@ -164,12 +164,12 @@ The corrected preview also exposed a sentence-shape failure: preview bypassed th
 
 ### 3. Assemble frozen league, chat and NFL evidence for preview
 
-**Status: implemented and verified; Operator approved commit and push. Deployment and live acceptance pending.**
+**Status: complete. `08772b4` and the `09d57d2` half-PPR follow-up are committed, pushed and Operator-confirmed deployed. Baseline and NFL-enriched live evidence smokes passed.**
 
 - Full gate: **670 tests passed, one Linux-only mount smoke skipped** (671 tests, 58 files); typecheck, build, four infra tests and whitespace checks pass. Lint passes with zero errors and 225 line-length warnings.
 - Four fresh Astra xhigh reviews covered correctness, contracts, privacy/security and integration/Ponytail. Five findings were reproduced with eight failing regressions and fixed: uncertain kickoff/lineup facts, malformed upcoming playoff context, unbounded Sleeper reads and raw transport logs. Two fresh independent fix verifiers returned no findings; the full gate passed after the fixes.
 - Native disposable PostgreSQL tests verify both clients reject writes, initialization stays disabled, saved text/counts/whole-row hashes remain unchanged, same-count concurrent changes are detected without attributing them to preview, and a 1,001-message window is explicitly truncated. CLI isolation tests run without model/transport credentials. Tests use fixture sources and OS-level external-network denial; the standard build uses the existing fixture-only build wrapper.
-- No production data, application model calls, paid NFL reads or sends were exercised for Stage 3. Public documentation was consulted separately without private context. New Sleeper transaction/catalog behavior is grounded in [official API documentation](https://docs.sleeper.com/#get-transactions) and offline transport fixtures, not new live backend proof. No manifests, lockfiles or lint rules changed. Operator approval covers this Stage 3 commit and push on the existing feature branch, not a merge, deployment, live access, Stage 4 work or scheduled cutover.
+- Pre-commit verification used no production data, application model calls, paid NFL reads or sends. Public documentation was consulted separately without private context. New Sleeper transaction/catalog behavior is grounded in [official API documentation](https://docs.sleeper.com/#get-transactions) and offline transport fixtures, not new live backend proof. No manifests, lockfiles or lint rules changed. Operator approval covers this Stage 3 commit and push on the existing feature branch, not a merge, deployment, live access, Stage 4 work or scheduled cutover.
 
 **Goal:** produce one reproducible evidence packet with explicit temporal and coverage limits, without report/run writes or publication.
 
@@ -186,6 +186,17 @@ The corrected preview also exposed a sentence-shape failure: preview bypassed th
 **Demo:** `rtk bun test src/lib/fantasy/__tests__/evidence.test.ts` assembles a complete synthetic packet and a partial-history packet with explicit gaps. Compare their displayed UTC source times and quote bytes with fixtures. Mutation and send spies must stay at zero; all unsupported decision premises remain unavailable rather than being fabricated.
 
 **Approved commit:** `feat: assemble attributable fantasy recap evidence`.
+
+**Live-smoke follow-up: half-PPR source provenance**
+
+- Operator-run week-5 baseline passed for the explicit `2026-10-08T00:00:00Z` to `2026-10-14T00:00:00Z` archive window: six matches, 82 chat sources, 26 completed transactions, only `research_not_requested`, database counts/hashes unchanged, zero model calls/sends. Deployment confirmation was trusted without a redundant verification pass, as requested.
+- NFL-enriched smoke stopped safely after two reads with `source_invalid_response`. A separately authorized targeted diagnostic proved the failure: StartWho accepts/returns canonical `HALF` but its source URL uses `format=Half-PPR`. The RB/week-5 response had 60 valid rows; the diagnostic receipt was five quoted/five actual credits, with no database/chat/model/send access. The original smoke's individual receipts were not printed, so its actual charges are not inferred.
+- The fix changes only HALF's source-URL comparison to the observed `Half-PPR` label. Canonical inputs/output stay `HALF`; host/path/week/position and mismatched-scoring rejection remain intact. One red regression preceded the fix; all 30 adapter tests and offline native-SDK replay of the actual 60 rows now pass. No new live call was needed for that replay.
+- Follow-up gate: **673 passed, one Linux-only skip** (674 tests/58 files); typecheck, lint (zero errors/225 warnings), build, infra 4/4 and diff checks pass. Two fresh Astra xhigh correctness/contracts-Ponytail reviews returned no findings. The Operator approved the follow-up commit/push and then confirmed redeployment; no merge or Stage 4 activation was performed.
+- Post-fix Operator-run enriched smoke passed the same window: six matches, 82 chat sources, 26 completed transactions, three NFL reads, only `nfl:source_partial`, unchanged report/run counts and hashes, zero model calls/sends. A separate source-only check of the same public projection confirmed six injury records and 60 HALF/RB weekly results with no gaps, plus ten news records whose only gap was `truncated_results`. All three receipts matched five quoted/five actual credits (15 total); the check accessed no database/chat and invoked no models/sends. Thus `partial` is the deliberately bounded news feed, not another validation failure. Temporary runners were cleaned up.
+- These smokes accept Stage 3 evidence collection only. They do not certify pre-kickoff knowledge, quote privacy/relevance, expanded recap generation/review, exact publication or scheduled delivery. Automatic scheduled window selection remains gated before activation. This acceptance-document update is not authorization for another commit/push or Stage 4 implementation.
+
+**Approved follow-up commit:** `09d57d2`, `fix: accept StartWho half-PPR provenance format`.
 
 ### 4. Build the complete Pundit and editorial-review candidate path
 

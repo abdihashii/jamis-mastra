@@ -16,7 +16,6 @@ export function nflTeamCode(value: string | null): keyof typeof clubs | null {
 	return (Object.entries(clubs).find(([, name]) => name === slug)?.[0] as keyof typeof clubs | undefined) ?? null;
 }
 
-
 const routes = {
 	'injuries': { provider: 'nfl-com', capability: 'sports-league-data/injury_report', key: '', field: 'reports' },
 	'news': { provider: 'nfl-com', capability: 'sports-league-data/news', key: '', field: 'articles' },

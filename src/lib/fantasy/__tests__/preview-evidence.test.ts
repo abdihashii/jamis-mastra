@@ -86,7 +86,15 @@ test('invalid scope/window blocks before database or paid/public source reads', 
 });
 
 test('composition dependency files contain no local model, channel, send, or persistence imports', async () => {
-	for (const name of ['preview-evidence', 'evidence', 'chat-evidence', 'nfl-sources', 'nfl-sources-task', 'analysis', 'sleeper']) {
+	for (const name of [
+		'preview-evidence',
+		'evidence',
+		'chat-evidence',
+		'nfl-sources',
+		'nfl-sources-task',
+		'analysis',
+		'sleeper',
+	]) {
 		const source = await readFile(new URL(`../${name}.ts`, import.meta.url), 'utf8');
 		expect(source).not.toMatch(/(?:from|import\()\s*['"][^'"]*(?:\/channels|\/agents|\/gateways|\.\/deliver|\.\/generate|\.\/recaps|\.\/runs)['"/]/);
 		expect(source).not.toMatch(/\.(?:send|generate|saveMessages|saveThread)\(/);

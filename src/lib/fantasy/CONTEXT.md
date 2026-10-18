@@ -6,6 +6,8 @@ This glossary describes the current implementation. The expanded production edit
 
 ## NFL sources boundary (off the live path)
 
+The league always uses HALF-PPR (Operator-confirmed; Sleeper `scoring_settings.rec = 0.5`). StartWho calls that preset `HALF` in API inputs/output and `Half-PPR` in its source URL. Provider projections still use their own scoring rules, not the league's exact Sleeper points.
+
 `nfl-sources.ts` owns source contracts, validation and normalization; `nfl-sources-task.ts` exposes one task-local deterministic reader for official NFL regular-season injury reports, recent NFL headlines/summaries, and StartWho's current-season weekly results. Only strict public NFL fields cross the boundary; source-native player IDs are not assumed to be Sleeper IDs. One zero-credit catalogue lookup admits at most three distinct reads, each quoted at five credits. Duplicate reads reuse their result; unknown receipts, unexpected charges and access/terms failures stop further requests. The API has no upstream credit-ceiling parameter, so receipt checks cannot prevent a provider mischarge.
 
 The caller supplies the trusted current NFL season. Older-season projections are blocked before any upstream call. Practice dates, article publication/update times, kickoff and retrieval times remain distinct; no immutable pre-kickoff snapshot or known license is inferred. Partial, empty, unpublished and truncated data remain explicit. Only the explicit evidence preview's `--nfl` option invokes this reader. The scheduled generator, legacy model preview, agents and delivery path remain unchanged.
