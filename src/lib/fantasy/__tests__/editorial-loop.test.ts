@@ -140,32 +140,32 @@ describe('bounded same-evidence editorial loop', () => {
 		expect(JSON.stringify(result)).not.toContain('PRIVATE_PROVIDER_ERROR');
 	});
 
-	it('permits a successful pair beyond the former aggregate limit within the approved budget', async () => {
+	it('permits a successful pair beyond the former fifteen-minute limit within the approved budget', async () => {
 		const packet = await frozenEditorialFixture();
 		let elapsed = 0;
 		const result = await runEditorialLoop(packet, {
 			write: async () => {
-				elapsed += 250_000;
+				elapsed += 500_000;
 				return validEditorialDraft(packet);
 			},
 			review: async (assignment) => {
-				elapsed += 250_000;
+				elapsed += 500_000;
 				return pass(assignment);
 			},
 		}, { clock: () => elapsed });
 		expect(result).toMatchObject({ status: 'approved', counts: { drafts: 1, reviews: 1 } });
 	});
 
-	it('enforces the fifteen-minute aggregate deadline without resetting between revisions', async () => {
+	it('enforces the thirty-minute aggregate deadline without resetting between revisions', async () => {
 		const packet = await frozenEditorialFixture();
 		let elapsed = 0;
 		const result = await runEditorialLoop(packet, {
 			write: async () => {
-				elapsed += 150_000;
+				elapsed += 300_000;
 				return validEditorialDraft(packet);
 			},
 			review: async (assignment) => {
-				elapsed += 150_000;
+				elapsed += 300_000;
 				return { ...pass(assignment), verdict: 'fail', issues: [issue] };
 			},
 		}, { clock: () => elapsed });
@@ -185,7 +185,7 @@ describe('bounded same-evidence editorial loop', () => {
 				reviews++;
 				return pass(assignment);
 			},
-		}, { clock: () => !phase ? 0 : phase++ === 1 ? 890_000 : 900_000 });
+		}, { clock: () => !phase ? 0 : phase++ === 1 ? 1_790_000 : 1_800_000 });
 		expect(result).toMatchObject({ status: 'blocked', reason: 'deadline_exceeded', counts: { drafts: 1, reviews: 0 } });
 		expect(reviews).toBe(0);
 	});
@@ -194,7 +194,7 @@ describe('bounded same-evidence editorial loop', () => {
 		const packet = await frozenEditorialFixture();
 		const perCall = new AbortController();
 		const total = new AbortController();
-		const timeout = spyOn(AbortSignal, 'timeout').mockImplementation(ms => ms === 300_000 ? perCall.signal : total.signal);
+		const timeout = spyOn(AbortSignal, 'timeout').mockImplementation(ms => ms === 600_000 ? perCall.signal : total.signal);
 		try {
 			const expire = (signal: AbortSignal) => {
 				perCall.abort(new DOMException('Expired', 'TimeoutError'));
@@ -206,8 +206,8 @@ describe('bounded same-evidence editorial loop', () => {
 				review: async (_assignment, signal) => expire(signal),
 			});
 			expect(result).toMatchObject({ status: 'blocked', reason: 'call_deadline_exceeded', counts: { drafts: 1, reviews: role === 'writer' ? 0 : 1 } });
-			expect(timeout).toHaveBeenCalledWith(900_000);
-			expect(timeout).toHaveBeenCalledWith(300_000);
+			expect(timeout).toHaveBeenCalledWith(1_800_000);
+			expect(timeout).toHaveBeenCalledWith(600_000);
 		} finally { timeout.mockRestore(); }
 	});
 

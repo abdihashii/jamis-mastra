@@ -141,7 +141,7 @@ for (const id of Object.keys(targets) as Array<keyof typeof targets>) {
 				toolCallConcurrency: 1,
 				activeTools: [],
 				toolChoice: 'none',
-				modelSettings: { maxRetries: 0, timeout: { totalMs: 300_000, stepMs: 300_000 } },
+				modelSettings: { maxRetries: 0, timeout: { totalMs: 600_000, stepMs: 600_000 } },
 				providerOptions: { openai: { reasoningEffort: 'xhigh', parallelToolCalls: false } },
 				tracingOptions: { hideInput: true, hideOutput: true },
 				structuredOutput: { errorStrategy: 'strict' },
