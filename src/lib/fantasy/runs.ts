@@ -1,4 +1,8 @@
 import type { SqlLike } from './recaps';
+import type { SavedReport, SavedReportScope } from './saved-report';
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+import { parseSavedReport, sameSavedReportScope } from './saved-report';
 
 export type RunStatus = 'started' | 'failed' | 'delivery_unknown' | 'sent';
 export type RecapFailureStage = 'scheduled_job' | 'model' | 'application_storage' | 'reply_delivery';
@@ -25,8 +29,8 @@ export interface RecapRun {
 
 /**
  * Delivery-state authority for one league/week (ADR 0018). Born complete:
- * stage 5 scheduling adds zero columns. The optimistic claim UPDATE is the
- * single-writer lock — two concurrent coordinators race it and exactly one
+ * Multipart artifact/progress stays on this same row. The optimistic claim UPDATE
+ * is the single-writer lock: two concurrent coordinators race it and exactly one
  * gets a row back.
  */
 export async function ensureFantasyRunsTable(sql: SqlLike): Promise<void> {
@@ -55,7 +59,9 @@ export async function ensureFantasyRunsTable(sql: SqlLike): Promise<void> {
 		ALTER TABLE fantasy_recap_runs
 		ADD COLUMN IF NOT EXISTS latest_attempt_trace_id TEXT,
 		ADD COLUMN IF NOT EXISTS failure_stage TEXT,
-		ADD COLUMN IF NOT EXISTS failure_classification TEXT
+		ADD COLUMN IF NOT EXISTS failure_classification TEXT,
+		ADD COLUMN IF NOT EXISTS saved_report JSONB,
+		ADD COLUMN IF NOT EXISTS part_delivery JSONB
 	`;
 	// One operator alert per unmapped sender, forever (alert-once dedup).
 	await sql`
@@ -219,7 +225,7 @@ export interface ClaimResult {
  * in-flight `started` lease belongs to another runner (a dead one is swept
  * into delivery_unknown first by sweepExpiredLeases).
  */
-export async function claimRun(
+async function claimRunUnlocked(
 	leagueId: string,
 	week: number,
 	claimToken: string,
@@ -263,6 +269,8 @@ export async function claimRun(
 		WHERE
 			league_id = ${leagueId}
 			AND fantasy_week = ${week}
+			AND saved_report IS NULL
+			AND part_delivery IS NULL
 			AND (
 				status = 'failed'
 				OR (
@@ -294,7 +302,9 @@ export async function recordAttemptText(
 			send_attempt_at = now(),
 			updated_at = now()
 		WHERE
-			league_id = ${leagueId}
+			saved_report IS NULL
+			AND part_delivery IS NULL
+			AND league_id = ${leagueId}
 			AND fantasy_week = ${week}
 			AND status = 'started'
 			AND claim_token = ${claimToken}
@@ -322,7 +332,9 @@ export async function markSent(
 			failure_classification = NULL,
 			updated_at = now()
 		WHERE
-			league_id = ${leagueId}
+			saved_report IS NULL
+			AND part_delivery IS NULL
+			AND league_id = ${leagueId}
 			AND fantasy_week = ${week}
 			AND status = 'started'
 			AND claim_token = ${claimToken}
@@ -350,7 +362,9 @@ export async function markFailed(
 			failure_classification = ${classification},
 			updated_at = now()
 		WHERE
-			league_id = ${leagueId}
+			saved_report IS NULL
+			AND part_delivery IS NULL
+			AND league_id = ${leagueId}
 			AND fantasy_week = ${week}
 			AND status = 'started'
 			AND claim_token = ${claimToken}
@@ -376,7 +390,9 @@ export async function markDeliveryUnknown(
 			failure_classification = 'unknown',
 			updated_at = now()
 		WHERE
-			league_id = ${leagueId}
+			saved_report IS NULL
+			AND part_delivery IS NULL
+			AND league_id = ${leagueId}
 			AND fantasy_week = ${week}
 			AND status = 'started'
 			AND claim_token = ${claimToken}
@@ -398,7 +414,9 @@ export async function confirmSentByOperator(leagueId: string, week: number, sql:
 			failure_classification = NULL,
 			updated_at = now()
 		WHERE
-			league_id = ${leagueId}
+			saved_report IS NULL
+			AND part_delivery IS NULL
+			AND league_id = ${leagueId}
 			AND fantasy_week = ${week}
 			AND status = 'delivery_unknown'
 		RETURNING
@@ -441,6 +459,8 @@ export async function expireStaleLeases(
 		WHERE
 			league_id = ${leagueId}
 			AND status = 'started'
+			AND saved_report IS NULL
+			AND part_delivery IS NULL
 			AND lease_expires_at < ${now.toISOString()}
 		RETURNING
 			*
@@ -458,7 +478,11 @@ export async function hasNewerActiveRun(leagueId: string, week: number, sql: Sql
 		WHERE
 			league_id = ${leagueId}
 			AND fantasy_week > ${week}
-			AND status != 'failed'
+			AND (
+				status != 'failed'
+				OR saved_report IS NOT NULL
+				OR part_delivery IS NOT NULL
+			)
 		LIMIT
 			1
 	`) as unknown[];
@@ -511,6 +535,395 @@ export async function listActionableRuns(
 	return rows.map(toRun);
 }
 
+type TransactionalSql = SqlLike & { begin: <T>(action: (sql: SqlLike) => Promise<T>) => Promise<T> };
+
+/** Lock before the eligibility statement, so concurrent cross-week inserts are visible. */
+export async function withFantasyLeagueLock<T>(leagueId: string, sql: SqlLike, action: (sql: SqlLike) => Promise<T>): Promise<T> {
+	if (!('begin' in sql) || typeof sql.begin !== 'function')
+		throw new Error('transactional_recap_store_required');
+	return (sql as TransactionalSql).begin(async (transaction) => {
+		await transaction`SET LOCAL lock_timeout = '5s'`;
+		await transaction`SET LOCAL statement_timeout = '15s'`;
+		await transaction`SELECT pg_advisory_xact_lock(hashtextextended(${leagueId}, 0))`;
+		// Lock existing league rows before wall-clock checks, including unchanged-tuple lock waits.
+		await transaction`SELECT fantasy_week FROM fantasy_recap_runs WHERE league_id = ${leagueId} ORDER BY fantasy_week FOR UPDATE`;
+		return action(transaction);
+	});
+}
+
+export async function claimRun(
+	leagueId: string,
+	week: number,
+	claimToken: string,
+	leaseExpiresAt: Date,
+	traceId: string | null,
+	sql: SqlLike,
+): Promise<ClaimResult> {
+	return withFantasyLeagueLock(leagueId, sql, transaction => claimRunUnlocked(leagueId, week, claimToken, leaseExpiresAt, traceId, transaction));
+}
+
+const partAttemptSchema = z.object({
+	id: z.uuid(),
+	claimToken: z.string().min(1),
+	operationId: z.uuid(),
+	state: z.enum(['sending', 'accepted', 'failed', 'unknown', 'absent']),
+	atUtc: z.iso.datetime(),
+	settledAtUtc: z.iso.datetime().nullable(),
+	handle: z.string().min(1).max(500).nullable(),
+	source: z.enum(['api', 'operator']).nullable(),
+}).strict().superRefine((attempt, context) => {
+	if ((attempt.state === 'accepted' && (!attempt.settledAtUtc || !attempt.source || (attempt.source === 'api' && !attempt.handle)))
+		|| (attempt.state !== 'accepted' && attempt.handle !== null)
+		|| (attempt.state === 'sending' && (attempt.settledAtUtc !== null || attempt.source !== null))
+		|| (attempt.state === 'absent' && (attempt.source !== 'operator' || !attempt.settledAtUtc))) {
+		context.addIssue({ code: 'custom', message: 'invalid_part_attempt' });
+	}
+});
+const partProgressSchema = z.object({
+	reportId: z.string(),
+	operationId: z.uuid().nullable(),
+	recoveryRequired: z.boolean(),
+	parts: z.array(z.array(partAttemptSchema)).min(1).max(3),
+}).strict();
+export type SavedPartAttempt = z.infer<typeof partAttemptSchema>;
+export type SavedReportProgress = z.infer<typeof partProgressSchema>;
+export type SavedReportReference = SavedReportScope & { reportId: string };
+export interface SavedReportState {
+	report: SavedReport;
+	progress: SavedReportProgress;
+	status: RunStatus;
+	claimToken: string | null;
+	leaseExpiresAt: Date | null;
+	leaseCurrent: boolean;
+	/** Keep PostgreSQL microseconds for CAS; JavaScript Date truncates them. */
+	leaseStamp: string | null;
+	sendAttemptAt: Date | null;
+	sentAt: Date | null;
+	messageHandle: string | null;
+	deliverySource: 'api' | 'operator' | null;
+	traceId: string | null;
+}
+
+export function savedPartStatus(attempts: SavedPartAttempt[]): 'pending' | 'sending' | 'accepted' | 'failed' | 'unknown' {
+	if (attempts.some(attempt => attempt.state === 'accepted'))
+		return 'accepted';
+	const last = attempts.at(-1)?.state;
+	return last === 'absent' ? 'failed' : last ?? 'pending';
+}
+
+export function initialSavedReportProgress(report: SavedReport): SavedReportProgress {
+	return { reportId: report.id, operationId: null, recoveryRequired: false, parts: report.parts.map(() => []) };
+}
+
+/** Private state only; models receive a bounded receipt, never this artifact or target. */
+export async function getSavedReportState(reference: SavedReportReference, sql: SqlLike): Promise<SavedReportState | null> {
+	const [row] = await sql`
+		SELECT
+			*,
+			lease_expires_at > clock_timestamp() AS lease_current,
+			lease_expires_at::text AS lease_stamp
+		FROM
+			fantasy_recap_runs
+		WHERE
+			league_id = ${reference.leagueId}
+			AND fantasy_week = ${reference.week}
+	` as (RunRow & { saved_report: unknown; part_delivery: unknown; lease_current: boolean; lease_stamp: string | null })[];
+	if (!row || (row.saved_report == null && row.part_delivery == null))
+		return null;
+	const report = parseSavedReport(row.saved_report);
+	const progress = partProgressSchema.parse(row.part_delivery);
+	const statuses = progress.parts.map(savedPartStatus);
+	const next = statuses.findIndex(status => status !== 'accepted');
+	const ids = progress.parts.flat().map(attempt => attempt.id);
+	if (!['started', 'failed', 'delivery_unknown', 'sent'].includes(row.status)
+		|| !sameSavedReportScope(report, reference) || report.id !== reference.reportId || progress.reportId !== report.id
+		|| progress.parts.length !== report.parts.length || new Set(ids).size !== ids.length
+		|| (next >= 0 && statuses.slice(next + 1).some(status => status !== 'pending'))
+		|| (row.status === 'sent') !== (next === -1)
+		|| (row.status === 'delivery_unknown' && (statuses[next!] !== 'unknown' || !progress.recoveryRequired))
+		|| (row.status === 'failed' && ['unknown', 'sending'].includes(statuses[next!]!))
+		|| (row.status === 'started' && progress.recoveryRequired)) {
+		throw new Error('invalid_saved_report_state');
+	}
+	return {
+		report,
+		progress,
+		status: row.status,
+		claimToken: row.claim_token,
+		leaseExpiresAt: row.lease_expires_at,
+		leaseCurrent: row.lease_current === true,
+		leaseStamp: row.lease_stamp,
+		sendAttemptAt: row.send_attempt_at,
+		sentAt: row.sent_at,
+		messageHandle: row.message_handle,
+		deliverySource: row.delivery_source,
+		traceId: row.latest_attempt_trace_id,
+	};
+}
+
+/** CAS keeps concurrent recovery and late receipts from overwriting one another. */
+async function replaceSavedReportState(
+	before: SavedReportState,
+	after: SavedReportState,
+	sql: SqlLike,
+	liveLease = false,
+	newest = false,
+): Promise<boolean> {
+	const scope = before.report.scope;
+	const rows = await sql`
+		UPDATE fantasy_recap_runs
+		SET
+			part_delivery = ${after.progress},
+			status = ${after.status},
+			claim_token = ${after.claimToken},
+			lease_expires_at = ${after.leaseStamp}::timestamptz,
+			send_attempt_at = ${after.sendAttemptAt?.toISOString() ?? null},
+			sent_at = ${after.sentAt?.toISOString() ?? null},
+			message_handle = ${after.messageHandle},
+			delivery_source = ${after.deliverySource},
+			latest_attempt_trace_id = ${after.traceId},
+			last_error = ${after.status === 'sent' || after.status === 'started' ? null : `saved_report_${after.status}`},
+			failure_stage = ${after.status === 'sent' || after.status === 'started' ? null : 'reply_delivery'},
+			failure_classification = ${after.status === 'delivery_unknown' ? 'unknown' : after.status === 'failed' ? 'delivery_failed' : null},
+			updated_at = now()
+		WHERE
+			league_id = ${scope.leagueId}
+			AND fantasy_week = ${scope.week}
+			AND saved_report = ${before.report}
+			AND part_delivery = ${before.progress}
+			AND status = ${before.status}
+			AND claim_token IS NOT DISTINCT FROM ${before.claimToken}
+			AND lease_expires_at IS NOT DISTINCT FROM ${before.leaseStamp}::timestamptz
+			AND (
+				${liveLease} = false
+				OR lease_expires_at > clock_timestamp()
+			)
+			AND (
+				${newest} = false
+				OR NOT EXISTS (
+					SELECT
+						1
+					FROM
+						fantasy_recap_runs newer
+					WHERE
+						newer.league_id = ${scope.leagueId}
+						AND newer.fantasy_week > ${scope.week}
+						AND (
+							newer.status != 'failed'
+							OR newer.saved_report IS NOT NULL
+							OR newer.part_delivery IS NOT NULL
+						)
+				)
+			)
+		RETURNING
+			1
+	`;
+	return rows.length === 1;
+}
+
+function completedSavedReport(state: SavedReportState): void {
+	const accepted = state.progress.parts.map(attempts => attempts.find(attempt => attempt.state === 'accepted'));
+	if (accepted.some(attempt => !attempt))
+		return;
+	state.status = 'sent';
+	state.progress.recoveryRequired = false;
+	state.sentAt = new Date(Math.max(...accepted.map(attempt => new Date(attempt!.source === 'operator' ? attempt!.atUtc : attempt!.settledAtUtc!).getTime())));
+	state.deliverySource = accepted.some(attempt => attempt!.source === 'operator') ? 'operator' : 'api';
+	state.messageHandle = accepted.at(-1)!.handle;
+}
+
+function markOutstandingUnknown(progress: SavedReportProgress): void {
+	for (const attempts of progress.parts) {
+		for (const attempt of attempts) {
+			if (attempt.state === 'sending')
+				attempt.state = 'unknown';
+		}
+	}
+}
+
+/** Expiry revokes dispatch permission, not the ability to record a matching late receipt. */
+export async function recoverSavedReport(reference: SavedReportReference, sql: SqlLike): Promise<void> {
+	const before = await getSavedReportState(reference, sql);
+	if (!before || before.status !== 'started' || before.leaseCurrent)
+		return;
+	const after = structuredClone(before);
+	markOutstandingUnknown(after.progress);
+	const unknown = after.progress.parts.some(attempts => savedPartStatus(attempts) === 'unknown');
+	after.status = unknown ? 'delivery_unknown' : 'failed';
+	after.progress.recoveryRequired ||= unknown;
+	await replaceSavedReportState(before, after, sql);
+}
+
+/** One reservation per claim, including across recreated tool/procedure instances. */
+export async function reserveSavedReportDelivery(reference: SavedReportReference, token: string, sql: SqlLike): Promise<string | null> {
+	return withFantasyLeagueLock(reference.leagueId, sql, async (transaction) => {
+		const before = await getSavedReportState(reference, transaction);
+		if (!before || before.status !== 'started' || before.claimToken !== token || !before.leaseCurrent
+			|| before.progress.recoveryRequired || before.progress.operationId !== null) {
+			return null;
+		}
+		const after = structuredClone(before);
+		after.progress.operationId = randomUUID();
+		return await replaceSavedReportState(before, after, transaction, true, true) ? after.progress.operationId : null;
+	});
+}
+
+export async function beginSavedReportPart(reference: SavedReportReference, token: string, operationId: string, sql: SqlLike) {
+	return withFantasyLeagueLock(reference.leagueId, sql, async (transaction) => {
+		const before = await getSavedReportState(reference, transaction);
+		if (!before || before.status !== 'started' || before.claimToken !== token || !before.leaseCurrent
+			|| before.progress.recoveryRequired || before.progress.operationId !== operationId) {
+			return null;
+		}
+		const index = before.progress.parts.findIndex(attempts => savedPartStatus(attempts) !== 'accepted');
+		if (index < 0 || !['pending', 'failed'].includes(savedPartStatus(before.progress.parts[index]!)))
+			return null;
+		const after = structuredClone(before);
+		const attempt: SavedPartAttempt = {
+			id: randomUUID(),
+			claimToken: token,
+			operationId,
+			state: 'sending',
+			atUtc: new Date().toISOString(),
+			settledAtUtc: null,
+			handle: null,
+			source: null,
+		};
+		after.progress.parts[index]!.push(attempt);
+		after.sendAttemptAt = new Date(attempt.atUtc);
+		if (!await replaceSavedReportState(before, after, transaction, true, true))
+			return null;
+		return { part: index + 1, attemptId: attempt.id, text: before.report.parts[index]! };
+	});
+}
+
+/** Local CAS retries never repeat transport; superseded uncertain attempts remain attributable. */
+export async function recordSavedReportPart(
+	reference: SavedReportReference,
+	part: number,
+	attemptId: string,
+	outcome: { kind: 'sent'; handle: string } | { kind: 'failed' | 'unknown' },
+	sql: SqlLike,
+	pauseBeforeDispatch = false,
+): Promise<boolean> {
+	if (!Number.isInteger(part) || part < 1 || part > 3
+		|| (outcome.kind === 'sent' && (!outcome.handle?.trim() || outcome.handle.length > 500))) {
+		return false;
+	}
+	for (let conflict = 0; conflict < 3; conflict++) {
+		try {
+			const before = await getSavedReportState(reference, sql);
+			const found = before?.progress.parts[part - 1]?.find(attempt => attempt.id === attemptId);
+			if (!before || !found)
+				return false;
+			if (found.state === 'accepted' || (found.state === 'absent' && outcome.kind !== 'sent')
+				|| (found.state === 'failed' && outcome.kind === 'unknown')) {
+				return true;
+			}
+			const after = structuredClone(before);
+			const attempt = after.progress.parts[part - 1]!.find(attempt => attempt.id === attemptId)!;
+			const canceledBeforeDispatch = pauseBeforeDispatch && found.claimToken === before.claimToken
+				&& found.operationId === before.progress.operationId;
+			after.progress.recoveryRequired ||= canceledBeforeDispatch;
+			attempt.state = outcome.kind === 'sent' ? 'accepted' : outcome.kind;
+			attempt.settledAtUtc = new Date().toISOString();
+			attempt.handle = outcome.kind === 'sent' ? outcome.handle : null;
+			attempt.source = outcome.kind === 'sent' ? 'api' : null;
+			if (!before.leaseCurrent)
+				markOutstandingUnknown(after.progress);
+			const next = after.progress.parts.find(attempts => savedPartStatus(attempts) !== 'accepted');
+			if (next) {
+				const status = savedPartStatus(next);
+				if (status === 'unknown') {
+					after.status = 'delivery_unknown';
+					after.progress.recoveryRequired = true;
+				} else if (status === 'failed' || canceledBeforeDispatch || before.status !== 'started' || !before.leaseCurrent) {
+					after.status = 'failed';
+					after.progress.recoveryRequired ||= before.status === 'delivery_unknown' || !before.leaseCurrent;
+				}
+			}
+			completedSavedReport(after);
+			if (await replaceSavedReportState(before, after, sql))
+				return true;
+		} catch { /* Re-read after an uncertain SQL acknowledgement; never resend. */ }
+	}
+	return false;
+}
+
+/** A confirmation never invokes transport or clears the hold on a pending tail. */
+export async function confirmSavedReportPart(reference: SavedReportReference, part: number, attemptId: string, sql: SqlLike): Promise<boolean> {
+	const before = await getSavedReportState(reference, sql);
+	if (!before || before.status !== 'delivery_unknown' || !Number.isInteger(part))
+		return false;
+	const after = structuredClone(before);
+	const attempts = after.progress.parts[part - 1];
+	const attempt = attempts?.at(-1);
+	if (!attempt || attempt.id !== attemptId || attempt.state !== 'unknown' || savedPartStatus(attempts!) !== 'unknown')
+		return false;
+	attempt.state = 'accepted';
+	attempt.source = 'operator';
+	attempt.settledAtUtc = new Date().toISOString();
+	after.status = 'failed';
+	after.progress.recoveryRequired = true;
+	completedSavedReport(after);
+	return replaceSavedReportState(before, after, sql);
+}
+
+export async function claimSavedReportRetry(
+	reference: SavedReportReference,
+	token: string,
+	leaseExpiresAt: Date,
+	request: { source: 'operator' | 'automatic'; absent?: { part: number; attemptId: string } },
+	sql: SqlLike,
+): Promise<boolean> {
+	if (!['operator', 'automatic'].includes(request.source))
+		return false;
+	await recoverSavedReport(reference, sql);
+	return withFantasyLeagueLock(reference.leagueId, sql, async (transaction) => {
+		const before = await getSavedReportState(reference, transaction);
+		if (!before || !['failed', 'delivery_unknown'].includes(before.status) || !token
+			|| !Number.isFinite(leaseExpiresAt.getTime()) || leaseExpiresAt <= new Date()
+			|| (request.source === 'automatic' && (before.progress.recoveryRequired || request.absent))) {
+			return false;
+		}
+		const after = structuredClone(before);
+		const next = after.progress.parts.findIndex(attempts => savedPartStatus(attempts) !== 'accepted');
+		if (next < 0)
+			return false;
+		const last = after.progress.parts[next]!.at(-1);
+		if (last?.state === 'unknown') {
+			if (request.source !== 'operator' || request.absent?.part !== next + 1 || request.absent.attemptId !== last.id)
+				return false;
+			// An absence observation is not cancellation. Keep this identity for late receipts.
+			last.state = 'absent';
+			last.source = 'operator';
+			last.settledAtUtc = new Date().toISOString();
+		} else if (request.absent) {
+			return false;
+		}
+		after.status = 'started';
+		after.claimToken = token;
+		after.leaseExpiresAt = leaseExpiresAt;
+		after.leaseStamp = leaseExpiresAt.toISOString();
+		after.progress.operationId = null;
+		after.progress.recoveryRequired = false;
+		after.traceId = null;
+		return replaceSavedReportState(before, after, transaction, false, true);
+	});
+}
+
+export async function pauseSavedReportDelivery(reference: SavedReportReference, token: string, operationId: string, sql: SqlLike): Promise<void> {
+	const before = await getSavedReportState(reference, sql);
+	if (!before || !['started', 'failed'].includes(before.status) || before.claimToken !== token || before.progress.operationId !== operationId
+		|| before.progress.parts.some(attempts => ['sending', 'unknown'].includes(savedPartStatus(attempts)))) {
+		return;
+	}
+	const after = structuredClone(before);
+	after.status = 'failed';
+	after.progress.recoveryRequired = true;
+	await replaceSavedReportState(before, after, sql);
+}
+
 /** The store port the coordinator orchestrates against (PG impl below, in-memory in tests). */
 export interface RunsStore {
 	ensureSchema: () => Promise<void>;
@@ -547,7 +960,7 @@ export function createRunsStore(leagueId: string, sql: SqlLike): RunsStore {
 			leaseExpiresAt,
 			traceId,
 		) => claimRun(leagueId, week, claimToken, leaseExpiresAt, traceId, sql),
-		claimForRetry: async (week, claimToken, leaseExpiresAt) => {
+		claimForRetry: (week, claimToken, leaseExpiresAt) => withFantasyLeagueLock(leagueId, sql, async (sql) => {
 			const rows = (await sql`
 				UPDATE fantasy_recap_runs
 				SET
@@ -564,11 +977,13 @@ export function createRunsStore(leagueId: string, sql: SqlLike): RunsStore {
 					league_id = ${leagueId}
 					AND fantasy_week = ${week}
 					AND status IN ('failed', 'delivery_unknown')
+					AND saved_report IS NULL
+					AND part_delivery IS NULL
 				RETURNING
 					final_text
 			`) as { final_text: string }[];
 			return rows.length === 1 ? rows[0]!.final_text : null;
-		},
+		}),
 		recordAttemptText: (
 			week,
 			claimToken,
