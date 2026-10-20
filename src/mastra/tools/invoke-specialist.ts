@@ -10,6 +10,7 @@ import { RequestContext } from '@mastra/core/request-context';
 import { createTool, isValidationError } from '@mastra/core/tools';
 import { z } from 'zod';
 
+import { FANTASY_PUBLICATION_WORKFLOW_ID, fantasyBroadcastDefaults } from '../../lib/fantasy/broadcast-policy';
 import { FANTASY_EDITORIAL_LIMITS, FANTASY_EDITORIAL_WORKFLOW_ID } from '../../lib/fantasy/editorial-policy';
 import { specialistHandbackSchema } from '../agents/specialist-handback';
 import { specialistClarificationSchema } from '../specialist-clarification';
@@ -17,9 +18,10 @@ import { linearReplySourceSchema } from '../workflows/linear-reply';
 
 export type SpecialistCaller
 	= | { kind: 'agent'; id: 'jamis' | 'weather-agent' | 'personal-accounts-agent' | 'fantasy-broadcast-agent' }
-		| { kind: 'workflow'; id: 'prepare_linear_reply' | typeof FANTASY_EDITORIAL_WORKFLOW_ID };
+		| { kind: 'workflow'; id: 'prepare_linear_reply' | typeof FANTASY_EDITORIAL_WORKFLOW_ID | typeof FANTASY_PUBLICATION_WORKFLOW_ID };
 
 const targets = {
+	invoke_broadcaster: 'broadcaster',
 	invoke_fantasy_broadcast: 'fantasy-broadcast-agent',
 	invoke_fantasy_pundit: 'fantasy-football-pundit',
 	invoke_fantasy_editor: 'fantasy-football-editor',
@@ -30,6 +32,7 @@ const targets = {
 type InvocationId = keyof typeof targets;
 interface Authority {
 	caller: SpecialistCaller;
+	broadcasterParent?: RequestContext;
 	pendingOperationId?: string;
 	operatorRequest?: string;
 	researchResults: Map<string, unknown>;
@@ -141,6 +144,8 @@ function isFantasyEditorialTarget(target: InvocationId) {
 }
 
 function allowedEdge(caller: SpecialistCaller, target: InvocationId) {
+	if (target === 'invoke_broadcaster')
+		return caller.kind === 'workflow' && caller.id === FANTASY_PUBLICATION_WORKFLOW_ID;
 	if (isFantasyEditorialTarget(target))
 		return caller.kind === 'workflow' && caller.id === FANTASY_EDITORIAL_WORKFLOW_ID;
 	return caller.kind === 'workflow'
@@ -151,9 +156,18 @@ function allowedEdge(caller: SpecialistCaller, target: InvocationId) {
 function requireAuthority(context: ToolExecutionContext | undefined, allowed: Set<string>) {
 	const authority = context?.requestContext && authorities.get(context.requestContext);
 	const nativeId = authority?.caller.kind === 'agent' ? context?.agent?.agentId : context?.workflow?.workflowId;
-	if (!authority || nativeId !== authority.caller.id || !allowed.has(callerKey(authority.caller)))
+	if (!authority || authority.broadcasterParent || nativeId !== authority.caller.id || !allowed.has(callerKey(authority.caller)))
 		throw new Error('Specialist invocation is not authorized.');
 	return authority;
+}
+
+export function requireBroadcasterDeliveryAuthority(context?: ToolExecutionContext): void {
+	const authority = context?.requestContext && authorities.get(context.requestContext);
+	const parent = authority?.broadcasterParent && authorities.get(authority.broadcasterParent);
+	if (context?.agent?.agentId !== 'broadcaster' || !parent || parent.broadcasterParent
+		|| parent.caller.kind !== 'workflow' || parent.caller.id !== FANTASY_PUBLICATION_WORKFLOW_ID) {
+		throw new Error('Broadcaster delivery is not authorized.');
+	}
 }
 
 function throwIfCanceled(signal?: AbortSignal) {
@@ -192,6 +206,7 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 	if (config.agent.id !== targets[config.id] || config.allowedCallers.some(caller => !allowedEdge(caller, config.id)))
 		throw new Error('Unsupported specialist invocation configuration.');
 	const editorial = isFantasyEditorialTarget(config.id);
+	const broadcaster = config.id === 'invoke_broadcaster';
 	const allowed = new Set(config.allowedCallers.map(callerKey));
 	const handbackSchema = specialistHandbackSchema(config.resultSchema);
 	// Strict providers require an object root; the union remains the native tool result.
@@ -226,12 +241,14 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 					throw new Error('Specialist assignment is invalid.');
 				if (config.id === 'invoke_research' && authority.researchResults.has(assignment))
 					return recordClarification(authority, config.id, assignment, handbackSchema.parse(authority.researchResults.get(assignment)));
-				const requestContext = config.id === 'invoke_research' || editorial
+				const requestContext = config.id === 'invoke_research' || editorial || broadcaster
 					? new RequestContext()
 					: createSpecialistContext({ kind: 'agent', id: config.agent.id as 'weather-agent' | 'personal-accounts-agent' | 'fantasy-broadcast-agent' }, authority.pendingOperationId);
 				calleeContext = requestContext;
+				if (broadcaster)
+					authorities.set(requestContext, { caller: { ...authority.caller }, broadcasterParent: context.requestContext, researchResults: new Map() });
 				const childAuthority = authorities.get(requestContext);
-				if (childAuthority)
+				if (childAuthority && !broadcaster)
 					childAuthority.researchResults = authority.researchResults;
 				if (childAuthority && config.id === 'invoke_personal_accounts') {
 					childAuthority.originalAccountsRequest = pending
@@ -260,6 +277,7 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 								tracingOptions: { hideInput: true, hideOutput: true },
 							}
 						: {}),
+					...(broadcaster ? fantasyBroadcastDefaults() : {}),
 				});
 				const response = await (config.run ? config.run(generate) : generate());
 				throwIfCanceled(context.abortSignal);

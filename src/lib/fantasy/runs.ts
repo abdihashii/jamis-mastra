@@ -615,6 +615,33 @@ export function initialSavedReportProgress(report: SavedReport): SavedReportProg
 	return { reportId: report.id, operationId: null, recoveryRequired: false, parts: report.parts.map(() => []) };
 }
 
+/** Operator recovery binds the exact report and configured destination, without a source/model lookup. */
+export async function findSavedReportReference(
+	leagueId: string,
+	week: number,
+	groupId: string,
+	reportId: string,
+	sql: SqlLike,
+): Promise<SavedReportReference | null> {
+	const [row] = await sql`
+		SELECT
+			saved_report,
+			part_delivery
+		FROM
+			fantasy_recap_runs
+		WHERE
+			league_id = ${leagueId}
+			AND fantasy_week = ${week}
+	` as { saved_report: unknown; part_delivery: unknown }[];
+	if (!row || (row.saved_report == null && row.part_delivery == null))
+		return null;
+	const report = parseSavedReport(row.saved_report);
+	if (report.id !== reportId || report.scope.leagueId !== leagueId || report.scope.week !== week || report.scope.groupId !== groupId)
+		return null;
+	const reference = { ...report.scope, reportId: report.id };
+	return await getSavedReportState(reference, sql) ? reference : null;
+}
+
 /** Private state only; models receive a bounded receipt, never this artifact or target. */
 export async function getSavedReportState(reference: SavedReportReference, sql: SqlLike): Promise<SavedReportState | null> {
 	const [row] = await sql`
@@ -912,7 +939,7 @@ export async function claimSavedReportRetry(
 	});
 }
 
-export async function pauseSavedReportDelivery(reference: SavedReportReference, token: string, operationId: string, sql: SqlLike): Promise<void> {
+export async function pauseSavedReportDelivery(reference: SavedReportReference, token: string, operationId: string | null, sql: SqlLike): Promise<void> {
 	const before = await getSavedReportState(reference, sql);
 	if (!before || !['started', 'failed'].includes(before.status) || before.claimToken !== token || before.progress.operationId !== operationId
 		|| before.progress.parts.some(attempts => ['sending', 'unknown'].includes(savedPartStatus(attempts)))) {

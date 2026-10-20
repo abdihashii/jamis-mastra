@@ -1,6 +1,7 @@
 import type { FantasyConfig } from '../src/lib/fantasy/config';
 import type { ChatContextMessage, RecapGenerator } from '../src/lib/fantasy/generate';
 import type { RecapGenerationRecord } from '../src/lib/fantasy/recaps';
+import type { SavedReportRecoveryRequest } from '../src/lib/fantasy/saved-report-recovery';
 import type { SleeperManager } from '../src/lib/fantasy/sleeper';
 
 import type { WeekFacts } from '../src/lib/fantasy/week-facts';
@@ -19,7 +20,7 @@ import {
 	toChatContext,
 } from '../src/lib/fantasy/generate';
 import { RECAP_MAX_LENGTH, renderResult, renderWeekRecap } from '../src/lib/fantasy/render';
-
+import { parseSavedReportRecovery, runSavedReportRecovery, unavailableSavedReportRecovery } from '../src/lib/fantasy/saved-report-recovery';
 import {
 	championshipWeek,
 	getLeague,
@@ -42,8 +43,11 @@ const usage = [
 	'  preview-candidate --week <number> --since <UTC instant> --until <UTC instant> [--nfl]   Astra writer/reviewer, never send',
 	'  preview --week <number> [--chat <file.json>] [--allow-incomplete]   generate, never send',
 	'  run                                            normal daily job: newest completed week only',
-	'  retry --week <number> [--operator-verified-absent]',
-	'  confirm-sent --week <number>                   operator observed the message in the group',
+	'  retry --week <number> [--operator-verified-absent]   legacy saved message only',
+	'  confirm-sent --week <number>                   legacy operator-observed message',
+	'  retry --week <1..22> --report-id <report-64hex> [--operator-verified-absent --part <1..3> --attempt-id <UUID>]',
+	'  confirm-sent --week <1..22> --report-id <report-64hex> --part <1..3> --attempt-id <UUID>',
+	'    Saved reports: confirm records only; retry explicitly resumes the exact unaccepted tail. JSON output.',
 ].join('\n');
 
 async function main() {
@@ -51,9 +55,64 @@ async function main() {
 	if (!command || !['inspect', 'evidence', 'preview-candidate', 'preview', 'run', 'retry', 'confirm-sent'].includes(command))
 		fail(usage, 1);
 
+	let recovery: SavedReportRecoveryRequest | null;
+	try {
+		recovery = parseSavedReportRecovery(command, flags);
+	} catch {
+		fail(`Invalid saved-report recovery arguments.\n${usage}`, 1);
+	}
 	const config = parseFantasyConfig();
 	if (!config)
 		fail('Fantasy configuration is missing or incomplete; fix the FANTASY_* env vars first.', 1);
+
+	if (recovery) {
+		let result = unavailableSavedReportRecovery(recovery);
+		let client: SQL | undefined;
+		try {
+			const databaseUrl = process.env.DATABASE_URL;
+			if (!databaseUrl)
+				throw new Error('recovery_database_unavailable');
+			const sql = client = new SQL(databaseUrl, {
+				connectionTimeout: 5,
+				connection: { statement_timeout: '15s', lock_timeout: '5s' },
+			});
+			result = await runSavedReportRecovery(recovery, {
+				leagueId: config.sleeperLeagueId,
+				groupId: config.sendblueGroupId,
+				sql,
+				publish: recovery.command === 'retry'
+					? async (reference, claimToken) => {
+						// Only a live retry claim reaches model/transport composition. No app roots or storage.
+						const [core, { noopLogger }, gateway, publication, delivery] = await Promise.all([
+							import('@mastra/core/mastra'),
+							import('@mastra/core/logger'),
+							import('../src/mastra/gateways/openai-codex-gateway.js'),
+							import('../src/mastra/workflows/publish-fantasy-recap'),
+							import('../src/lib/fantasy/deliver'),
+						]);
+						const parent = new core.Mastra({
+							logger: noopLogger,
+							gateways: { 'openai-codex': gateway.openAICodexGateway },
+						});
+						return publication.createFantasyPublicationProcedure(parent, {
+							leagueId: config.sleeperLeagueId,
+							groupId: config.sendblueGroupId,
+							sql,
+							sendExact: (groupId, text) => delivery.sendblueSendClient.sendExactToGroup(groupId, text),
+						})(reference, claimToken);
+					}
+					: undefined,
+			});
+		} catch { /* Initialization failures must not expose connection strings or raw errors. */ } finally {
+			try {
+				await client?.close();
+			} catch { /* Cleanup cannot erase an authoritative delivery receipt. */ }
+		}
+		console.log(JSON.stringify(result));
+		if (result.status !== 'sent' && result.status !== 'confirmed')
+			process.exitCode = 1;
+		return;
+	}
 
 	// TODO: remove --allow-incomplete once the bot is live in the actual group chat.
 	// Debug flag: bypasses the completed-week gate to preview mid-week facts.
