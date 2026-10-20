@@ -2,8 +2,8 @@ export const FANTASY_EDITORIAL_MODEL = 'openai-codex/gpt-6-astra';
 export const FANTASY_EDITORIAL_WORKFLOW_ID = 'prepare_fantasy_recap';
 export const FANTASY_EDITORIAL_LIMITS = Object.freeze({
 	revisions: 2,
-	callMs: 120_000,
-	totalMs: 480_000,
+	callMs: 300_000,
+	totalMs: 900_000,
 	assignmentChars: 1_000_000,
 });
 
