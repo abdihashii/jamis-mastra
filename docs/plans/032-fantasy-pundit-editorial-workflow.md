@@ -1,6 +1,6 @@
 # 032: Fantasy Football Pundit editorial workflow
 
-Status: **Stages 1–3 complete. Stage 4.1 implemented and verified; Operator approved commit and push. Stage 4.2 and Stages 5–6 pending.**
+Status: **Stages 1–3 and Stage 4.1 complete. Stage 4.2 verified; Operator approved commit and push. Stages 5–6 pending.**
 
 Product authority: [Fantasy Football Pundit specification](../fantasy-football-pundit.md). Design authority: [ADR 0023](../adrs/0023-fantasy-pundit-editorial-workflow.md). Existing boundaries: [ADR 0009 typed execution amendment](../adrs/0009-jamis-as-mastra-supervisor.md#typed-execution-boundaries-jam-77-2026-10-10-utc), [ADR 0017](../adrs/0017-fantasy-group-is-passive-channel-context.md), and [ADR 0018](../adrs/0018-durable-recap-state-owns-delivery-correctness.md). Terminology belongs to [Jamis CONTEXT](../CONTEXT.md), [Fantasy CONTEXT](../../src/lib/fantasy/CONTEXT.md), and [CONTEXT-MAP](../../CONTEXT-MAP.md). Their path migration is implementation scope, not evidence that code has moved.
 
@@ -200,7 +200,7 @@ The corrected preview also exposed a sentence-shape failure: preview bypassed th
 
 ### 4. Build the complete Pundit and editorial-review candidate path
 
-**Status: 4.1 implemented and verified, commit and push approved; 4.2 not started. Operator decisions are recorded above. Neither slice activates scheduling or sending.**
+**Status: 4.1 committed, pushed and Operator-confirmed deployed as `b7a336f`; standalone live testing was deferred to 4.2. Stage 4.2 is verified, with commit and push approved. Neither slice activates scheduling or sending.**
 
 **Goal:** prove the full editorial contract through no-send preview before changing the active scheduled generator.
 
@@ -217,12 +217,18 @@ The corrected preview also exposed a sentence-shape failure: preview bypassed th
 
 #### 4.2. Checked writer, reviewer and read-only preview
 
+**Status: implemented and verified; Operator approved commit and push.** The private native `prepare_fantasy_recap` procedure retains checked caller context, registers no roots/workflow, and exposes only a preparation function. `editorial-policy.ts` pins Astra/xhigh, one step, no SDK retries, 120 seconds per call and 480 seconds total. `editorial-loop.ts` owns the bounded projection, deterministic/review gates, same-writer feedback and safe terminal outcomes. The existing read-only owner surrounds collection and every model call; changed/unverified state withholds approval. The `preview-candidate --week N --since <UTC instant> --until <UTC instant> [--nfl]` CLI is no-send, not publication authority.
+
+**Verification (2026-10-20 UTC):** 787 passed, one Linux-only mount smoke skipped (788 tests, 63 files); all 67 focused writer/editor/authority/CLI/PG fixtures pass. Typecheck, standard Mastra/Studio build, four infra tests and whitespace checks pass. Lint has zero errors and 247 line-length warnings. Four fresh Astra/xhigh review-code/security/Ponytail lanes returned no findings. The PG fixtures first exposed native `Agent.generate` attempting internal `agentic-loop` snapshots despite the outer workflow's snapshot policy (seven failing cases). The fix uses a private storage-disabled runtime sharing gateways/logger/tracing without re-registering the parent's observability; all 16 PG cases now pass, including zero snapshot-method attempts, exact multipart/quote preservation and mutations during either model role. A separate red regression fixed aggregate-deadline expiry before review dispatch.
+
+**Limits:** synthetic native provider/PG fixtures verify protocol, isolation and control flow, not real editorial judgment. Verification used no live application models, production data, paid NFL reads or sends. Original legacy instructions are byte-identical; Sol/v12 registration, scheduling, delivery, manifests, lockfile and lint rules are unchanged. The Operator approved committing and pushing this verified slice on the existing feature branch. This does not authorize merging, deployment, live calls or beginning Stage 5. Real-data/model acceptance remains pending separate deployment and live-call approval.
+
 - **Goal:** use the same Pundit identity in an unregistered editorial profile, plus one separate tool-free Astra/xhigh reviewer; legacy root/defaults remain unchanged until cutover. No independent second active author.
 - **Critical files:** Pundit/editorial-review factories, existing checked-invocation boundary and tests, minimal Fantasy editorial-loop/preview composition, observability protection, CLI candidate command/tests and native provider fixtures. Add only the explicit recap workflow-to-writer/reviewer edges; do not broaden Jamis or unrelated workflow authority.
 - **Boundaries:** the trusted composition pins models, effort, step/time limits and zero retries. Both calls receive the same bounded evidence projection with coverage/source times, not Operator memory, phone/group metadata or arbitrary caller options. Accommodate its larger private evidence only for these closed targets; retain existing assignment limits elsewhere. Native candidate workflow execution must not persist snapshots or initialize schema. Existing read-only preview ownership must enclose the whole collection/draft/review interval and compare report/run counts plus whole-row hashes; do not copy connection/state machinery.
 - **Loop:** code owns the two-revision budget and total deadline. Deterministically render each draft, then review that exact candidate/evidence identity. Issues return only to the same writer; the reviewer never supplies replacement prose. Missing/stale/malformed review, model errors and exhaustion return a safe block, never success or fallback. Re-rendering must reproduce the reviewed ordered parts exactly.
 - **Verification/demo:** native scripted model/tool fixtures prove checked caller denial, fixed options, strict output, exact review binding, one repair plus renewed review, terminal exhaustion/cancellation and first-event privacy. Read-only disposable PostgreSQL and hard-blocked SDK sends prove no schema/report/run/snapshot writes and zero group/DM sends across the full preview. Fixtures prove protocol/control flow, not real editorial quality; real-model samples require separate approval.
-- **Proposed commit:** `feat: validate fantasy pundit recap candidates before publication`.
+- **Approved commit:** `feat: validate fantasy pundit recap candidates before publication`.
 
 **Critical files:** `src/mastra/agents/fantasy-football-pundit.ts`; Fantasy generation, rendering and validation modules; a small editorial-review module/invocation; `src/mastra/tools/invoke-specialist.ts` and trusted composition; `src/mastra/observability.ts`; `scripts/fantasy-recap.ts`; proposed editorial and CLI preview tests.
 
@@ -234,7 +240,7 @@ Build deterministic candidate rendering before review, issue-specific feedback, 
 
 **Demo:** proposed `rtk bun test src/lib/fantasy/__tests__/editorial.test.ts src/lib/fantasy/__tests__/preview.test.ts` exercises actual candidate composition: one issue is repaired and re-reviewed, persistent issues block, and a valid artifact includes the exact fixture quote. Hard-block Sendblue SDK methods and all unapproved network paths before imports; assert zero group/DM attempts and zero report/run mutations. Preview with archived disposable storage must use read-only connections with initialization disabled and compare existing row contents as well as counts. Separately authorized real-model previews assess complete output against frozen evidence; they do not prove universal quality.
 
-**Proposed commit:** `feat: validate fantasy pundit recap candidates before publication`.
+**Approved commit:** `feat: validate fantasy pundit recap candidates before publication`.
 
 ### 5. Prove the narrow saved-report Broadcaster boundary
 

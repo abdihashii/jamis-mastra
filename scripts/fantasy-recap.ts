@@ -39,6 +39,7 @@ const usage = [
 	'  inspect --week <number> [--allow-incomplete]   print deterministic facts only',
 	'  evidence --week <number> --since <UTC instant> --until <UTC instant> [--nfl]   frozen read-only evidence, no model/send',
 	'    --nfl explicitly enables one free catalogue and up to three reads quoted at 5 credits each.',
+	'  preview-candidate --week <number> --since <UTC instant> --until <UTC instant> [--nfl]   Astra writer/reviewer, never send',
 	'  preview --week <number> [--chat <file.json>] [--allow-incomplete]   generate, never send',
 	'  run                                            normal daily job: newest completed week only',
 	'  retry --week <number> [--operator-verified-absent]',
@@ -47,7 +48,7 @@ const usage = [
 
 async function main() {
 	const [command, ...flags] = process.argv.slice(2);
-	if (!command || !['inspect', 'evidence', 'preview', 'run', 'retry', 'confirm-sent'].includes(command))
+	if (!command || !['inspect', 'evidence', 'preview-candidate', 'preview', 'run', 'retry', 'confirm-sent'].includes(command))
 		fail(usage, 1);
 
 	const config = parseFantasyConfig();
@@ -93,7 +94,18 @@ async function main() {
 		return;
 	}
 
-	if (command === 'evidence') {
+	if (command === 'evidence' || command === 'preview-candidate') {
+		if (command === 'preview-candidate') {
+			const seen = new Set<string>();
+			for (let i = 0; i < flags.length; i++) {
+				const flag = flags[i];
+				if (seen.has(flag) || !['--week', '--since', '--until', '--nfl'].includes(flag))
+					fail(usage, 1);
+				seen.add(flag);
+				if (flag !== '--nfl' && (!flags[++i] || flags[i].startsWith('--')))
+					fail(usage, 1);
+			}
+		}
 		const since = flags.indexOf('--since');
 		const until = flags.indexOf('--until');
 		if (since < 0 || until < 0 || !flags[since + 1] || !flags[until + 1])
@@ -101,14 +113,39 @@ async function main() {
 		const apiKey = flags.includes('--nfl') ? process.env.FIRECRAWL_API_KEY : undefined;
 		if (flags.includes('--nfl') && !apiKey?.trim())
 			fail('FIRECRAWL_API_KEY is required for explicitly requested NFL reads.', 1);
-		const { previewRecapEvidence } = await import('../src/lib/fantasy/evidence-preview');
-		const result = await previewRecapEvidence({
+		const request = {
 			config,
 			week,
 			window: { startAtUtc: flags[since + 1], endAtUtc: flags[until + 1] },
 			databaseUrl: process.env.DATABASE_URL ?? '',
 			firecrawlApiKey: apiKey,
-		});
+		};
+		if (command === 'preview-candidate') {
+			const { previewRecapCandidate } = await import('../src/lib/fantasy/preview');
+			const result = await previewRecapCandidate(request);
+			console.log(`Candidate preview: ${result.status}${result.reason ? ` (${result.reason})` : ''}`);
+			if (result.packet) {
+				const packet = result.packet;
+				console.log(`Evidence: ${packet.id}; season ${packet.scope.season}, week ${packet.scope.week}.`);
+				console.log(`Sources: ${packet.chat?.sources.length ?? 0} chat; ${packet.nfl.length} NFL reads.`);
+				console.log(`Gaps: ${packet.gaps.map(gap => `${gap.source}:${gap.code}`).join(', ') || 'none'}`);
+			}
+			if (result.outcome?.status === 'approved') {
+				const { candidate } = result.outcome;
+				for (const part of candidate.parts) console.log(`\n${part}`);
+				console.log(`\n${candidate.version}; ${candidate.id}; ${candidate.parts.length} ordered part(s).`);
+				console.log(`Part lengths (UTF-16 units): ${candidate.parts.map(part => part.length).join(', ')}.`);
+			}
+			const database = result.databaseUnchanged
+				? 'verified unchanged'
+				: result.reason === 'recap_state_changed_during_preview' ? 'changed during preview' : 'not verified';
+			console.log(`Database state: ${database}; writer calls: ${result.counts.drafts}; reviewer calls: ${result.counts.reviews}; sends: 0.`);
+			if (result.status === 'blocked')
+				process.exitCode = 1;
+			return;
+		}
+		const { previewRecapEvidence } = await import('../src/lib/fantasy/evidence-preview');
+		const result = await previewRecapEvidence(request);
 		console.log(`Evidence preview: ${result.status}${result.reason ? ` (${result.reason})` : ''}`);
 		if (result.packet) {
 			const packet = result.packet;

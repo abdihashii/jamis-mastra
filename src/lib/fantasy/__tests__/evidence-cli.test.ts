@@ -59,6 +59,31 @@ describe('evidence CLI isolation', () => {
 		expect(missingKey.stdout).not.toContain('Evidence preview:');
 	});
 
+	it('candidate CLI fails safely before model loading when its read-only database is invalid', async () => {
+		const result = await run(['preview-candidate', '--week', '2', '--since', '2026-09-15T00:00:00Z', '--until', '2026-09-22T00:00:00Z']);
+		expect(result.code).toBe(1);
+		expect(result.stdout).toContain('Candidate preview: blocked (invalid_preview_database_url)');
+		expect(result.stdout).toContain('writer calls: 0; reviewer calls: 0; sends: 0');
+		expect(result.stderr).toBe('');
+		for (const sentinel of ['PRIVATE_DATABASE_SENTINEL', 'PRIVATE_GROUP_SENTINEL', '+15550001111', 'OpenAI login'])
+			expect(result.stdout + result.stderr).not.toContain(sentinel);
+	});
+
+	it('candidate CLI refuses model/transport options, duplicate flags and implicit evidence windows', async () => {
+		const base = ['preview-candidate', '--week', '2', '--since', '2026-09-15T00:00:00Z', '--until', '2026-09-22T00:00:00Z'];
+		for (const extra of [['--model', 'untrusted'], ['--send'], ['--week', '3'], ['--allow-incomplete']]) {
+			const result = await run([...base, ...extra]);
+			expect(result.code).toBe(1);
+			expect(result.stdout).toBe('');
+		}
+		const missing = await run(['preview-candidate', '--week', '2']);
+		expect(missing.code).toBe(1);
+		expect(missing.stdout).toBe('');
+		const paid = await run([...base, '--nfl']);
+		expect(paid.stderr).toContain('FIRECRAWL_API_KEY is required');
+		expect(paid.stdout).toBe('');
+	});
+
 	it('keeps operational and model composition out of static entrypoint imports', async () => {
 		const source = await readFile(script, 'utf8');
 		const imports = source.match(/^import(?!\s+type\b)[^;]+;/gm)?.join('\n') ?? '';
