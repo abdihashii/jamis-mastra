@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
-import { resolveSleeperChatWindow } from '../chat-window';
 import {
 
 	championshipWeek,
@@ -669,11 +668,8 @@ describe('NFL schedule', () => {
 			home: home === 'ARI' ? 'AZ' : home,
 			away: away === 'ARI' ? 'AZ' : away,
 		})));
-		expect(resolveSleeperChatWindow(snapshot, 6, new Date('2026-10-21T02:00:00Z'))).toEqual({
-			status: 'ready',
-			window: { startAtUtc: '2026-10-15T00:00:00.000Z', endAtUtc: '2026-10-21T02:00:00.000Z' },
-		});
-		expect(resolveSleeperChatWindow(snapshot, 7, new Date('2026-10-21T02:00:00Z')).status).toBe('blocked');
+		expect(snapshot.games.filter(game => game.week === 6).every(game => game.status === 'complete')).toBe(true);
+		expect(snapshot.games.filter(game => game.week === 7).every(game => game.status === 'pre_game')).toBe(true);
 	});
 
 	it('replays 17 postseason rows, retaining 4 canceled placeholders and all 13 completed actual games', async () => {
@@ -690,14 +686,8 @@ describe('NFL schedule', () => {
 			home: home.includes('(win)') ? 'TBD' : home,
 			away: away.includes('(win)') ? 'TBD' : away,
 		})));
-		expect(resolveSleeperChatWindow(snapshot, 19, new Date('2026-02-10T12:00:00Z'))).toEqual({
-			status: 'ready',
-			window: { startAtUtc: '2026-01-10T00:00:00.000Z', endAtUtc: '2026-01-17T00:00:00.000Z' },
-		});
-		expect(resolveSleeperChatWindow(snapshot, 22, new Date('2026-02-10T12:00:00Z'))).toEqual({
-			status: 'ready',
-			window: { startAtUtc: '2026-02-08T00:00:00.000Z', endAtUtc: '2026-02-10T12:00:00.000Z' },
-		});
+		expect(snapshot.games.filter(game => game.status === 'canceled').every(game => game.home === 'TBD' || game.away === 'TBD')).toBe(true);
+		expect(snapshot.games.filter(game => game.week === 4 && game.status === 'complete')).toHaveLength(1);
 	});
 
 	it.each([null, {}, { games: [] }, 'private 雪', [null], [{}]])('rejects malformed source envelopes: %#', async (rows) => {

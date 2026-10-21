@@ -1,4 +1,5 @@
 import type { FantasyConfig } from '../src/lib/fantasy/config';
+import type { RecapEvidencePacket } from '../src/lib/fantasy/recap-evidence';
 import type { RecapGenerationRecord } from '../src/lib/fantasy/recaps';
 import type { SavedReportRecoveryRequest } from '../src/lib/fantasy/saved-report-recovery';
 import type { SleeperManager } from '../src/lib/fantasy/sleeper';
@@ -27,10 +28,11 @@ import { buildWeekFacts } from '../src/lib/fantasy/week-facts';
 const usage = [
 	'bun run fantasy:recap <command>',
 	'  inspect --week <number> [--allow-incomplete]   print deterministic facts only',
-	'  evidence --week <number> --since <UTC instant> --until <UTC instant> [--nfl]   frozen read-only evidence, no model/send',
+	'  evidence --week <1..22> [--nfl]   queried reporting window, frozen read-only evidence, no model/send',
 	'    --nfl explicitly enables one free catalogue and up to three reads quoted at 5 credits each.',
-	'  preview-candidate --week <number> --since <UTC instant> --until <UTC instant> [--nfl]   Astra writer/reviewer, never send',
-	'  preview --week <number> --since <UTC instant> --until <UTC instant> [--nfl]   alias of preview-candidate',
+	'  preview-candidate --week <1..22> [--nfl]   queried reporting window, Astra writer/reviewer, never send',
+	'  preview --week <1..22> [--nfl]   alias of preview-candidate',
+	'    Evidence/preview: optional paired --since <UTC instant> --until <UTC instant> assert queried bounds only; never choose a cutoff.',
 	'  run                                            normal daily job: newest completed week only, no flags',
 	'  restart --week <1..22> --attempt-id <UUID>       restart the exact blocked generation attempt',
 	'  debug-export --week <1..22> --attempt-id <UUID>   private 0600 debug file, never stdout payloads',
@@ -111,7 +113,7 @@ async function main() {
 		return;
 	}
 
-	if (command === 'preview-candidate') {
+	if (command === 'evidence' || command === 'preview-candidate') {
 		const seen = new Set<string>();
 		for (let i = 0; i < flags.length; i++) {
 			const flag = flags[i];
@@ -121,8 +123,10 @@ async function main() {
 			if (flag !== '--nfl' && (!flags[++i] || flags[i].startsWith('--')))
 				fail(usage, 1);
 		}
-		if (!['--week', '--since', '--until'].every(flag => seen.has(flag)))
+		if (!seen.has('--week') || !/^(?:[1-9]|1\d|2[0-2])$/.test(flags[flags.indexOf('--week') + 1])
+			|| seen.has('--since') !== seen.has('--until')) {
 			fail(usage, 1);
+		}
 	}
 
 	if (command === 'debug-export') {
@@ -253,15 +257,13 @@ async function main() {
 	if (command === 'evidence' || command === 'preview-candidate') {
 		const since = flags.indexOf('--since');
 		const until = flags.indexOf('--until');
-		if (since < 0 || until < 0 || !flags[since + 1] || !flags[until + 1])
-			fail(usage, 1);
 		const apiKey = flags.includes('--nfl') ? process.env.FIRECRAWL_API_KEY : undefined;
 		if (flags.includes('--nfl') && !apiKey?.trim())
 			fail('FIRECRAWL_API_KEY is required for explicitly requested NFL reads.', 1);
 		const request = {
 			config,
 			week,
-			window: { startAtUtc: flags[since + 1], endAtUtc: flags[until + 1] },
+			...(since >= 0 ? { window: { startAtUtc: flags[since + 1], endAtUtc: flags[until + 1] } } : {}),
 			databaseUrl: process.env.DATABASE_URL ?? '',
 			firecrawlApiKey: apiKey,
 		};
@@ -272,6 +274,7 @@ async function main() {
 			if (result.packet) {
 				const packet = result.packet;
 				console.log(`Evidence: ${packet.id}; season ${packet.scope.season}, week ${packet.scope.week}.`);
+				printReportingWindow(packet);
 				console.log(`Sources: ${packet.chat?.sources.length ?? 0} chat; ${packet.nfl.length} NFL reads.`);
 				console.log(`Gaps: ${packet.gaps.map(gap => `${gap.source}:${gap.code}`).join(', ') || 'none'}`);
 			}
@@ -295,7 +298,7 @@ async function main() {
 		if (result.packet) {
 			const packet = result.packet;
 			console.log(`${packet.version}, season ${packet.scope.season ?? 'unknown'}, week ${week}`);
-			console.log(`Chat window: ${packet.scope.chatWindow?.startAtUtc} to ${packet.scope.chatWindow?.endAtUtc} (caller-supplied UTC)`);
+			printReportingWindow(packet);
 			console.log(`Matches: ${packet.facts?.results.length ?? 0}; chat sources: ${packet.chat?.sources.length ?? 0}; completed transactions: ${packet.transactions.completed.length}`);
 			console.log(`NFL reads: ${packet.nfl.length}; gaps: ${packet.gaps.map(gap => `${gap.source}:${gap.code}`).join(', ') || 'none'}`);
 		}
@@ -326,6 +329,13 @@ async function main() {
 
 	const facts = await factsFor(config, league, managers, bracket, week);
 	print(facts, !completed);
+}
+
+function printReportingWindow(packet: RecapEvidencePacket) {
+	const window = packet.scope.calendarProof ? packet.scope.chatWindow : null;
+	console.log(window
+		? `Reporting window: [${window.startAtUtc}, ${window.endAtUtc}) (queried calendar UTC; end exclusive).`
+		: 'Reporting window: unverified.');
 }
 
 /** All week-N matchup rows + (regular season) week N+1 for the upcoming slate. */

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { readNflReportingWindow } from '../nfl-calendar';
+import { parseNflCalendarProof, readNflReportingWindow } from '../nfl-calendar';
 import { sleeperScheduleSchema } from '../sleeper';
+import { reportingWindowFixture } from './fixtures/reporting-window.fixture';
 
 const captured = JSON.parse(readFileSync(new URL('./fixtures/nfl-calendar.fixture.json', import.meta.url), 'utf8'));
 const now = new Date('2026-10-22T12:00:00Z');
@@ -36,8 +37,38 @@ function read(value = fixture(), at = now, signal?: AbortSignal) {
 	return readNflReportingWindow(sleeperScheduleSchema.parse(value.sleeper), value.week, at, signal);
 }
 
+describe('persisted calendar proof validation', () => {
+	const window = { startAtUtc: '2026-10-14T07:00:00.000Z', endAtUtc: '2026-10-21T07:00:00.000Z' };
+	test('validates detached historical proof without querying or consulting wall clock', () => {
+		const source = reportingWindowFixture(window, 2026, 6).source;
+		const result = parseNflCalendarProof(source, 2026, 6, window);
+		expect(result).toEqual(source);
+		expect(result).not.toBe(source);
+		result.games[0].home = 'KC';
+		expect(source.games[0].home).toBe('NE');
+	});
+	test.each(['scope', 'window', 'adjacency', 'url', 'game', 'extra', 'final'])('rejects invalid proof without echoing its private content: %s', (fault) => {
+		const source: any = reportingWindowFixture(window, 2026, 6).source;
+		if (fault === 'scope')
+			source.current.providerWeek = 5;
+		if (fault === 'window')
+			source.current.startAtUtc = '2026-10-14T08:00:00.000Z';
+		if (fault === 'adjacency')
+			source.current.lastMinuteAtUtc = '2026-10-21T06:58:00.000Z';
+		if (fault === 'url')
+			source.current.url = 'https://PRIVATE_CALENDAR.invalid';
+		if (fault === 'game')
+			source.games[0].kickoffAtUtc = window.endAtUtc;
+		if (fault === 'extra')
+			source.private = 'PRIVATE_CALENDAR';
+		if (fault === 'final')
+			source.games[0].final = false;
+		expect(() => parseNflCalendarProof(source, 2026, 6, window)).toThrow('invalid_reporting_calendar');
+	});
+});
+
 // These are minimal public-response projections, not invented calendar boundaries.
-describe('queried NFL calendar reader (off the production path)', () => {
+describe('queried NFL calendar reader', () => {
 	test.each(['week6', 'delayed', 'transition', 'wildcard'])('replays captured calendar, scoreboard and Sleeper membership: %s', async (name) => {
 		const value = fixture(name);
 		const urls = stub(value);

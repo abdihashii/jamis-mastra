@@ -9,7 +9,7 @@ import type { EvidenceOptions } from './recap-evidence';
 import type { SqlLike } from './recaps';
 import process from 'node:process';
 import { openRecapArchive } from './archive';
-import { resolveSleeperChatWindow } from './chat-window';
+import { readReportingWindow } from './chat-window';
 import { retryWeek } from './coordinator';
 import { createNflSourceTask } from './nfl-sources-task';
 import { runRecapPipeline } from './pipeline';
@@ -32,6 +32,7 @@ export interface DailyOverrides {
 	now?: () => Date;
 	abortSignal?: AbortSignal;
 	restart?: { week: number; attemptId: string };
+	readWindow?: typeof readReportingWindow;
 }
 
 /** The single production entrypoint. Private preparation/publication are composed only after durable eligibility. */
@@ -60,21 +61,7 @@ export async function runDailyRecap(config: FantasyConfig | null, mastra: Mastra
 			return { outcome: 'failed', week: overrides.restart.week, reason: 'restart_not_latest_completed_week' };
 		const sql = overrides.sql ?? getFantasySql();
 		const now = overrides.now ?? (() => new Date());
-		async function window() {
-			const [schedule, postseason] = await Promise.all([
-				source.getNflSchedule(league.season, week! <= 18 ? 'regular' : 'post', deadline()),
-				week === 18 ? source.getNflSchedule(league.season, 'post', deadline()) : undefined,
-			]);
-			const result = resolveSleeperChatWindow(schedule, week!, now(), postseason);
-			if (result.status === 'ready')
-				return result.window;
-			if (result.reason === 'schedule_week_unclosed')
-				return null;
-			throw new Error('archive_window_unavailable');
-		}
-		// Restart retains the exact old coverage window, but never bypasses a newly delayed NFL game.
-		if (overrides.restart && !await window())
-			return { outcome: 'noop-no-completed-week', week: null };
+		const window = () => (overrides.readWindow ?? readReportingWindow)(league.season, week!, now(), overrides.abortSignal, source.getNflSchedule);
 		const memory = overrides.memory ?? {
 			getThreadById: async (input: Parameters<MemoryStorage['getThreadById']>[0]) => {
 				archive ??= openRecapArchive(overrides.databaseUrl ?? process.env.DATABASE_URL ?? '');

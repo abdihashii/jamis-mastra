@@ -248,6 +248,7 @@ describe('bounded same-evidence editorial loop', () => {
 
 	it('projects all scoped chat and source limits but never account/group/phone metadata', async () => {
 		const packet = await frozenEditorialFixture();
+		expect(editorialProjection(packet)).toMatchObject({ reportingWindow: { window: packet.scope.chatWindow, provider: 'espn', period: 'Week 1', nextPeriod: 'Week 2' } });
 		const data = JSON.stringify(editorialProjection(packet));
 		expect(data).toContain('PRIVATE_FOOTBALL_CHAT');
 		expect(data).toContain('quoteReview');

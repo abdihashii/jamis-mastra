@@ -13,6 +13,7 @@ import {
 	captureGenerationPacket,
 	claimGenerationAttempt,
 	findGenerationReference,
+	generationApprovalState,
 	getGenerationRun,
 	markGenerationNotified,
 	purgeGenerationDebug,
@@ -49,6 +50,7 @@ import {
 	frozenEditorialFixture,
 	validEditorialDraft,
 } from './fixtures/editorial.fixture';
+import { reportingWindowFixture } from './fixtures/reporting-window.fixture';
 
 type TransactionalSql = SqlLike & { begin: <T>(action: (sql: SqlLike) => Promise<T>) => Promise<T> };
 type QueryMatch = (query: string, values: unknown[]) => boolean;
@@ -121,6 +123,7 @@ describe.skipIf(!databaseUrl)('generation native PG gates (off live path, no mod
 	const schema = `generation_${randomUUID().replaceAll('-', '')}`;
 	const token = 'fixture-generation-owner';
 	const window = editorialFixtureWindow;
+	const proof = reportingWindowFixture(window).source;
 	let root: SQL;
 	let sql: SQL;
 	let packet: Awaited<ReturnType<typeof frozenEditorialFixture>>;
@@ -184,7 +187,7 @@ describe.skipIf(!databaseUrl)('generation native PG gates (off live path, no mod
 	});
 
 	async function claim(claimToken = token, expectedBlockedAttemptId?: string) {
-		const ref = await claimGenerationAttempt(scope, window, claimToken, 'fixture-trace', sql, expectedBlockedAttemptId);
+		const ref = await claimGenerationAttempt(scope, window, claimToken, 'fixture-trace', sql, expectedBlockedAttemptId, proof);
 		expect(ref).not.toBeNull();
 		return ref!;
 	}
@@ -234,6 +237,31 @@ describe.skipIf(!databaseUrl)('generation native PG gates (off live path, no mod
 		expect(await recordApprovedReport(report, token, sql)).toBe(true);
 		return ref;
 	}
+	async function legacyGeneration() {
+		const next = structuredClone((await state()).generation);
+		delete next.current.calendarProof;
+		const legacyPacket = { ...packet, scope: { ...packet.scope } };
+		delete legacyPacket.scope.calendarProof;
+		Object.freeze(legacyPacket.scope);
+		legacyPacket.id = '';
+		legacyPacket.id = `evidence-${createHash('sha256').update(JSON.stringify(legacyPacket)).digest('hex')}`;
+		const legacyDraft = validEditorialDraft(legacyPacket);
+		const built = buildEditorialCandidate(Object.freeze(legacyPacket), legacyDraft);
+		if (built.status !== 'candidate')
+			throw new Error('Legacy fixture candidate required');
+		const legacyReview = { ...review, evidenceId: legacyPacket.id, candidateId: built.candidate.id };
+		const bundle = next.debug[next.current.id];
+		if (bundle.packetJson !== null) {
+			bundle.packetJson = JSON.stringify(legacyPacket);
+			next.current.evidenceId = legacyPacket.id;
+			if (next.current.candidateId !== null)
+				next.current.candidateId = built.candidate.id;
+			for (const output of bundle.outputs)
+				output.valueJson = JSON.stringify(output.kind === 'writer' ? legacyDraft : legacyReview);
+		}
+		await sql`UPDATE fantasy_recap_runs SET editorial_attempt = ${parseGenerationState(next)}`;
+		return buildSavedReport(Object.freeze(legacyPacket), { status: 'approved', evidenceId: legacyPacket.id, candidate: built.candidate, review: legacyReview, counts: { drafts: 1, reviews: 1 } });
+	}
 	function legacyRecord(): RecapGenerationRecord {
 		return { leagueId: scope.leagueId, fantasyWeek: scope.week, generatorVersion: 'fantasy-recap-v12', model: 'fixture-model', finalText: 'legacy bytes', facts: packet.facts! };
 	}
@@ -275,6 +303,115 @@ describe.skipIf(!databaseUrl)('generation native PG gates (off live path, no mod
 		expect(Date.parse(meta.workDeadlineAtUtc) - started).toBe(GENERATION_LIMITS.workMs);
 		expect(Date.parse(meta.debugExpiresAtUtc) - started).toBe(GENERATION_LIMITS.debugMs);
 		await unpublished();
+	});
+
+	test.each(['nfl', 'writer', 'reviewer'] as const)('readable proofless history cannot reserve a paid %s call', async (kind) => {
+		const ref = await claim();
+		if (kind === 'writer')
+			expect(await captureGenerationPacket(ref, token, packet, sql)).toBe(true);
+		if (kind === 'reviewer')
+			await writer(ref);
+		await legacyGeneration();
+		const before = await snapshot();
+		expect(Object.hasOwn((await state()).generation.current, 'calendarProof')).toBe(false);
+		expect(await readGenerationDebug(ref, sql)).not.toBeNull();
+		expect(await reserveGenerationCall(ref, token, kind, 1, sql)).toBeNull();
+		expect(await snapshot()).toEqual(before);
+	});
+
+	test('proofless reviewed history remains readable but cannot create a new approval', async () => {
+		const ref = await claim();
+		await reviewed(ref);
+		const legacyReport = await legacyGeneration();
+		const before = await snapshot();
+		expect(generationApprovalState(await state(), legacyReport)).toBeNull();
+		expect(await recordApprovedReport(legacyReport, token, sql)).toBe(false);
+		expect(await snapshot()).toEqual(before);
+		await unpublished();
+	});
+
+	test('already-saved proofless approval reconciles without rewriting legacy state or history', async () => {
+		const ref = await claim();
+		await reviewed(ref);
+		const legacyReport = await legacyGeneration();
+		const legacy = (await state()).generation;
+		await sql`UPDATE fantasy_recap_runs SET editorial_attempt = NULL`;
+		expect(await recordApprovedReport(legacyReport, token, sql)).toBe(true);
+		legacy.current.phase = 'approved';
+		legacy.current.reportId = legacyReport.id;
+		await sql`UPDATE fantasy_recap_runs SET editorial_attempt = ${parseGenerationState(legacy)}`;
+		const before = await snapshot();
+		expect(await recordApprovedReport(legacyReport, token, sql)).toBe(true);
+		const after = await snapshot();
+		expect(after.history).toEqual(before.history);
+		expect(after.runs[0].row.editorial_attempt).toEqual(before.runs[0].row.editorial_attempt);
+		expect(after.runs[0].row.saved_report).toEqual(before.runs[0].row.saved_report);
+		expect(after.runs[0].row.final_text).toBe(before.runs[0].row.final_text);
+		expect(Object.hasOwn((await state()).generation.current, 'calendarProof')).toBe(false);
+	});
+
+	test('a proofless blocked attempt cannot be restarted or retrofitted even with the exact selector', async () => {
+		const ref = await claimGenerationAttempt(scope, window, token, null, sql);
+		expect(ref).not.toBeNull();
+		expect(await blockGenerationAttempt(ref!, token, 'legacy_held', sql)).toBe(true);
+		const before = await snapshot();
+		for (const source of [undefined, proof])
+			expect(await claimGenerationAttempt(scope, window, 'restart', null, sql, ref!.attemptId, source)).toBeNull();
+		expect(await snapshot()).toEqual(before);
+		expect((await state()).generation.prior).toEqual([]);
+	});
+
+	test('verified exact restart rejects a missing, changed or rebased proof and preserves the original audit after purge', async () => {
+		const old = await claim();
+		await writer(old);
+		expect(await blockGenerationAttempt(old, token, 'held', sql)).toBe(true);
+		await ageAttempts(31 * 24 * 60 * 60_000);
+		const before = await snapshot();
+		const prior = (await state()).generation.current;
+		const changed = structuredClone(proof);
+		changed.retrievedAtUtc = new Date(Date.parse(changed.retrievedAtUtc) + 1_000).toISOString();
+		const rebased = { ...window, startAtUtc: '2026-08-31T00:00:00.000Z' };
+		const rejected = [
+			[window, undefined],
+			[window, changed],
+			[rebased, reportingWindowFixture(rebased).source],
+		] as const;
+		for (const [bounds, source] of rejected)
+			expect(await claimGenerationAttempt(scope, bounds, 'restart', null, sql, old.attemptId, source)).toBeNull();
+		expect(await snapshot()).toEqual(before);
+		const reordered = Object.fromEntries(Object.entries(proof).reverse()) as typeof proof;
+		const next = await claimGenerationAttempt(scope, window, 'restart', null, sql, old.attemptId, reordered);
+		expect(next).not.toBeNull();
+		expect(next!.attemptId).not.toBe(old.attemptId);
+		expect((await state()).generation.current).toMatchObject({ window, calendarProof: proof });
+		expect((await state()).generation.prior).toEqual([prior]);
+		expect(await purgeGenerationDebug(sql)).toBe(1);
+		expect((await state()).generation.prior).toEqual([prior]);
+		expect((await state()).generation.current.calendarProof).toEqual(proof);
+		expect(await readGenerationDebug(old, sql)).toBeNull();
+	});
+
+	test.each([false, true])('unpaid source retry may replace its window/proof while retaining prior proof presence: %s', async (verifiedPrior) => {
+		const old = await claimGenerationAttempt(scope, window, token, null, sql, undefined, verifiedPrior ? proof : undefined);
+		expect(old).not.toBeNull();
+		expect(await blockGenerationAttempt(old!, token, 'source_unavailable', sql, true)).toBe(true);
+		const prior = (await state()).generation.current;
+		const bounds = { ...window, startAtUtc: '2026-08-31T00:00:00.000Z' };
+		const source = reportingWindowFixture(bounds).source;
+		const next = await claimGenerationAttempt(scope, bounds, 'retry', null, sql, undefined, source);
+		expect(next).not.toBeNull();
+		expect(next!.attemptId).not.toBe(old!.attemptId);
+		expect((await state()).generation.current).toMatchObject({ window: bounds, calendarProof: source });
+		expect((await state()).generation.prior).toEqual([prior]);
+		expect(Object.hasOwn((await state()).generation.prior[0], 'calendarProof')).toBe(verifiedPrior);
+		expect(await reserveGenerationCall(next!, 'retry', 'nfl', 1, sql)).not.toBeNull();
+	});
+
+	test.each(['season', 'week', 'window'] as const)('claim rejects calendar %s mismatch before persisting ownership', async (change) => {
+		const changedScope = { ...scope, season: scope.season + (change === 'season' ? 1 : 0), week: scope.week + (change === 'week' ? 1 : 0) };
+		const bounds = change === 'window' ? { ...window, startAtUtc: '2026-08-31T00:00:00.000Z' } : window;
+		expect(await claimGenerationAttempt(changedScope, bounds, token, null, sql, undefined, proof)).toBeNull();
+		expect((await snapshot()).runs).toEqual([]);
 	});
 
 	test('concurrent daily and manual initial entry produces one claim and one attempt', async () => {
@@ -494,7 +631,7 @@ describe.skipIf(!databaseUrl)('generation native PG gates (off live path, no mod
 		expect(await captureGenerationPacket(ref, token, structuredClone(packet), sql)).toBe(false);
 	});
 
-	test.each(['group', 'week', 'window', 'digest'] as const)('captured packet with mismatched %s cannot create evidence authority', async (change) => {
+	test.each(['group', 'week', 'window', 'digest', 'proof', 'proof-absent'] as const)('captured packet with mismatched %s cannot create evidence authority', async (change) => {
 		const ref = await claim();
 		const changed = {
 			...packet,
@@ -506,6 +643,11 @@ describe.skipIf(!databaseUrl)('generation native PG gates (off live path, no mod
 				chatWindow: change === 'window'
 					? Object.freeze({ ...window, startAtUtc: '2026-08-31T00:00:00.000Z' })
 					: packet.scope.chatWindow,
+				calendarProof: change === 'proof-absent'
+					? undefined
+					: change === 'proof'
+						? { ...proof, retrievedAtUtc: new Date(Date.parse(proof.retrievedAtUtc) + 1_000).toISOString() }
+						: packet.scope.calendarProof,
 			}),
 		};
 		changed.id = change === 'digest'
@@ -684,7 +826,7 @@ describe.skipIf(!databaseUrl)('generation native PG gates (off live path, no mod
 		const failed = faultSql(sql, query => query.startsWith('update fantasy_recap_runs'), mode);
 		const capture = createGenerationCapture(ref, token, failed.sql);
 		let nflDispatches = 0;
-		const collected = await collectRecapEvidence({ config: editorialFixtureConfig, week: scope.week, window }, {
+		const collected = await collectRecapEvidence({ config: editorialFixtureConfig, week: scope.week, window, calendarProof: proof }, {
 			now: editorialFixtureNow,
 			sleeper: editorialFixtureSleeper,
 			memory: {
@@ -989,6 +1131,7 @@ describe.skipIf(!databaseUrl)('generation native PG gates (off live path, no mod
 		expected.runs[0].row.editorial_attempt.debug = {};
 		expect(after).toEqual(expected);
 		expect((await state()).generation.current.window).toEqual(window);
+		expect((await state()).generation.current.calendarProof).toEqual(proof);
 		expect(await purgeGenerationDebug(sql)).toBe(0);
 		const found = await findGenerationReference(scope.leagueId, scope.week, scope.groupId, ref.attemptId, sql);
 		expect(found).toEqual(ref);

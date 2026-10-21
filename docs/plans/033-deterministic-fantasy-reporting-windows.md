@@ -1,6 +1,6 @@
 # 033: Deterministic Fantasy reporting windows
 
-**Status:** Step 1 implemented and verified; the Operator approved commit only and will push/deploy. Step 2 not started. The production recap cron remains Operator-paused.
+**Status:** Step 1 committed as `2fd4867`. Step 2 implemented and verified; the Operator approved commit only and owns push/deployment. The production recap cron remains Operator-paused.
 
 ## Goal and constraints
 
@@ -14,7 +14,7 @@ ESPN's calendar is a provider-defined period, not a final-whistle timestamp. Tue
 
 **Goal:** validate the source contract before production depends on it.
 
-**Critical files:** proposed `src/lib/fantasy/nfl-calendar.ts`, its tests and public-response fixtures. Do not change `daily.ts`, existing window selection, evidence admission, saved-report schemas or delivery.
+**Critical files:** `src/lib/fantasy/nfl-calendar.ts`, its tests and public-response fixtures. Do not change `daily.ts`, existing window selection, evidence admission, saved-report schemas or delivery.
 
 - Query the requested and adjacent ESPN calendar periods plus the requested week's ESPN scoreboard through fixed public HTTPS routes, bounded deadlines and no retries/redirects. No credentials or new dependency.
 - Validate source identity, season, phase, week, ordered dates and calendar adjacency. Preserve the provider's minute-resolution end explicitly; use the queried next start as the exclusive cutoff, never a guessed extra interval.
@@ -33,7 +33,7 @@ The actual reader was also exercised against anonymous public endpoints on both 
 
 These checks verify a local off-path reader and observed public contracts, not VPS/application deployment, historical provider revision timing, actual final-whistle timestamps or source-admission cutover. Existing production composition, schemas, report bytes and model/transport settings remain unchanged. The prior plan-032 sample's technical acceptance record is carried as documentation, explicitly noting that its coverage was rejected.
 
-**Approved commit:** `feat: validate queried NFL reporting calendar boundaries` (commit only; the Operator will push and deploy).
+**Commit:** `2fd4867` (`feat: validate queried NFL reporting calendar boundaries`), with commit-only approval. The Operator subsequently held deployment for Step 2.
 
 Step 1 commit approval does not authorize an assistant push or deployment. Step 2 remains a separate implementation/review/commit boundary.
 
@@ -53,6 +53,12 @@ Step 1 commit approval does not authorize an assistant push or deployment. Step 
 
 **Demo:** a separately authorized source-pinned Week 6 no-send run, preserving both existing private artifacts and retaining any new approved sample at a distinct private path. Show queried bounds, admitted source counts, exact approved parts and zero real sends. A failed application deployment is not repaired or certified merely by mounted-source execution.
 
-**Proposed commit:** `fix: enforce one queried fantasy reporting window across evidence`.
+**Implementation:** `chat-window.ts` now loads the requested Sleeper phase and queried calendar, with no moving-date fallback. The pipeline resolves it only for new work, stores optional non-defaulted proof on the existing attempt and frozen packet, and requires that proof before paid reservations/new approval. Historical proofless state remains readable without backfill or CAS changes, but proofless held restarts are denied before any calendar/paid work. Verified restarts retain original proof/bounds; changed coverage blocks. News/transaction admission precedes editorial catalog construction. The read-only CLI accepts `preview-candidate --week 6 [--nfl]` with no manual dates; paired dates only assert the query. It invokes the writer/editor, not Broadcaster.
 
-Stop for explicit commit approval. Paid/model preview, publication and cron resumption remain separate gates.
+**Verification result (2026-10-21 UTC):** full suite 1,476 passed, one Linux-only skip, zero failures (1,477 tests across 79 files; 13,998 assertions). Full typecheck, lint (zero errors, 334 line-length warnings), standard production Mastra/Studio Docker build, four infra tests and whitespace checks passed. Native disposable PostgreSQL and scripted model fixtures exercised persistence, exact saved retries, read-only previews, source filtering and restart holds. Four fresh read-only correctness/contracts/security/Ponytail reviews found one concrete integration defect: equivalent games in a different response order falsely blocked restart. It was reproduced first (60 passed/one failed), fixed by sorting copies only for comparison, and independently rechecked with no remaining findings. Original stored proof and packet bytes are never reordered or rewritten.
+
+No live model, paid NFL read, production DB/SSH access, report regeneration, real message, deployment or cron change occurred. Both retained Week 6 artifacts stay unchanged and held. Next acceptance is a separately authorized, corrected Week 6 editorial-only no-send preview after commit/deployment; previous protocol/voice acceptance does not approve the old coverage.
+
+**Approved commit:** `fix: enforce one queried fantasy reporting window across evidence` (commit only; push/deployment remain Operator-owned).
+
+The Operator approved this commit only. Paid/model preview, publication and cron resumption remain separate gates.

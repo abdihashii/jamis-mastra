@@ -1,5 +1,6 @@
 import type { ChatWindow } from './chat-archive';
 import type { GenerationAttemptRef, GenerationCall, GenerationCallKind, GenerationDebugOutput, GenerationState } from './generation-state';
+import type { NflCalendarProof } from './nfl-calendar';
 import type { RecapEvidencePacket } from './recap-evidence';
 import type { SqlLike } from './recaps';
 import type { RunStatus } from './runs';
@@ -10,6 +11,7 @@ import { buildEditorialCandidate } from './editorial';
 import { editorialReviewSchema } from './editorial-loop';
 import { FANTASY_EDITORIAL_LIMITS } from './editorial-policy';
 import { GENERATION_LIMITS, generationReference, initialGenerationState, parseGenerationState, purgeExpiredGenerationDebug, retainedGenerationDebug } from './generation-state';
+import { parseNflCalendarProof } from './nfl-calendar';
 import { hasNewerActiveRun, withFantasyLeagueLock } from './runs';
 import { buildSavedReport } from './saved-report';
 
@@ -129,6 +131,7 @@ export async function claimGenerationAttempt(
 	traceId: string | null,
 	sql: SqlLike,
 	expectedBlockedAttempt?: string,
+	calendarProof?: NflCalendarProof,
 ): Promise<GenerationAttemptRef | null> {
 	if (!token.trim())
 		return null;
@@ -139,7 +142,13 @@ export async function claimGenerationAttempt(
 			const [clock] = await tx`SELECT clock_timestamp() AS db_now` as { db_now: Date }[];
 			if (Date.parse(window.endAtUtc) > clock!.db_now.getTime())
 				return null;
-			const initial = initialGenerationState(scope, window, randomUUID(), clock!.db_now.toISOString());
+			const initial = initialGenerationState(
+				scope,
+				window,
+				randomUUID(),
+				clock!.db_now.toISOString(),
+				calendarProof,
+			);
 			const lease = new Date(clock!.db_now.getTime() + GENERATION_LIMITS.leaseMs).toISOString();
 			if (!expectedBlockedAttempt) {
 				const inserted = await tx`
@@ -177,6 +186,28 @@ export async function claimGenerationAttempt(
 						? before.generation.current.id !== expectedBlockedAttempt || before.generation.current.phase !== 'blocked'
 						: before.generation.current.phase !== 'source_retryable')) {
 					return null;
+				}
+				if (expectedBlockedAttempt) {
+					const previous = before.generation.current;
+					if (previous.calendarProof === undefined || initial.current.calendarProof === undefined
+						|| previous.window.startAtUtc !== initial.current.window.startAtUtc
+						|| previous.window.endAtUtc !== initial.current.window.endAtUtc) {
+						return null;
+					}
+					const priorProof = parseNflCalendarProof(
+						previous.calendarProof,
+						scope.season,
+						scope.week,
+						previous.window,
+					);
+					const nextProof = parseNflCalendarProof(
+						initial.current.calendarProof,
+						scope.season,
+						scope.week,
+						initial.current.window,
+					);
+					if (JSON.stringify(priorProof) !== JSON.stringify(nextProof))
+						return null;
 				}
 				initial.prior = [...before.generation.prior, before.generation.current];
 				initial.debug = { ...before.generation.debug, ...initial.debug };
@@ -250,8 +281,10 @@ export async function reserveGenerationCall(ref: GenerationAttemptRef, token: st
 	try {
 		const reserved = await withFantasyLeagueLock(ref.leagueId, sql, async (tx) => {
 			const before = await getGenerationRun(ref, tx);
-			if (!owned(before, ref, token) || await hasNewerActiveRun(ref.leagueId, ref.week, tx))
+			if (!owned(before, ref, token) || before.generation.current.calendarProof === undefined
+				|| await hasNewerActiveRun(ref.leagueId, ref.week, tx)) {
 				return null;
+			}
 			const next = structuredClone(before.generation);
 			const current = next.current;
 			const key = counter[kind];
@@ -442,9 +475,10 @@ function freeze<T>(value: T): T {
 /** Called under the same run lock by approved storage, not a model-authored approval flag. */
 export function generationApprovalState(before: GenerationRunState, report: SavedReport): GenerationState | null {
 	try {
-		const meta = before.generation.current;
-		const bundle = before.generation.debug[meta.id];
-		if (!before.leaseCurrent || before.status !== 'started' || before.publicationExists || meta.phase !== 'editorial'
+		const next = parseGenerationState(before.generation);
+		const meta = next.current;
+		const bundle = next.debug[meta.id];
+		if (meta.calendarProof === undefined || !before.leaseCurrent || before.status !== 'started' || before.publicationExists || meta.phase !== 'editorial'
 			|| before.nowUtc >= meta.workDeadlineAtUtc || !meta.editorialDeadlineAtUtc || before.nowUtc >= meta.editorialDeadlineAtUtc
 			|| !sameScope(meta.scope, report.scope) || meta.evidenceId !== report.evidenceId || meta.candidateId !== report.candidateId
 			|| !bundle?.packetJson || meta.calls.some(call => lateCall(call) || (call.kind !== 'nfl' && call.state !== 'completed'))) {
@@ -462,7 +496,6 @@ export function generationApprovalState(before: GenerationRunState, report: Save
 		const expected = buildSavedReport(packet, { status: 'approved', evidenceId: packet.id, candidate: built.candidate, review, counts: { drafts: meta.counts.drafts, reviews: meta.counts.reviews } });
 		if (JSON.stringify(expected) !== JSON.stringify(report))
 			return null;
-		const next = structuredClone(before.generation);
 		next.current.phase = 'approved';
 		next.current.reportId = report.id;
 		next.current.reasonCode = null;
