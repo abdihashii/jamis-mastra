@@ -1,26 +1,14 @@
 import type { FantasyConfig } from '../src/lib/fantasy/config';
-import type { ChatContextMessage, RecapGenerator } from '../src/lib/fantasy/generate';
 import type { RecapGenerationRecord } from '../src/lib/fantasy/recaps';
 import type { SavedReportRecoveryRequest } from '../src/lib/fantasy/saved-report-recovery';
 import type { SleeperManager } from '../src/lib/fantasy/sleeper';
 
 import type { WeekFacts } from '../src/lib/fantasy/week-facts';
 import { SQL } from 'bun';
-import { readFile } from 'node:fs/promises';
 import process from 'node:process';
-import { PostgresStore } from '@mastra/pg';
 import { z } from 'zod';
 import { parseFantasyConfig } from '../src/lib/fantasy/config';
-import {
-	buildRecapPrompt,
-	DEFAULT_RECAP_MODEL,
-	FANTASY_GENERATOR_VERSION,
-	generateWithRepair,
-	recapShapingSchema,
-	ShapingValidationError,
-	toChatContext,
-} from '../src/lib/fantasy/generate';
-import { RECAP_MAX_LENGTH, renderResult, renderWeekRecap } from '../src/lib/fantasy/render';
+import { renderResult } from '../src/lib/fantasy/render';
 import { parseSavedReportRecovery, runSavedReportRecovery, unavailableSavedReportRecovery } from '../src/lib/fantasy/saved-report-recovery';
 import {
 	championshipWeek,
@@ -42,8 +30,9 @@ const usage = [
 	'  evidence --week <number> --since <UTC instant> --until <UTC instant> [--nfl]   frozen read-only evidence, no model/send',
 	'    --nfl explicitly enables one free catalogue and up to three reads quoted at 5 credits each.',
 	'  preview-candidate --week <number> --since <UTC instant> --until <UTC instant> [--nfl]   Astra writer/reviewer, never send',
-	'  preview --week <number> [--chat <file.json>] [--allow-incomplete]   generate, never send',
-	'  run                                            normal daily job: newest completed week only',
+	'  preview --week <number> --since <UTC instant> --until <UTC instant> [--nfl]   alias of preview-candidate',
+	'  run                                            normal daily job: newest completed week only, no flags',
+	'  restart --week <1..22> --attempt-id <UUID>       restart the exact blocked generation attempt',
 	'  debug-export --week <1..22> --attempt-id <UUID>   private 0600 debug file, never stdout payloads',
 	'  retry --week <number> [--operator-verified-absent]   legacy saved message only',
 	'  confirm-sent --week <number>                   legacy operator-observed message',
@@ -53,9 +42,88 @@ const usage = [
 ].join('\n');
 
 async function main() {
-	const [command, ...flags] = process.argv.slice(2);
-	if (!command || !['inspect', 'evidence', 'preview-candidate', 'preview', 'run', 'retry', 'confirm-sent', 'debug-export'].includes(command))
+	const [requestedCommand, ...flags] = process.argv.slice(2);
+	const command = requestedCommand === 'preview' ? 'preview-candidate' : requestedCommand;
+	if (!command || !['inspect', 'evidence', 'preview-candidate', 'run', 'restart', 'retry', 'confirm-sent', 'debug-export'].includes(command))
 		fail(usage, 1);
+
+	if (command === 'run' || command === 'restart') {
+		let restart: { week: number; attemptId: string } | undefined;
+		if (command === 'run' && flags.length > 0)
+			fail('Invalid run arguments.', 1);
+		if (command === 'restart') {
+			const values = new Map<string, string>();
+			for (let i = 0; i < flags.length; i += 2) {
+				if (!['--week', '--attempt-id'].includes(flags[i]) || values.has(flags[i]) || !flags[i + 1])
+					fail('Invalid restart arguments.', 1);
+				values.set(flags[i], flags[i + 1]);
+			}
+			if (values.size !== 2 || !/^(?:[1-9]|1\d|2[0-2])$/.test(values.get('--week') ?? '')
+				|| !z.uuid().safeParse(values.get('--attempt-id')).success) {
+				fail('Invalid restart arguments.', 1);
+			}
+			restart = { week: Number(values.get('--week')), attemptId: values.get('--attempt-id')! };
+		}
+		let result: {
+			outcome: string;
+			week: number | null;
+			reason?: string;
+			attemptId?: string;
+			reportId?: string;
+			counts?: { nfl: number; drafts: number; reviews: number };
+		} = { outcome: 'error', week: restart?.week ?? null, reason: 'recap_run_unavailable' };
+		let client: SQL | undefined;
+		try {
+			const config = parseFantasyConfig(process.env, () => {});
+			const databaseUrl = process.env.DATABASE_URL;
+			if (!config || !databaseUrl || !['postgres:', 'postgresql:'].includes(new URL(databaseUrl).protocol))
+				throw new Error('recap_run_unavailable');
+			client = new SQL(databaseUrl, { connectionTimeout: 5, connection: { statement_timeout: '15s', lock_timeout: '5s' } });
+			const [{ Mastra }, { noopLogger }, { openAICodexGateway }, { runDailyRecap }] = await Promise.all([
+				import('@mastra/core/mastra'),
+				import('@mastra/core/logger'),
+				import('../src/mastra/gateways/openai-codex-gateway.js'),
+				import('../src/lib/fantasy/daily'),
+			]);
+			const parent = new Mastra({ logger: noopLogger, gateways: { 'openai-codex': openAICodexGateway } });
+			const completed: typeof result = await runDailyRecap(config, parent, {
+				sql: client,
+				databaseUrl,
+				...(restart ? { restart } : {}),
+			});
+			const { outcome, week, reason, attemptId, reportId, counts } = completed;
+			result = {
+				outcome,
+				week,
+				reason,
+				attemptId,
+				reportId,
+				counts: counts ? { nfl: counts.nfl, drafts: counts.drafts, reviews: counts.reviews } : undefined,
+			};
+		} catch { /* No source errors, credentials or raw provider data reach the CLI receipt. */ } finally {
+			try {
+				await client?.close();
+			} catch { /* Cleanup cannot erase an authoritative receipt. */ }
+		}
+		console.log(JSON.stringify(result));
+		if (['failed', 'delivery_unknown', 'error'].includes(result.outcome) || result.outcome.startsWith('blocked'))
+			process.exitCode = 1;
+		return;
+	}
+
+	if (command === 'preview-candidate') {
+		const seen = new Set<string>();
+		for (let i = 0; i < flags.length; i++) {
+			const flag = flags[i];
+			if (seen.has(flag) || !['--week', '--since', '--until', '--nfl'].includes(flag))
+				fail(usage, 1);
+			seen.add(flag);
+			if (flag !== '--nfl' && (!flags[++i] || flags[i].startsWith('--')))
+				fail(usage, 1);
+		}
+		if (!['--week', '--since', '--until'].every(flag => seen.has(flag)))
+			fail(usage, 1);
+	}
 
 	if (command === 'debug-export') {
 		const values = new Map<string, string>();
@@ -158,17 +226,6 @@ async function main() {
 	// Debug flag: bypasses the completed-week gate to preview mid-week facts.
 	const allowIncomplete = flags.includes('--allow-incomplete');
 
-	if (command === 'run') {
-		// Same flow the scheduled workflow runs; the local shim only adds gateways/storage.
-		const { runDailyRecap } = await import('../src/lib/fantasy/daily');
-		const shim = await cliMastra(DEFAULT_RECAP_MODEL, new PostgresStore({ id: 'fantasy-cli-storage', connectionString: process.env.DATABASE_URL! }));
-		const result = await runDailyRecap(config, shim);
-		console.log(`run: ${result.outcome}${result.week != null ? ` (week ${result.week})` : ''}`);
-		if (result.outcome === 'failed' || result.outcome === 'delivery_unknown' || result.outcome === 'error')
-			process.exitCode = 1;
-		return;
-	}
-
 	const weekFlag = flags.indexOf('--week');
 	const week = Number(flags[weekFlag + 1]);
 	if (weekFlag === -1 || !Number.isInteger(week))
@@ -194,17 +251,6 @@ async function main() {
 	}
 
 	if (command === 'evidence' || command === 'preview-candidate') {
-		if (command === 'preview-candidate') {
-			const seen = new Set<string>();
-			for (let i = 0; i < flags.length; i++) {
-				const flag = flags[i];
-				if (seen.has(flag) || !['--week', '--since', '--until', '--nfl'].includes(flag))
-					fail(usage, 1);
-				seen.add(flag);
-				if (flag !== '--nfl' && (!flags[++i] || flags[i].startsWith('--')))
-					fail(usage, 1);
-			}
-		}
 		const since = flags.indexOf('--since');
 		const until = flags.indexOf('--until');
 		if (since < 0 || until < 0 || !flags[since + 1] || !flags[until + 1])
@@ -279,136 +325,7 @@ async function main() {
 	}
 
 	const facts = await factsFor(config, league, managers, bracket, week);
-	if (command === 'inspect') {
-		print(facts, !completed);
-		return;
-	}
-
-	const model = DEFAULT_RECAP_MODEL;
-
-	const chatFlag = flags.indexOf('--chat');
-	const chatPath = chatFlag >= 0 ? flags[chatFlag + 1] : undefined;
-	if (chatFlag >= 0 && (!chatPath || chatPath.startsWith('--')))
-		fail(usage, 1);
-	const previewSql = chatPath ? null : new SQL(readOnlyDatabaseUrl());
-	const before = previewSql ? await recapRowCounts(previewSql, config.sleeperLeagueId) : null;
-	const context = chatPath
-		? await loadChatFixture(chatPath, managers)
-		: toChatContext(await readThreadMessages(config.sendblueGroupId), config, managers);
-
-	const shaping = await generateWithRepair(await shapingGenerator(model), facts, context);
-	const text = renderWeekRecap(facts, shaping, context);
-	const after = previewSql ? await recapRowCounts(previewSql, config.sleeperLeagueId) : null;
-	if (before && after && (before.generations !== after.generations || before.runs !== after.runs))
-		throw new Error('Preview changed fantasy recap row counts');
-
-	console.log(text);
-	const callbacks = shaping.editorial.flatMap(story => story.sentences).filter(sentence => sentence.callbackMessageId != null).length;
-	console.log(`\n(${FANTASY_GENERATOR_VERSION} / ${model}: ${text.length}/${RECAP_MAX_LENGTH} chars, ${callbacks} callbacks)`);
-	console.log(chatSummary(context));
-	if (before)
-		console.log(`Database rows unchanged: ${before.generations} generations, ${before.runs} runs.`);
-}
-
-interface ChatFixtureEntry {
-	id: string;
-	senderNumber: string;
-	text: string;
-	createdAt: string;
-}
-
-/** Debug helper: load a synthetic banter file so voice tests use shared chat input. */
-async function loadChatFixture(path: string, managers: SleeperManager[]) {
-	let raw: string;
-	try {
-		raw = await readFile(path, 'utf8');
-	} catch {
-		throw new SleeperDataError(`--chat file is unreadable: ${path}`);
-	}
-	let entries: ChatFixtureEntry[];
-	try {
-		entries = JSON.parse(raw) as ChatFixtureEntry[];
-	} catch {
-		throw new SleeperDataError(`--chat file is not valid JSON: ${path}`);
-	}
-	const displayNameByUserId = new Map(managers.map(m => [m.userId, m.displayName]));
-	const config = parseFantasyConfig();
-	const context = entries.flatMap((entry): ChatContextMessage[] => {
-		const sender = config && displayNameByUserId.get(config.managerMap[entry.senderNumber]);
-		const timestamp = Date.parse(entry.createdAt);
-		if (!Number.isFinite(timestamp) || !/(?:Z|[+-]\d{2}:\d{2})$/i.test(entry.createdAt))
-			throw new SleeperDataError(`--chat entry ${entry.id} has an invalid createdAt`);
-		return sender ? [{ id: entry.id, text: entry.text, sender, createdAt: new Date(timestamp).toISOString() }] : [];
-	});
-	return context.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-}
-
-/** Reads the archived fantasy thread newest-first. Preview failures stay visible. */
-async function readThreadMessages(groupId: string, since?: Date) {
-	try {
-		const store = await new PostgresStore({
-			id: 'fantasy-preview-storage',
-			connectionString: readOnlyDatabaseUrl(),
-			disableInit: true,
-		}).getStore('memory');
-		if (!store)
-			throw new Error('no memory store');
-		const { messages } = await store.listMessages({
-			threadId: `fantasy-group-${groupId}`,
-			perPage: 200,
-			filter: since ? { dateRange: { start: since, startExclusive: true } } : undefined,
-			orderBy: { field: 'createdAt', direction: 'DESC' },
-		});
-		return messages;
-	} catch {
-		throw new Error('Archived chat could not be read in preview mode');
-	}
-}
-
-function readOnlyDatabaseUrl(): string {
-	const value = process.env.DATABASE_URL;
-	if (!value)
-		throw new Error('DATABASE_URL is required for archived-chat preview');
-	const url = new URL(value);
-	const setting = '-c default_transaction_read_only=on';
-	const options = url.searchParams.get('options');
-	url.searchParams.set('options', options ? `${options} ${setting}` : setting);
-	return url.toString();
-}
-
-async function recapRowCounts(sql: SQL, leagueId: string): Promise<{ generations: number; runs: number }> {
-	const [setting] = await sql`SHOW default_transaction_read_only` as Array<{ default_transaction_read_only: string }>;
-	if (setting?.default_transaction_read_only !== 'on')
-		throw new Error('Preview database connection is not read-only');
-	const [row] = await sql`
-		SELECT
-			(
-				SELECT
-					count(*)::int
-				FROM
-					fantasy_recap_generations
-				WHERE
-					league_id = ${leagueId}
-			) AS generations,
-			(
-				SELECT
-					count(*)::int
-				FROM
-					fantasy_recap_runs
-				WHERE
-					league_id = ${leagueId}
-			) AS runs
-	` as Array<{ generations: number; runs: number }>;
-	if (!row)
-		throw new Error('Preview database row counts unavailable');
-	return row;
-}
-
-function chatSummary(context: ChatContextMessage[]): string {
-	if (context.length === 0)
-		return 'Archived chat: 0 mapped messages.';
-	const timestamps = context.map(message => message.createdAt).sort();
-	return `Archived chat: ${context.length} mapped messages, ${timestamps[0]} to ${timestamps.at(-1)} UTC.`;
+	print(facts, !completed);
 }
 
 /** All week-N matchup rows + (regular season) week N+1 for the upcoming slate. */
@@ -436,34 +353,6 @@ async function factsFor(
 	return buildWeekFacts({ league, week, managers, bracket, scoresByWeek, nextWeekScores, players });
 }
 
-/** Structured-output generation for one model id; the one call shape both run and preview share. */
-async function shapingGenerator(model: string): Promise<RecapGenerator> {
-	const mastra = await cliMastra(model);
-	return async (facts, context, correction) => {
-		const result = await mastra.getAgent('fantasy-football-pundit').generate(buildRecapPrompt(facts, context, correction), {
-			structuredOutput: { schema: recapShapingSchema },
-			tracingOptions: { hideInput: true, hideOutput: true },
-		});
-		if (!result.object)
-			throw new ShapingValidationError('the model returned no structured recap output');
-		return result.object;
-	};
-}
-
-async function cliMastra(model: string, storage?: PostgresStore) {
-	// Evidence/inspection must not initialize model or operational delivery composition.
-	const [{ Mastra }, { createFantasyFootballPundit }, { openAICodexGateway }] = await Promise.all([
-		import('@mastra/core/mastra'),
-		import('../src/mastra/agents/fantasy-football-pundit'),
-		import('../src/mastra/gateways/openai-codex-gateway.js'),
-	]);
-	return new Mastra({
-		gateways: { 'openai-codex': openAICodexGateway },
-		agents: { 'fantasy-football-pundit': createFantasyFootballPundit(model) },
-		...(storage ? { storage } : {}),
-	});
-}
-
 async function coordinatorDeps(config: FantasyConfig) {
 	// Dynamic imports: inspect/evidence/preview must not load operational send/storage owners.
 	const { sendblueSendClient } = await import('../src/lib/fantasy/deliver');
@@ -475,7 +364,8 @@ async function coordinatorDeps(config: FantasyConfig) {
 		recaps: { ensureSchema: () => ensureFantasyRecapsTable(sql), record: (record: RecapGenerationRecord, claimToken: string) => recordClaimedGeneration(record, claimToken, sql) },
 		groupId: config.sendblueGroupId,
 		leagueId: config.sleeperLeagueId,
-		readThreadMessages: (since?: Date) => readThreadMessages(config.sendblueGroupId, since),
+		// Legacy recovery sends only saved bytes; it never reads chat or regenerates.
+		readThreadMessages: async () => [],
 		send: sendblueSendClient,
 		now: () => new Date(),
 	};
@@ -535,7 +425,7 @@ function fail(message: string, code: number): never {
 }
 
 main().catch((error) => {
-	if (error instanceof SleeperDataError || error instanceof ShapingValidationError)
+	if (error instanceof SleeperDataError)
 		fail(error.message, 1);
 	throw error;
 });

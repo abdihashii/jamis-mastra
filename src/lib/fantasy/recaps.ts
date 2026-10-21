@@ -25,7 +25,10 @@ export interface SqlLike {
 let cachedSql: SQL | null = null;
 
 export function getFantasySql(): SQL {
-	cachedSql ??= new SQL(process.env.DATABASE_URL ?? 'postgres://localhost:5432/mastra');
+	cachedSql ??= new SQL(process.env.DATABASE_URL ?? 'postgres://localhost:5432/mastra', {
+		connectionTimeout: 5,
+		connection: { statement_timeout: '15s', lock_timeout: '5s' },
+	});
 	return cachedSql;
 }
 

@@ -35,7 +35,7 @@ describe('runDailyRecap', () => {
 		try {
 			const outcome = await runDailyRecap(config, {} as Mastra, { send });
 			if (outcome.outcome === 'error')
-				expect(outcome.error).toContain('responded 500');
+				expect(outcome.error).toBe('recap_scope_unavailable');
 			else
 				throw new Error(`expected error outcome, got ${outcome.outcome}`);
 			expect(outcome.week).toBeNull();

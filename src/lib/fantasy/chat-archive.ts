@@ -13,7 +13,9 @@ export const chatWindowSchema = z.object({ startAtUtc: instant, endAtUtc: instan
 export type ChatWindow = z.infer<typeof chatWindowSchema>;
 
 export function isPriorRecap(text: string): boolean {
-	return RECAP_AWARD_HEADINGS.every(heading => heading.test(text));
+	// Canonical renderer headers cover later parts without award headings, not header-only chatter.
+	return /(?:^|\n)Week (?:[1-9]|1\d|2[0-2]) Recap(?: \((?:[12]\/2|[123]\/3)\))?\n\n\s*\S/u.test(text)
+		|| RECAP_AWARD_HEADINGS.every(heading => heading.test(text));
 }
 
 export interface ChatSource {

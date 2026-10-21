@@ -54,6 +54,7 @@ const protectedRootEntityIds = [
 	'fantasy-agent',
 	'fantasy-football-pundit',
 	'fantasy-football-editor',
+	'fantasy-debug-maintenance',
 	'invoke_fantasy_pundit',
 	'invoke_fantasy_editor',
 	'prepare_fantasy_recap',

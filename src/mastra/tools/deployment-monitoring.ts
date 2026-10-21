@@ -6,6 +6,7 @@ import type { readFullDeploymentEvidence } from './deployment-evidence';
 import { SpanType } from '@mastra/core/observability';
 import { TraceStatus } from '@mastra/core/storage';
 import { z } from 'zod';
+import { fantasyGenerationSummarySchema } from '../../lib/fantasy/runs';
 
 const subject = z.enum(['operator_conversation', 'fantasy_recaps', 'host', 'docker', 'app', 'postgres', 'clickhouse', 'cloudflare_tunnel', 'tailscale']);
 const boundary = z.enum(['current', 'current_instance', 'current_and_recent_5m', 'recent_history', 'configured_fantasy_season']);
@@ -61,22 +62,30 @@ export const deploymentMonitoringGapSchema = z.enum([
 	'no_fantasy_runs',
 ]);
 const utc = z.iso.datetime({ offset: true });
+export const fantasyWorkflowOutputRefsSchema = z.object({
+	attemptId: fantasyGenerationSummarySchema.shape.attemptId.optional(),
+	reportId: fantasyGenerationSummarySchema.shape.reportId.unwrap().optional(),
+	reason: fantasyGenerationSummarySchema.shape.reasonCode.unwrap().optional(),
+	counts: fantasyGenerationSummarySchema.shape.counts.optional(),
+}).strict();
 const item = z.object({
+	generationSummary: fantasyGenerationSummarySchema.optional(),
+	outputRefs: fantasyWorkflowOutputRefsSchema.optional(),
 	subject,
 	fact,
 	boundary,
 	at: utc.optional(),
-	week: z.number().int().min(1).max(18).optional(),
+	week: z.number().int().min(1).max(22).optional(),
 	container: z.enum(['app', 'postgres', 'clickhouse', 'cloudflared']).optional(),
 }).strict();
 const unknown = z.object({ subject, gap: deploymentMonitoringGapSchema, boundary, container: z.enum(['app', 'postgres', 'clickhouse', 'cloudflared']).optional() }).strict();
 export const deploymentFindingSelectorSchema = item.pick({ subject: true, fact: true, at: true, week: true, container: true }).partial().strict();
 const counts = z.object({
-	sent: z.number().int().min(0).max(18),
-	failed: z.number().int().min(0).max(18),
-	deliveryUnknown: z.number().int().min(0).max(18),
-	active: z.number().int().min(0).max(18),
-	expiredActive: z.number().int().min(0).max(18),
+	sent: z.number().int().min(0).max(22),
+	failed: z.number().int().min(0).max(22),
+	deliveryUnknown: z.number().int().min(0).max(22),
+	active: z.number().int().min(0).max(22),
+	expiredActive: z.number().int().min(0).max(22),
 }).strict();
 
 export const deploymentMonitoringOutputSchema = z.object({
@@ -243,9 +252,11 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 	const snapshotFindings: DeploymentSnapshotFinding[] = [];
 	const operatingNormally: Item[] = [];
 	const unknowns: Unknown[] = [];
-	const add = (target: Item[], subject: Item['subject'], fact: Item['fact'], boundary: Item['boundary'], at?: Date | string, week?: number, container?: Item['container'], detail: Omit<DeploymentSnapshotFinding, 'item'> = {}) => {
+	const add = (target: Item[], subject: Item['subject'], fact: Item['fact'], boundary: Item['boundary'], at?: Date | string, week?: number, container?: Item['container'], detail: Omit<DeploymentSnapshotFinding, 'item'> = {}, metadata: Pick<Item, 'generationSummary' | 'outputRefs'> = {}) => {
 		const timestamp = at instanceof Date ? at : at ? new Date(at) : undefined;
-		const item: Item = { subject, fact, boundary, ...(timestamp && Number.isFinite(timestamp.getTime()) ? { at: timestamp.toISOString() } : {}), ...(week ? { week } : {}), ...(container ? { container } : {}) };
+		const generationSummary = fantasyGenerationSummarySchema.safeParse(metadata.generationSummary);
+		const outputRefs = fantasyWorkflowOutputRefsSchema.safeParse(metadata.outputRefs);
+		const item: Item = { subject, fact, boundary, ...(timestamp && Number.isFinite(timestamp.getTime()) ? { at: timestamp.toISOString() } : {}), ...(week ? { week } : {}), ...(container ? { container } : {}), ...(generationSummary.success ? { generationSummary: generationSummary.data } : {}), ...(outputRefs.success ? { outputRefs: outputRefs.data } : {}) };
 		target.push(item);
 		if (target === needsAttention)
 			snapshotFindings.push({ item, ...detail });
@@ -334,30 +345,30 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 	missing('operator_conversation', 'handset_delivery_unverified', 'recent_history');
 
 	let fantasyCounts: DeploymentMonitoringSummary['serviceOutcomes'][1]['counts'] = null;
-	if (fantasyRuns && fantasyRuns.length <= 18 && new Set(fantasyRuns.map(run => run.fantasyWeek)).size === fantasyRuns.length
-		&& fantasyRuns.every(run => Number.isInteger(run.fantasyWeek) && run.fantasyWeek >= 1 && run.fantasyWeek <= 18
+	if (fantasyRuns && fantasyRuns.length <= 22 && new Set(fantasyRuns.map(run => run.fantasyWeek)).size === fantasyRuns.length
+		&& fantasyRuns.every(run => Number.isInteger(run.fantasyWeek) && run.fantasyWeek >= 1 && run.fantasyWeek <= 22
 			&& run.updatedAt instanceof Date && Number.isFinite(run.updatedAt.getTime())
 			&& ['sent', 'failed', 'delivery_unknown', 'started'].includes(run.status))) {
 		fantasyCounts = { sent: 0, failed: 0, deliveryUnknown: 0, active: 0, expiredActive: 0 };
 		for (const run of fantasyRuns) {
 			if (run.status === 'sent') {
 				fantasyCounts.sent++;
-				add(operatingNormally, 'fantasy_recaps', 'recap_sent', 'configured_fantasy_season', run.sentAt ?? run.updatedAt, run.fantasyWeek);
+				add(operatingNormally, 'fantasy_recaps', 'recap_sent', 'configured_fantasy_season', run.sentAt ?? run.updatedAt, run.fantasyWeek, undefined, {}, run);
 			} else if (run.status === 'failed') {
 				fantasyCounts.failed++;
 				add(needsAttention, 'fantasy_recaps', 'recap_failed', 'configured_fantasy_season', run.updatedAt, run.fantasyWeek, undefined, {
 					fantasyStage: snapshotFantasyStage.safeParse(run.failureStage).data ?? 'unknown',
 					fantasyClassification: snapshotFantasyClassification.safeParse(run.failureClassification).data ?? 'unknown',
-				});
+				}, run);
 			} else if (run.status === 'delivery_unknown') {
 				fantasyCounts.deliveryUnknown++;
 				add(needsAttention, 'fantasy_recaps', 'recap_delivery_unknown', 'configured_fantasy_season', run.updatedAt, run.fantasyWeek, undefined, {
 					fantasyStage: snapshotFantasyStage.safeParse(run.failureStage).data ?? 'unknown',
 					fantasyClassification: snapshotFantasyClassification.safeParse(run.failureClassification).data ?? 'unknown',
-				});
+				}, run);
 			} else if (run.status === 'started' && run.leaseExpiresAt instanceof Date && run.leaseExpiresAt.getTime() < nowMs) {
 				fantasyCounts.expiredActive++;
-				add(needsAttention, 'fantasy_recaps', 'recap_expired_active', 'configured_fantasy_season', run.leaseExpiresAt, run.fantasyWeek);
+				add(needsAttention, 'fantasy_recaps', 'recap_expired_active', 'configured_fantasy_season', run.leaseExpiresAt, run.fantasyWeek, undefined, {}, run);
 			} else if (run.status === 'started') {
 				fantasyCounts.active++;
 			}
@@ -390,16 +401,28 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 							'delivery_unknown',
 							'blocked-active-claim',
 							'blocked-delivery-unknown',
-						]) }) }),
+						]) }).passthrough() }),
 					}).safeParse(snapshot);
 					if (!parsed.success)
 						continue;
 					observed = true;
-					const outcome = parsed.data.result.output.outcome;
-					if (outcome === 'noop-already-sent' || outcome === 'noop-no-completed-week')
-						noop = true;
-					if (outcome === 'error')
-						add(needsAttention, 'fantasy_recaps', 'recap_execution_failed', 'recent_history', run.updatedAt);
+					const output = parsed.data.result.output;
+					const week = z.number().int().min(1).max(22).safeParse(output.week).data;
+					const refs = fantasyWorkflowOutputRefsSchema.strip().safeParse(output);
+					// These source-owned references explain an outcome; they never authorize publication.
+					const metadata = refs.success && Object.keys(refs.data).length ? { outputRefs: refs.data } : {};
+					if (output.outcome === 'noop-already-sent' || output.outcome === 'noop-no-completed-week') {
+						if (metadata.outputRefs)
+							add(operatingNormally, 'fantasy_recaps', 'recap_noop', 'recent_history', run.updatedAt, week, undefined, {}, metadata);
+						else
+							noop = true;
+					}
+					if (output.outcome === 'error' || (output.outcome === 'failed' && metadata.outputRefs))
+						add(needsAttention, 'fantasy_recaps', 'recap_execution_failed', 'recent_history', run.updatedAt, week, undefined, {}, metadata);
+					if (output.outcome === 'sent' && metadata.outputRefs)
+						add(operatingNormally, 'fantasy_recaps', 'recap_sent', 'recent_history', run.updatedAt, week, undefined, {}, metadata);
+					if ((output.outcome === 'delivery_unknown' || output.outcome === 'blocked-delivery-unknown') && metadata.outputRefs)
+						add(needsAttention, 'fantasy_recaps', 'recap_delivery_unknown', 'recent_history', run.updatedAt, week, undefined, {}, metadata);
 				} catch { /* malformed stored output does not hide another run */ }
 			}
 			if (noop)

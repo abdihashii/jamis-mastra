@@ -12,8 +12,13 @@ const outcomeSchema = z.object({
 		z.enum(['skipped-unconfigured', 'error']),
 	]),
 	week: z.number().nullable(),
-	error: z.string().optional(),
-});
+	error: z.string().regex(/^[a-z][a-z0-9_:.-]{0,99}$/).optional(),
+	reason: z.string().regex(/^[a-z][a-z0-9_:.-]{0,99}$/).optional(),
+	generatorVersion: z.literal('fantasy-recap-v13').optional(),
+	attemptId: z.uuid().optional(),
+	reportId: z.string().regex(/^report-[a-f0-9]{64}$/).optional(),
+	counts: z.object({ nfl: z.number().int().min(0).max(3), drafts: z.number().int().min(0).max(3), reviews: z.number().int().min(0).max(3) }).strict().optional(),
+}).strict();
 
 const weeklyRecapStep = createStep({
 	id: 'weekly-recap',

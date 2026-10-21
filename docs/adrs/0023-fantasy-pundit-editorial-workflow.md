@@ -1,8 +1,8 @@
 # Fantasy Football Pundit and the editorial recap workflow
 
-Status: accepted architectural decisions for documentation. Not implemented or runtime-verified. The Operator authorized this ADR and [plan 032](../plans/032-fantasy-pundit-editorial-workflow.md), not implementation, provider calls, database operations, publication, or deployment. Open implementation gates below remain open.
+Status: accepted and implemented through the Stage 6.2 cutover, with final commit/deployment and integrated live acceptance separately gated in [plan 032](../plans/032-fantasy-pundit-editorial-workflow.md). That plan records the resolved implementation policies, native fixture verification and earlier deployed no-send acceptance. This ADR grants no publication or cron-resumption authority; the production recap cron remains Operator-paused. Historical context and the original gate list below explain the decision, not current unresolved implementation status.
 
-## Context
+## Historical context at decision time
 
 Fantasy already has a Mastra agent, not just deterministic functions. `src/fantasy/generate.ts` constructs `fantasy-agent`; `src/mastra/index.ts` registers it as `fantasy`, without channels. The scheduled workflow calls `daily.ts` and `coordinator.ts`. Code selects high-score, low-score and closest-matchup awards; the agent supplies limited structured story prose. `week-facts.ts` also produces standings and retrospective player/bench comparisons. Those comparisons alone do not prove a manager made a bad decision with the information available before kickoff.
 

@@ -1,6 +1,6 @@
 # 032: Fantasy Football Pundit editorial workflow
 
-Status: **Stages 1–5 complete and Operator-confirmed deployed. The 5.2 real-data preview and exact-artifact Luna/max mocked-send smoke passed. Stage 6.1 is implemented and verified; the Operator approved commit only and will push/deploy. Stage 6.2 is pending; the production recap cron remains Operator-paused.**
+Status: **Stages 1–5 and slice 6.1 complete and Operator-confirmed deployed. The isolated Stage 6.1 generation/capture/export smoke passed. Stage 6.2 is implemented and verified; the Operator approved commit only and will push/deploy. The production recap cron remains Operator-paused.**
 
 **Operational pause:** the Operator reports the production recap cron is paused while this work continues. No trigger was inspected or changed by this implementation. Keep it paused until separate explicit Operator approval; commit, push, deployment and preview success do not authorize resumption.
 
@@ -12,9 +12,9 @@ Implement ADR 0023's internal, channel-less **Fantasy Football Pundit** by movin
 
 Initial Broadcaster delivery to the configured Sendblue group is in scope, not deferred. Power rankings content, cross-channel destinations, renaming/consolidating the Operator drafter, new webhooks, persistent Pundit memory, generic task/node frameworks, extra effect ledgers, per-award agents and speculative dependencies/services are not. Preserve the one-off Operator draft/confirmation flow and existing once-per-week delivery owner. ADR 0023 owns policy and rationale; this plan owns sequencing and verification.
 
-## Existing state, checked against current code
+## Historical baseline before Stage 1
 
-| Boundary | Current behavior and consequence |
+| Boundary | Baseline behavior and consequence |
 | --- | --- |
 | `src/fantasy/generate.ts` | Already defines `createFantasyAgent`, runtime ID `fantasy-agent`, generator v10, model `openai-codex/gpt-6.1-sol` with `xhigh`. Its structured output contains stories only. Evolve this Agent rather than adding a competing writer. |
 | `src/mastra/index.ts` | Registers it under `fantasy`; no channels are attached, but it is a registered root. New internal composition must deliberately remove that root at cutover, not equate channel-less with API-private. |
@@ -346,7 +346,7 @@ The two slices above are independent commit/review boundaries on the existing fe
 
 ### 6. Activate one validated pipeline and close repository acceptance
 
-**Status: boundary inspection and staged planning complete; slice 6.1 implemented, verified and Operator-approved for commit only. Slice 6.2 is pending.** The Operator approved a fixed 45-minute reservation, full private debug bundles for 30 days, explicit private CLI export and an explicit blocked-attempt manual restart. These policy choices alone do not authorize publication or cron resumption. The separate commit-only approval below leaves push and deployment to the Operator. The prior chat decision remains Sleeper-owned season/week identity, saved Fantasy group messages and fail-closed incomplete reads, not an invented fixed UTC rollover. Verify automatic date derivation before activation; do not silently substitute a new calendar policy. The original Stage 3 decision was checked against its source discussion.
+**Status: boundary inspection and staged planning complete; slice 6.1 committed as `fd29dd9`, Operator-pushed/deployed, with its isolated smoke passed. Slice 6.2 is implemented and verified; the Operator approved commit only and will push/deploy.** The Operator approved a fixed 45-minute reservation, full private debug bundles for 30 days, explicit private CLI export and an explicit blocked-attempt manual restart. These policy choices alone do not authorize publication or cron resumption. The Operator pushed and confirmed deployment; neither deployment nor the isolated smoke authorizes initial publication or resuming the cron. The prior chat decision remains Sleeper-owned season/week identity, saved Fantasy group messages and fail-closed incomplete reads, not an invented fixed UTC rollover. Verify automatic date derivation before activation; do not silently substitute a new calendar policy. The original Stage 3 decision was checked against its source discussion.
 
 **Goal:** switch scheduled and authorized CLI execution together, preserving durable ownership and exact saved-report recovery.
 
@@ -362,15 +362,19 @@ Retain one durable league/week owner and no second effect ledger. Revalidate cla
 
 #### 6.1. Durable generation attempts, private debug retention and recovery
 
-**Status: implemented and verified; Operator-approved commit only.** The Operator will push and deploy. Verification and commit do not authorize a live application call, initial publication, Stage 6.2 cutover or cron resumption.
+**Status: complete as `fd29dd9`, Operator-pushed and Operator-confirmed deployed.** The Operator-run isolated no-send smoke passed. Deployment confirmation was trusted without a redundant deployment check. Stage 6.2 and cron resumption remain unauthorized.
 
-**Completed verification:** 1,182 tests passed, one Linux-only mount smoke skipped (1,183 tests, 72 files; 8,081 assertions). The 76 native PostgreSQL generation cases cover durable budgets, concurrent claims/restarts, stale/expired owners and lock waits, lost reservation/output/save acknowledgements, tagged approval/history atomicity, all legacy fences, private capture, fatal optional-source latching and retention races. The 45 checked-state cases and ten private-export cases cover original-order packet identity, typed rejected/partial outputs, detached parsing, immutable expiry, exact scope, read-only access, private file modes, symlink/overwrite refusal and managed-file cleanup. Existing no-observer previews, legacy/v1 delivery, one-off confirmation and private Broadcaster suites remain green.
+**Pre-commit verification:** 1,182 tests passed, one Linux-only mount smoke skipped (1,183 tests, 72 files; 8,081 assertions). The 76 native PostgreSQL generation cases cover durable budgets, concurrent claims/restarts, stale/expired owners and lock waits, lost reservation/output/save acknowledgements, tagged approval/history atomicity, all legacy fences, private capture, fatal optional-source latching and retention races. The 45 checked-state cases and ten private-export cases cover original-order packet identity, typed rejected/partial outputs, detached parsing, immutable expiry, exact scope, read-only access, private file modes, symlink/overwrite refusal and managed-file cleanup. Existing no-observer previews, legacy/v1 delivery, one-off confirmation and private Broadcaster suites remain green.
 
 Full repository typecheck, standard Mastra/Studio build, four infra tests (`python3 -m unittest discover -s infra -p 'test*.py'`) and whitespace checks pass. Lint has zero errors and 291 line-length warnings; manifests, lockfile and rules are unchanged. Tests used disposable loopback PostgreSQL, scripted native models, filesystem fixtures and OS-level external-network denial. The standard build used the previously approved build-only fixture wrapper for existing dependency downloads, without executing an application agent/workflow.
 
 Four fresh read-only Astra/xhigh correctness, contracts, security and Ponytail passes plus two adversarial fix-verifiers ended with no remaining findings. Three deadline defects were fixed repro-first: reservation/COMMIT latency extending a relative timeout, overdue typed outputs regaining candidate/review/save authority, and an approval crossing its persisted deadline before storage. Five failing native regressions demonstrated those defects before their fixes. A further native history-insert delay proves that a final deadline failure rolls back tentative history and leaves publication fields absent. Already-saved acknowledgement reconciliation and untagged v1 saves preserve their contracts.
 
 This proves the off-live owner, native capture and private-export boundaries, not scheduled integration, automatic archive-window selection, real provider delivery or handset receipt. Production entrypoints/default writer are unchanged; periodic cleanup and manual-restart CLI composition remain 6.2 work. The production recap cron remains Operator-paused.
+
+**Deployment acceptance (2026-10-21 UTC):** the Operator-run `stage61_smoke --live` passed all eight checks against `fd29dd9`, verifying 159 source files with Bun 1.3.14 and Mastra 1.71.0. Real deployed PostgreSQL was used only for synthetic data in disposable isolated schemas. Checks covered exclusive claims and durable paid intents, legacy fences, exact blocked-attempt restart, scripted native revision/capture and atomic approval, scoped read-only private export including the actual CLI, synthetically aged 30-day payload/export expiry preserving audit and approved history, lost COMMIT acknowledgement containment and diagnostic-only late reviewer output.
+
+Normal recap-run/generation counts and whole-row hashes stayed unchanged. All owned schemas and temporary files were removed; cleanup reported no errors. Native callbacks were scripted: two writers, one reviewer and one NFL stub. External model calls, live NFL reads, Sendblue calls and sends were all zero. This validates deployed persistence/capture/export and cleanup, not real-model judgment, live provider delivery, handset receipt or the Stage 6.2 integrated schedule. No real recap was regenerated or published; the production cron remains Operator-paused.
 
 **Goal:** make the new pre-publication lifecycle crash-safe before changing an active writer or send entrypoint. Keep the legacy schedule/CLI `run` composition unchanged and the production cron paused. Reuse the league/week row, not a second lifecycle/effect ledger.
 
@@ -388,9 +392,21 @@ This proves the off-live owner, native capture and private-export boundaries, no
 
 **Demo:** `rtk bun test src/lib/fantasy/__tests__/generation-state.test.ts src/lib/fantasy/__tests__/generation-runs.test.ts` passed all 121 cases under the offline wrapper. It demonstrates an interrupted paid attempt held without a new call, an exact explicit restart, an auditable rejected draft with no `final_text`, and expiry/export behavior without changing approved history. No application provider/model calls or production access; stop for explicit commit approval.
 
-**Approved commit:** `feat: persist bounded fantasy editorial attempts and private debug bundles` (commit only; the Operator will push and deploy).
+**Commit:** `fd29dd9` (`feat: persist bounded fantasy editorial attempts and private debug bundles`), Operator-pushed and Operator-confirmed deployed.
 
 #### 6.2. Integrate the validated composition and retire the legacy writer
+
+**Status: implemented and verified; Operator-approved commit only, with push/deployment handled by the Operator.** This approval does not authorize a real send or cron resumption.
+
+**Verification (2026-10-21 UTC):** 1,418 tests passed, one Linux-only mount smoke skipped, zero failures (1,419 tests, 78 files; 12,448 assertions). The combined final integration/demo suites passed 103 cases, including real disposable PostgreSQL, the actual daily adapter, scripted native private writer/editor and Broadcaster, exact saved bytes, paid-intent/claim fencing, blocked-attempt restart, source/archive failure, saved new/legacy retry without generation, unknown-stop/accepted-prefix preservation and read-only candidate previews. Captured regular/postseason schedule fixtures and calendar edge cases run offline. API admission uses native routing fixtures; maintenance lifecycle tests use controlled actions/timers. Monitoring uses strict source-owned projections with a native PostgreSQL privacy proof.
+
+Full direct-node typecheck, standard Mastra/Studio build, four infra tests (`python3 -m unittest discover -s infra -p 'test*.py'`) and whitespace checks pass. Lint has zero errors and 315 line-length warnings. Manifests, lockfile and lint rules are unchanged. Tests ran with OS external-network denial and disposable loopback PostgreSQL. The build used the previously approved fixture-only download wrapper, without running an application agent/workflow.
+
+Four fresh read-only Astra/xhigh correctness, contracts, security and Ponytail lanes identified three distinct cutover defects, each fixed repro-first: missing exact-selector delivery-recovery notifications, legacy `delivery_unknown` mislabeled by the actual daily adapter, and regular week 18 lacking its postseason archive boundary. Recovery notification state stays on the existing part-progress row, is claimed atomically and resets only for a newly claimed retry; notification errors cannot change an effect or resend. Two fresh adversarial fix-verifiers returned no remaining findings, including the native daily cross-phase wiring.
+
+Maintained ADR, glossary and CONTEXT-MAP now describe the source implementation while preserving historical acceptance records and telemetry aliases. This verifies integration/control flow and privacy with scripted models/mocked sends, not deployed v13 operation, live editorial quality, real Sendblue acceptance or handset receipt. Earlier real-model samples remain samples, not guarantees. No production database, application model/provider, SSH, real send, commit, push, deployment or cron-resumption action was performed in this slice; public source/contract verification and fixture-only build downloads are the documented exceptions to offline inspection.
+
+**Automatic archive coverage:** Sleeper's own public, undocumented `/schedule/nfl/{regular|post}/{season}` feed was verified with public regular-season/postseason payloads, without credentials or paid providers. The implementation validates and bounds those shapes, waits for every actual target game to be complete (including delayed Tuesday/Wednesday games), and derives a conservative stored-archive calendar interval. Its start is the earliest target date at midnight UTC; its end is collection or the next actual week's earliest game date at midnight UTC, whichever comes first. Week 18 obtains the same-season postseason week-1 boundary as well. Canceled TBD placeholders are not actual games. Missing, wrong-scope, incomplete or ambiguous data blocks; no fixed weekday or exact kickoff/final-whistle timestamp is claimed. Captured payload replay and synthetic edge cases run offline. Explicit preview windows remain caller-supplied.
 
 **Goal:** switch both schedule and authorized CLI `run` to the verified owner/collector/Astra/review/artifact/Luna sequence, while keeping rollout and cron resumption separately authorized.
 
@@ -407,7 +423,7 @@ This proves the off-live owner, native capture and private-export boundaries, no
 
 **Verification/demo:** use the Stage 6 native workflow/PG suites above plus the final repository-wide gate. Prove API denial, hidden writer roots, same-owner scheduled/manual races, source/paid-work/deadline interruption, terminal holds, exact saved retry with zero research/writer/reviewer calls, unknown-send stop, accepted-part preservation, legacy versions, archive coverage, multipart repost exclusion, private-debug maintenance with publication paused, notification failures and first-event privacy. After approved commit/deployment, guide a separately authorized no-send integrated smoke and show exact reviewed parts before asking for any controlled Sendblue attempt. No live send just to finish a checklist; no cron resumption without separate explicit approval.
 
-**Proposed commit:** `feat: activate the validated fantasy pundit weekly workflow`.
+**Approved commit:** `feat: activate the validated fantasy pundit weekly workflow` (commit only; the Operator will push and deploy).
 
 The two slices are separate commit/review boundaries. Complete and verify 6.1, stop for commit approval, then proceed to 6.2. Do not combine their sign-offs or treat deployment as publication/resume authority.
 
@@ -430,7 +446,11 @@ Run applicable existing architecture/project Docker/CLI/lifecycle smokes for run
 
 Use fresh read-only `review-code` and Ponytail review per stage; use `security-audit` for source privacy, caller authority, exact quotation, persistence and delivery changes. Resolve verified blockers before sign-off. A stage with a failing required gate is not complete. Stop after its diff/evidence/proposed commit for explicit commit approval; approval to commit is not approval to push or begin an unauthorized rollout.
 
-Final closeout reruns the whole-repository gate, reconciles maintained glossary/CONTEXT-MAP links to `src/lib/fantasy`, records the final approved commit list and documents remaining live-quality/coverage limits. Retain old report history and historical telemetry mappings. Distinguish fixture control-flow acceptance, model sample quality, provider acceptance and Operator-observed receipt. No check here authorizes a live send merely to finish the checklist.
+Final closeout reruns the whole-repository gate, reconciles maintained glossary/CONTEXT-MAP links to `src/lib/fantasy`, records the final approved commit list and documents remaining live-quality/coverage limits.
+
+**Approved implementation commits through slice 6.1:** Stage 1 `0125dee`, `5a20844`, `c7b89c1`; Stage 2 `adf070e`; Stage 3 `08772b4`, `09d57d2`; Stage 4.1 `b7a336f`; Stage 4.2 `f197bde`, `e8c9e14`, `ad52932`; Stage 5.1 `3527d4b`; Stage 5.2 `5410937`; Stage 6.1 `fd29dd9`. Separate acceptance/status commits remain in Git history. Slice 6.2's commit above is approved; the Operator will push and deploy. Cron resumption remains separately gated.
+
+Retain old report history and historical telemetry mappings. Distinguish fixture control-flow acceptance, model sample quality, provider acceptance and Operator-observed receipt. No check here authorizes a live send merely to finish the checklist.
 
 ## Documentation-pass limits
 

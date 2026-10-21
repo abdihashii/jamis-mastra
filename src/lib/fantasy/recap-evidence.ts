@@ -35,6 +35,7 @@ export interface EvidenceOptions {
 	readNfl?: (input: NflSourceInput, currentSeason: number) => Promise<NflSourceResult>;
 	now?: () => Date;
 	sleeper?: typeof sleeperReads;
+	abortSignal?: AbortSignal;
 }
 export interface EvidenceGap { source: string; code: string; blocking: boolean }
 export interface NflFinding {
@@ -287,13 +288,16 @@ export async function collectRecapEvidence(
 	}
 	packet.scope.chatWindow = window.data;
 	const source = options.sleeper ?? sleeperReads;
-	const deadline = () => AbortSignal.timeout(20_000);
+	const deadline = () => AbortSignal.any([AbortSignal.timeout(20_000), ...(options.abortSignal ? [options.abortSignal] : [])]);
 	async function read<T>(name: string, operation: () => Promise<T>): Promise<T | null> {
+		options.abortSignal?.throwIfAborted();
 		try {
 			const data = structuredClone(await operation());
+			options.abortSignal?.throwIfAborted();
 			packet.observations.push({ source: name, retrievedAtUtc: now().toISOString(), available: true });
 			return data;
 		} catch {
+			options.abortSignal?.throwIfAborted();
 			packet.observations.push({ source: name, retrievedAtUtc: now().toISOString(), available: false });
 			return null;
 		}

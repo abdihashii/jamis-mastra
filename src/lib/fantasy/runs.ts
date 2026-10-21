@@ -127,7 +127,24 @@ export async function getRun(leagueId: string, week: number, sql: SqlLike): Prom
 	return rows[0] ? toRun(rows[0]) : null;
 }
 
+export const fantasyGenerationSummarySchema = z.object({
+	attemptId: z.string().uuid(),
+	generatorVersion: z.literal('fantasy-recap-v13'),
+	phase: z.enum(['collecting', 'editorial', 'source_retryable', 'blocked', 'approved']),
+	counts: z.object({
+		nfl: z.number().int().min(0).max(3),
+		drafts: z.number().int().min(0).max(3),
+		reviews: z.number().int().min(0).max(3),
+	}).strict(),
+	reasonCode: z.string().regex(/^[a-z][a-z0-9_:.-]{0,99}$/).nullable(),
+	evidenceId: z.string().regex(/^evidence-[a-f0-9]{64}$/).nullable(),
+	candidateId: z.string().regex(/^candidate-[a-f0-9]{64}$/).nullable(),
+	reportId: z.string().regex(/^report-[a-f0-9]{64}$/).nullable(),
+}).strict();
+
 export interface FantasyMonitoringRun {
+	generationSummary?: z.infer<typeof fantasyGenerationSummarySchema>;
+	latestAttemptTraceId?: string | null;
 	fantasyWeek: number;
 	status: RunStatus;
 	failureStage: string | null;
@@ -140,6 +157,8 @@ export interface FantasyMonitoringRun {
 }
 
 interface FantasyMonitoringRunRow {
+	generation_summary?: unknown;
+	latest_attempt_trace_id?: unknown;
 	fantasy_week: number;
 	status: RunStatus;
 	failure_stage: string | null;
@@ -152,7 +171,11 @@ interface FantasyMonitoringRunRow {
 }
 
 function toFantasyMonitoringRun(row: FantasyMonitoringRunRow): FantasyMonitoringRun {
+	const generationSummary = fantasyGenerationSummarySchema.safeParse(row.generation_summary);
+	const traceId = z.string().regex(/^[a-f0-9]{32}$/).safeParse(row.latest_attempt_trace_id);
 	return {
+		...(generationSummary.success ? { generationSummary: generationSummary.data } : {}),
+		...(traceId.success ? { latestAttemptTraceId: traceId.data } : {}),
 		fantasyWeek: row.fantasy_week,
 		status: row.status,
 		failureStage: row.failure_stage,
@@ -182,16 +205,35 @@ export async function listFantasyMonitoringRuns(
 				send_attempt_at,
 				delivery_source,
 				sent_at,
-				updated_at
+				updated_at,
+				latest_attempt_trace_id,
+				jsonb_build_object(
+					'attemptId',
+					editorial_attempt -> 'current' -> 'id',
+					'generatorVersion',
+					editorial_attempt -> 'current' -> 'generatorVersion',
+					'phase',
+					editorial_attempt -> 'current' -> 'phase',
+					'counts',
+					editorial_attempt -> 'current' -> 'counts',
+					'reasonCode',
+					editorial_attempt -> 'current' -> 'reasonCode',
+					'evidenceId',
+					editorial_attempt -> 'current' -> 'evidenceId',
+					'candidateId',
+					editorial_attempt -> 'current' -> 'candidateId',
+					'reportId',
+					editorial_attempt -> 'current' -> 'reportId'
+				) AS generation_summary
 			FROM
 				fantasy_recap_runs
 			WHERE
 				league_id = ${leagueId}
-				AND fantasy_week BETWEEN 1 AND 18
+				AND fantasy_week BETWEEN 1 AND 22
 			ORDER BY
 				fantasy_week DESC
 			LIMIT
-				18
+				22
 		`
 		: await sql`
 			SELECT
@@ -203,7 +245,26 @@ export async function listFantasyMonitoringRuns(
 				send_attempt_at,
 				delivery_source,
 				sent_at,
-				updated_at
+				updated_at,
+				latest_attempt_trace_id,
+				jsonb_build_object(
+					'attemptId',
+					editorial_attempt -> 'current' -> 'id',
+					'generatorVersion',
+					editorial_attempt -> 'current' -> 'generatorVersion',
+					'phase',
+					editorial_attempt -> 'current' -> 'phase',
+					'counts',
+					editorial_attempt -> 'current' -> 'counts',
+					'reasonCode',
+					editorial_attempt -> 'current' -> 'reasonCode',
+					'evidenceId',
+					editorial_attempt -> 'current' -> 'evidenceId',
+					'candidateId',
+					editorial_attempt -> 'current' -> 'candidateId',
+					'reportId',
+					editorial_attempt -> 'current' -> 'reportId'
+				) AS generation_summary
 			FROM
 				fantasy_recap_runs
 			WHERE
@@ -593,6 +654,7 @@ const partProgressSchema = z.object({
 	reportId: z.string(),
 	operationId: z.uuid().nullable(),
 	recoveryRequired: z.boolean(),
+	recoveryNotifiedAtUtc: z.iso.datetime().optional(),
 	parts: z.array(z.array(partAttemptSchema)).min(1).max(3),
 }).strict();
 export type SavedPartAttempt = z.infer<typeof partAttemptSchema>;
@@ -953,8 +1015,23 @@ export async function claimSavedReportRetry(
 		after.leaseStamp = leaseExpiresAt.toISOString();
 		after.progress.operationId = null;
 		after.progress.recoveryRequired = false;
+		delete after.progress.recoveryNotifiedAtUtc;
 		after.traceId = null;
 		return replaceSavedReportState(before, after, transaction, false, true);
+	});
+}
+
+/** Claim one bounded recovery notification on the existing delivery row, never a send grant. */
+export async function markSavedReportNotified(reference: SavedReportReference, sql: SqlLike): Promise<SavedReportState | null> {
+	return withFantasyLeagueLock(reference.leagueId, sql, async (transaction) => {
+		const before = await getSavedReportState(reference, transaction);
+		if (!before || before.status === 'sent' || before.progress.recoveryNotifiedAtUtc
+			|| (before.status !== 'delivery_unknown' && !before.progress.recoveryRequired)) {
+			return null;
+		}
+		const after = structuredClone(before);
+		after.progress.recoveryNotifiedAtUtc = new Date().toISOString();
+		return await replaceSavedReportState(before, after, transaction) ? after : null;
 	});
 }
 

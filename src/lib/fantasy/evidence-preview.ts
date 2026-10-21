@@ -2,8 +2,7 @@ import type { ChatWindow } from './chat-archive';
 import type { FantasyConfig } from './config';
 import type { EvidenceOptions, RecapEvidencePacket } from './recap-evidence';
 import { SQL } from 'bun';
-import { noopLogger } from '@mastra/core/logger';
-import { PostgresStore } from '@mastra/pg';
+import { evidenceReadOnlyDatabaseUrl, openRecapArchive } from './archive';
 import { chatWindowSchema } from './chat-archive';
 import { createNflSourceTask } from './nfl-sources-task';
 import { collectRecapEvidence } from './recap-evidence';
@@ -15,17 +14,7 @@ export interface EvidencePreviewResult {
 	databaseUnchanged: boolean;
 }
 
-/** Preserve caller connection options; never consult environment credentials. */
-export function evidenceReadOnlyDatabaseUrl(value: string): string {
-	const url = new URL(value);
-	if (!['postgres:', 'postgresql:'].includes(url.protocol))
-		throw new Error('invalid_preview_database_url');
-	const options = url.searchParams.get('options');
-	const timeout = options?.includes('statement_timeout') ? '' : '-c statement_timeout=15000';
-	const setting = [options, timeout, '-c default_transaction_read_only=on'].filter(Boolean).join(' ');
-	url.searchParams.set('options', setting);
-	return url.toString();
-}
+export { evidenceReadOnlyDatabaseUrl } from './archive';
 
 async function recapState(sql: SQL, schema: string, leagueId: string): Promise<string> {
 	// Fixed-width per-row digests retain duplicates and deterministic ordering without exporting rows.
@@ -64,7 +53,7 @@ export async function previewRecapEvidence(
 	});
 	let result = blocked('preview_database_unavailable');
 	let sql: SQL | undefined;
-	let storage: PostgresStore | undefined;
+	let storage: Awaited<ReturnType<typeof openRecapArchive>> | undefined;
 	let failure = 'invalid_preview_scope';
 	try {
 		const now = fixture.now ?? (() => new Date());
@@ -89,23 +78,8 @@ export async function previewRecapEvidence(
 		const before = await recapState(sql, schema, request.config.sleeperLeagueId);
 
 		failure = 'preview_archive_unavailable';
-		const storageURL = new URL(readonlyURL);
-		// This pinned Mastra pool forwards parsed URL fields to node-postgres.
-		storageURL.searchParams.set('connectionTimeoutMillis', '5000');
-		storage = new PostgresStore({
-			id: 'fantasy-evidence-preview',
-			connectionString: storageURL.toString(),
-			disableInit: true,
-			schemaName: schema,
-		});
-		storage.__setLogger(noopLogger);
-		for (const domain of Object.values(storage.stores)) domain?.__setLogger(noopLogger);
-		const storeSetting = await storage.db.one<{ default_transaction_read_only: string }>('SHOW default_transaction_read_only');
-		if (storeSetting.default_transaction_read_only !== 'on')
-			return blocked('preview_database_not_readonly');
-		const memory = await storage.getStore('memory');
-		if (!memory)
-			return blocked('preview_archive_unavailable');
+		storage = await openRecapArchive(readonlyURL, schema);
+		const memory = storage.memory;
 
 		let task: ReturnType<typeof createNflSourceTask> | undefined;
 		const apiKey = request.firecrawlApiKey;
