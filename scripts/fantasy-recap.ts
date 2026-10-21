@@ -9,6 +9,7 @@ import { SQL } from 'bun';
 import { readFile } from 'node:fs/promises';
 import process from 'node:process';
 import { PostgresStore } from '@mastra/pg';
+import { z } from 'zod';
 import { parseFantasyConfig } from '../src/lib/fantasy/config';
 import {
 	buildRecapPrompt,
@@ -43,6 +44,7 @@ const usage = [
 	'  preview-candidate --week <number> --since <UTC instant> --until <UTC instant> [--nfl]   Astra writer/reviewer, never send',
 	'  preview --week <number> [--chat <file.json>] [--allow-incomplete]   generate, never send',
 	'  run                                            normal daily job: newest completed week only',
+	'  debug-export --week <1..22> --attempt-id <UUID>   private 0600 debug file, never stdout payloads',
 	'  retry --week <number> [--operator-verified-absent]   legacy saved message only',
 	'  confirm-sent --week <number>                   legacy operator-observed message',
 	'  retry --week <1..22> --report-id <report-64hex> [--operator-verified-absent --part <1..3> --attempt-id <UUID>]',
@@ -52,8 +54,46 @@ const usage = [
 
 async function main() {
 	const [command, ...flags] = process.argv.slice(2);
-	if (!command || !['inspect', 'evidence', 'preview-candidate', 'preview', 'run', 'retry', 'confirm-sent'].includes(command))
+	if (!command || !['inspect', 'evidence', 'preview-candidate', 'preview', 'run', 'retry', 'confirm-sent', 'debug-export'].includes(command))
 		fail(usage, 1);
+
+	if (command === 'debug-export') {
+		const values = new Map<string, string>();
+		for (let i = 0; i < flags.length; i += 2) {
+			if (!['--week', '--attempt-id'].includes(flags[i]) || values.has(flags[i]) || !flags[i + 1])
+				fail('Invalid debug export arguments.', 1);
+			values.set(flags[i], flags[i + 1]);
+		}
+		if (values.size !== 2 || !/^(?:[1-9]|1\d|2[0-2])$/.test(values.get('--week') ?? '')
+			|| !z.uuid().safeParse(values.get('--attempt-id')).success) {
+			fail('Invalid debug export arguments.', 1);
+		}
+		const config = parseFantasyConfig();
+		let client: SQL | undefined;
+		let result: { status: string; reason?: string; attemptId?: string; expiresAtUtc?: string; path?: string } = { status: 'blocked', reason: 'generation_debug_export_unavailable' };
+		try {
+			if (!config || !process.env.DATABASE_URL)
+				throw new Error('generation_debug_export_unavailable');
+			client = new SQL(process.env.DATABASE_URL, { connectionTimeout: 5, connection: { statement_timeout: '15s', lock_timeout: '5s', default_transaction_read_only: 'on' } });
+			const [mode] = await client`SHOW default_transaction_read_only`;
+			if (mode.default_transaction_read_only !== 'on')
+				throw new Error('generation_debug_export_unavailable');
+			const { findGenerationReference } = await import('../src/lib/fantasy/generation-runs');
+			const ref = await findGenerationReference(config.sleeperLeagueId, Number(values.get('--week')), config.sendblueGroupId, values.get('--attempt-id')!, client);
+			if (!ref)
+				throw new Error('generation_debug_export_unavailable');
+			const { exportGenerationDebug } = await import('../src/lib/fantasy/generation-debug');
+			result = { status: 'exported', ...await exportGenerationDebug(ref, client, 'data/fantasy-debug') };
+		} catch { /* No private bundle, source error, credential or connection string reaches stdout. */ } finally {
+			try {
+				await client?.close();
+			} catch { /* The private file receipt remains authoritative. */ }
+		}
+		console.log(JSON.stringify(result));
+		if (result.status !== 'exported')
+			process.exitCode = 1;
+		return;
+	}
 
 	let recovery: SavedReportRecoveryRequest | null;
 	try {

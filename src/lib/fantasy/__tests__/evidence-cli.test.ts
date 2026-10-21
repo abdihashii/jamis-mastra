@@ -84,6 +84,25 @@ describe('evidence CLI isolation', () => {
 		expect(paid.stdout).toBe('');
 	});
 
+	it('debug export fails privately without initializing storage, models or delivery', async () => {
+		const result = await run(['debug-export', '--week', '2', '--attempt-id', '11111111-1111-4111-8111-111111111111']);
+		expect(result.code).toBe(1);
+		expect(JSON.parse(result.stdout)).toEqual({ status: 'blocked', reason: 'generation_debug_export_unavailable' });
+		expect(result.stderr).toBe('');
+		for (const sentinel of ['PRIVATE_DATABASE_SENTINEL', 'PRIVATE_GROUP_SENTINEL', '+15550001111', 'OpenAI login', 'packetJson'])
+			expect(result.stdout + result.stderr).not.toContain(sentinel);
+	});
+
+	it('debug export rejects missing, duplicate and capability-bearing flags before opening storage', async () => {
+		const base = ['debug-export', '--week', '2', '--attempt-id', '11111111-1111-4111-8111-111111111111'];
+		for (const flags of [['debug-export'], ['debug-export', '--week', '0', '--attempt-id', 'bad'], ...[['--send'], ['--week', '3'], ['--output', '/tmp/unsafe'], ['--model', 'untrusted']].map(extra => [...base, ...extra])]) {
+			const result = await run(flags);
+			expect(result.code).toBe(1);
+			expect(result.stdout).toBe('');
+			expect(result.stderr).toContain('Invalid debug export arguments.');
+		}
+	});
+
 	it('keeps operational and model composition out of static entrypoint imports', async () => {
 		const source = await readFile(script, 'utf8');
 		const imports = source.match(/^import(?!\s+type\b)[^;]+;/gm)?.join('\n') ?? '';
