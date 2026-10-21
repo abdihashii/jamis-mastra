@@ -4,6 +4,8 @@ import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
 import type { LinearCreateOperation } from '../../../lib/linear';
 import type { SqlLike } from '../../../lib/operator-time-zone';
 
+import { SQL } from 'bun';
+import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import process from 'node:process';
 import { Agent } from '@mastra/core/agent';
@@ -15,8 +17,6 @@ import { createTool, noopObserve } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import { Observability } from '@mastra/observability';
 import { PostgresStore } from '@mastra/pg';
-import { SQL } from 'bun';
-import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
 import { z } from 'zod';
 import { claimLinearCreate, finishLinearCreate, isImmediatelyFollowingLinearMessage, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../../lib/linear-proposals';
@@ -52,8 +52,7 @@ if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
 		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
 		expect({ exit, output: exit === 0 ? '' : stdout + stderr }).toEqual({ exit: 0, output: '' });
 	}, 120000);
-}
-else {
+} else {
 	const url = new URL(databaseUrl!);
 	if (!['postgres:', 'postgresql:'].includes(url.protocol) || !['localhost', '127.0.0.1'].includes(url.hostname)
 		|| url.pathname !== '/jamis_sessions_test' || url.searchParams.has('host')) {
@@ -118,8 +117,7 @@ else {
 					expect(posts[0]).toContain('uncertain');
 					expect(await readLinearProposal(dm, restart)).toBeNull();
 				}
-			}
-			finally { await restart.close(); }
+			} finally { await restart.close(); }
 		}
 	});
 
@@ -145,7 +143,7 @@ else {
 			const op = operation();
 			await receiveLinearMessage(dm, 'source', sql);
 			const wrapped: SqlLike = async (strings, ...values) => {
-				if (strings.join('').includes('SET publication_ready = TRUE')) {
+				if (strings.join(' ').replace(/\s+/g, ' ').includes('SET publication_ready = TRUE')) {
 					if (mode === 'readiness-write')
 						throw new Error('Synthetic readiness write failure.');
 					const result = await sql(strings, ...values);
@@ -206,8 +204,7 @@ else {
 			const posts: string[] = [];
 			await notifyLinearOutcome((await readLinearProposal(dm, restart))!, async text => posts.push(text), restart);
 			expect(posts[0]).toContain('uncertain');
-		}
-		finally { await restart.close(); }
+		} finally { await restart.close(); }
 	});
 
 	const { CODEX_AUTH_CHANNEL_ERROR, EMPTY_REPLY_CHANNEL_ERROR, formatSendblueError, handleSendblueDirectMessage, OPENAI_LOGIN_FAILURE, proposeLinearCreate, registerLinearReplyProcedure, requireSendbluePostAcceptance, startJamisDmSession } = await import('../sendblue');
@@ -228,8 +225,7 @@ else {
 				controller.enqueue({ type: 'stream-start', warnings: [] });
 				if ('tool' in action) {
 					controller.enqueue({ type: 'tool-call', toolCallId: `call-${step}`, toolName: action.tool, input: JSON.stringify(action.input) });
-				}
-				else if (action.text) {
+				} else if (action.text) {
 					controller.enqueue({ type: 'text-start', id: 'reply' });
 					controller.enqueue({ type: 'text-delta', id: 'reply', delta: action.text });
 					controller.enqueue({ type: 'text-end', id: 'reply' });
@@ -451,8 +447,7 @@ else {
 			expect(f.mutations).toHaveLength(1);
 			expect(f.draftPrompts).toHaveLength(1);
 			expect((await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId))?.status).toBe('success');
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	}, 30_000);
 
 	test('missing, missing-body, ambiguous, truncated, or fabricated email evidence cannot publish the linked proposal', async () => {
@@ -466,8 +461,7 @@ else {
 				await f.send('confirm');
 				expect(f.mutations).toHaveLength(0);
 				expect(f.draftPrompts).toHaveLength(0);
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 30_000);
 
@@ -491,8 +485,7 @@ else {
 			expect(JSON.stringify(f.draftPrompts)).toContain('keep the reply formal');
 			expect(f.mutations).toHaveLength(1);
 			expect(f.counts().gmailReads).toBe(1);
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	}, 30_000);
 
 	test('legacy Accounts clarification without original scope requires restatement before a linked proposal', async () => {
@@ -510,8 +503,7 @@ else {
 			expect(await readLinearProposal(selected.threadId, sql)).toBeNull();
 			expect(f.posts.some(text => text.startsWith('Create Linear issue'))).toBe(false);
 			expect(f.mutations).toHaveLength(0);
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	}, 30_000);
 
 	test('lost proposal commit acknowledgement leaves a displayed linked proposal unable to create', async () => {
@@ -521,7 +513,7 @@ else {
 			wrapped.begin = async (work) => {
 				let publication = false;
 				const result = await sql.begin(tx => work((strings, ...values) => {
-					publication ||= strings.join('').includes('INSERT INTO linear_create_proposals');
+					publication ||= strings.join(' ').replace(/\s+/g, ' ').includes('INSERT INTO linear_create_proposals');
 					return tx(strings, ...values);
 				}));
 				if (publication)
@@ -540,8 +532,7 @@ else {
 			expect(f.mutations).toHaveLength(0);
 			expect(f.draftPrompts).toHaveLength(0);
 			expect((await readLinearContinuation(proposal.id, sql))?.state).toBe('canceled');
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	}, 30_000);
 
 	test('lost create response uses one exact-ID inspection, preserves uncertainty, and drafts only verified matches', async () => {
@@ -562,8 +553,7 @@ else {
 				await f.send('confirm', confirm.id, false);
 				expect(f.counts().inspectionReads).toBe(1);
 				expect(f.mutations).toHaveLength(1);
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 30_000);
 
@@ -589,8 +579,7 @@ else {
 			expect(f.draftPrompts).toHaveLength(1);
 			expect(f.mutations).toHaveLength(1);
 			expect(f.counts().gmailReads).toBe(1);
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	}, 30_000);
 
 	test('draft validation failure and missing snapshots report the verified issue with the missing reply', async () => {
@@ -607,8 +596,7 @@ else {
 				await f.send('confirm', confirm.id, false);
 				expect(f.mutations).toHaveLength(1);
 				expect(f.draftPrompts).toHaveLength(missing ? 0 : 1);
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 30_000);
 
@@ -636,8 +624,7 @@ else {
 			expect(f.draftPrompts).toHaveLength(1);
 			expect(f.mutations).toHaveLength(1);
 			expect((await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId))?.status).toBe('success');
-		}
-		finally {
+		} finally {
 			spy.mockRestore();
 			await f.close();
 		}
@@ -650,7 +637,7 @@ else {
 			const proposal = (await readLinearProposal(source.threadId, sql))!;
 			f.setLost();
 			const failing: SqlLike = (strings, ...values) => {
-				if (strings.join('').includes('inspection->>\'status\' = \'unresolved\''))
+				if (/inspection\s*->>\s*'status'\s*=\s*'unresolved'/.test(strings.join(' ')))
 					throw new Error('Synthetic inspection persistence failure.');
 				return sql(strings, ...values);
 			};
@@ -664,8 +651,7 @@ else {
 			expect(f.counts().inspectionReads).toBe(1);
 			expect(f.draftPrompts).toHaveLength(0);
 			expect(f.mutations).toHaveLength(1);
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	}, 30_000);
 
 	test('decline, supersession, and session rollover stop linked work without concealing saved effects', async () => {
@@ -680,8 +666,7 @@ else {
 				expect(f.mutations).toHaveLength(0);
 				expect(f.draftPrompts).toHaveLength(0);
 				expect((await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId))?.status).toBe(command === 'decline' ? 'success' : 'canceled');
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 		const f = await fixture({ typed: true, linked: true });
 		try {
@@ -698,8 +683,7 @@ else {
 			expect(f.mutations).toHaveLength(1);
 			expect(f.draftPrompts).toHaveLength(1);
 			expect((await f.mastra.getWorkflow('prepare_linear_reply').getWorkflowRunById(proposal.continuation!.runId))?.status).toBe('canceled');
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	}, 30_000);
 
 	test('failed Accounts before a proposal never exposes the internal reply envelope', async () => {
@@ -718,8 +702,7 @@ else {
 				if (reply === JSON.stringify({ otherAnswers: [] })) {
 					expect(f.spans).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'sendblue.channel', metadata: expect.objectContaining({ stage: 'reply_generation', classification: 'failed' }) })]));
 				}
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 30_000);
 
@@ -743,8 +726,7 @@ else {
 			expect(f.mutations).toHaveLength(1);
 			expect(f.posts.filter(text => text.startsWith('Created'))).toEqual(['Created JAM-999: https://linear.app/fixture/issue/JAM-999']);
 			expect(await readLinearProposal(source.threadId, sql)).toBeNull();
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	}, 30_000);
 
 	test('native dispatch delegates authority, confirms equal-timestamp messages once, and keeps credentials out of memory/traces', async () => {
@@ -774,8 +756,7 @@ else {
 			scan({ messages, spans: f.spans, prompts: f.prompts, proposal }, 'fixture');
 			expect(leakedPaths).toEqual([]);
 			expect(f.spans.length).toBeGreaterThan(0);
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	}, 30000);
 
 	test('native validation/denial/unavailability cannot become posted success or silence', async () => {
@@ -793,8 +774,7 @@ else {
 						expect(JSON.stringify(f.spans)).toContain('Tool input validation failed');
 					await f.send('confirm');
 					expect(f.mutations).toHaveLength(0);
-				}
-				finally { await f.close(); }
+				} finally { await f.close(); }
 			}
 		}
 	}, 30000);
@@ -811,8 +791,7 @@ else {
 				expect(f.posts.join(' ')).not.toContain('The proposal was posted.');
 				expect(!!await readLinearProposal(source.threadId, sql)).toBe(!denied);
 				expect(f.mutations).toHaveLength(0);
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 15000);
 
@@ -825,8 +804,7 @@ else {
 				expect(f.posts.filter(text => text === CODEX_AUTH_CHANNEL_ERROR)).toHaveLength(1);
 				expect(!!await readLinearProposal(source.threadId, sql)).toBe(!denied);
 				expect(f.mutations).toHaveLength(0);
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 15000);
 
@@ -839,8 +817,7 @@ else {
 			expect(f.posts[0]).toContain('Description: Exact fixture description');
 			expect((await readLinearProposal(source.threadId, sql))!.state).toBe('pending');
 			expect(f.mutations).toHaveLength(0);
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	});
 
 	test('native confirmation accepts capitalization, preserves trimming, and stays single-use', async () => {
@@ -853,8 +830,7 @@ else {
 				expect(f.mutations).toHaveLength(1);
 				expect(f.posts.filter(post => post.startsWith('Created'))).toHaveLength(1);
 				expect(await readLinearProposal(source.threadId, sql)).toBeNull();
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 30000);
 
@@ -870,8 +846,7 @@ else {
 					expect(f.posts).toContain('Linear create proposal canceled.');
 				expect(f.mutations).toHaveLength(0);
 				expect(await readLinearProposal(source.threadId, sql)).toBeNull();
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 30000);
 
@@ -902,8 +877,7 @@ else {
 				await f.close();
 				for (const value of [f.posts, f.spans, f.prompts])
 					expect(JSON.stringify(value)).not.toMatch(/linear-create-fixture-secret|linear-create-fixture-access|sendblue-create-fixture-secret/);
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 30000);
 
@@ -916,8 +890,7 @@ else {
 					f.setFailResult(true);
 					await expect(f.send('confirm')).rejects.toThrow();
 					f.setFailResult(false);
-				}
-				else {
+				} else {
 					const proposal = (await readLinearProposal(source.threadId, sql))!;
 					const confirmId = randomUUID();
 					await receiveLinearMessage(source.threadId, confirmId, sql);
@@ -928,8 +901,7 @@ else {
 				expect(f.posts.join(' ')).toContain(state === 'succeeded' ? 'Created JAM-999' : 'outcome is uncertain');
 				expect(f.mutations).toHaveLength(state === 'succeeded' ? 1 : 0);
 				expect(await readLinearProposal(source.threadId, sql)).toBeNull();
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 15000);
 
@@ -939,7 +911,7 @@ else {
 			try {
 				const source = await f.send('Create one fixture issue.');
 				const intercept = (target: SqlLike): SqlLike => (strings, ...values) => {
-					const query = strings.join('');
+					const query = strings.join(' ').replace(/\s+/g, ' ');
 					if ((failure === 'receipt' && query.includes('INSERT INTO linear_dm_receipts'))
 						|| (failure === 'cancellation' && query.includes('SET state = \'canceled\''))) {
 						throw new Error('private fixture storage failure');
@@ -955,8 +927,7 @@ else {
 				await f.send('confirm');
 				expect(f.mutations).toHaveLength(0);
 				expect(await readLinearProposal(source.threadId, sql)).toBeNull();
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 15000);
 
@@ -971,8 +942,7 @@ else {
 			await f.send('confirm');
 			expect(f.mutations).toHaveLength(0);
 			expect(await readLinearProposal(source.threadId, sql)).toBeNull();
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	});
 
 	test('native /new replay preserves a newer proposal; a fresh rollover cancels it', async () => {
@@ -986,8 +956,7 @@ else {
 			await f.send('/new');
 			expect(await readLinearProposal(source.threadId, sql)).toBeNull();
 			expect(f.mutations).toHaveLength(0);
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	});
 
 	test('nonoperator/group/other-channel messages cannot consume a proposal; a changed active session cancels confirmation', async () => {
@@ -1011,7 +980,6 @@ else {
 			await f.send('confirm');
 			expect(f.mutations).toHaveLength(0);
 			expect(await readLinearProposal(source.threadId, sql)).toBeNull();
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	});
 }

@@ -23,7 +23,7 @@ const now = Date.parse('2030-01-01T12:00:00.000Z');
 const at = new Date(now).toISOString();
 const raw = 'private prompt +15555550101 secret-token';
 const histories = new Map<string, Message[]>();
-const sql = (async (strings: TemplateStringsArray) => strings.join(' ').includes('WITH previous')
+const sql = (async (strings: TemplateStringsArray) => strings.join(' ').replace(/\s+/g, ' ').trim().includes('WITH previous')
 	? [{ applied: false, consumed_proposal: false, proposal_time_zone: null }]
 	: []) as SqlLike;
 sql.begin = operation => operation(sql);

@@ -3,17 +3,17 @@ import type { AnyExportedSpan } from '@mastra/core/observability';
 import type { AdapterPostableMessage, Message, Thread } from 'chat';
 import type { SqlLike } from '../../../lib/operator-time-zone';
 
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { Buffer } from 'node:buffer';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Mastra } from '@mastra/core/mastra';
 
+import { Mastra } from '@mastra/core/mastra';
 import { TracingEventType } from '@mastra/core/observability';
 import { RequestContext } from '@mastra/core/request-context';
 import { InMemoryStore } from '@mastra/core/storage';
 import { Observability } from '@mastra/observability';
-import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { parseMarkdown } from 'chat';
 import { createSendblueAdapter, toPlainText } from 'chat-adapter-sendblue';
 import { MODEL_AUTH_FAILURE } from '../../gateways/openai-codex-auth.js';
@@ -100,8 +100,7 @@ test('Sendblue outbound payloads preserve literal code, paths, URLs, and prose f
 			requireSendbluePostAcceptance(await adapter.stream(threadId, chunks()));
 			expect(payloads.splice(0)).toMatchObject([{ content: `Read ${path}` }, { content: 'reply.' }]);
 		}
-	}
-	finally {
+	} finally {
 		fetch.mockRestore();
 	}
 });
@@ -199,7 +198,7 @@ function memorySql(initialOverride?: string | null) {
 	let notification: { messageId: string; overrideTimeZone: string | null; threadId: string } | undefined;
 	let applied = 0;
 	const sql = (async (strings, ...values) => {
-		const query = strings.join('?');
+		const query = strings.join('?').replace(/\s+/g, ' ').trim();
 		if (query.includes('SET proposal_time_zone = NULL') && query.includes('last_message_at = NULL')) {
 			proposal = undefined;
 			lastMessage = undefined;
@@ -278,8 +277,7 @@ function memorySql(initialOverride?: string | null) {
 		};
 		try {
 			return await operation(sql);
-		}
-		catch (error) {
+		} catch (error) {
 			applied = snapshot.applied;
 			lastMessage = snapshot.lastMessage;
 			notification = snapshot.notification;
@@ -585,8 +583,7 @@ describe('Jamis new session command', () => {
 					defaultCalls++;
 				}, sessions.context(), timeZone.sql);
 			}
-		}
-		finally {
+		} finally {
 			errors.mockRestore();
 		}
 		expect(defaultCalls).toBe(0);
@@ -613,8 +610,7 @@ describe('Jamis new session command', () => {
 			await started.promise;
 			expect(replies).toEqual([]);
 			expect((await sessions.memory.listThreads({})).total).toBe(0);
-		}
-		finally {
+		} finally {
 			release.resolve();
 			await command;
 			write.mockRestore();
@@ -683,8 +679,7 @@ describe('Jamis new session command', () => {
 			expect(timeZone.notification()).toBeDefined();
 			expect((await sessions.memory.listThreads({})).total).toBe(0);
 			expect(errors.mock.calls).toEqual([['[jamis-dm-session] Setting notification acceptance failed.']]);
-		}
-		finally {
+		} finally {
 			errors.mockRestore();
 		}
 		await handleSendblueDirectMessage(makeThread(replies), command, async () => {
@@ -752,8 +747,7 @@ describe('Jamis new session command', () => {
 				['reply_delivery', 'failed'],
 			]);
 			expect(errors.mock.calls.flat().join(' ')).not.toContain('private');
-		}
-		finally {
+		} finally {
 			write.mockRestore();
 			errors.mockRestore();
 			await observability.shutdown();
@@ -779,8 +773,7 @@ describe('Jamis new session command', () => {
 			await handleSendblueDirectMessage(makeThread(replies), command, async () => {}, sessions.context(), timeZone.sql);
 			expect(replies).toEqual([NEW_SESSION_SUCCESS, NEW_SESSION_SUCCESS]);
 			expect((await sessions.memory.listThreads({})).total).toBe(1);
-		}
-		finally {
+		} finally {
 			errors.mockRestore();
 			await observability.shutdown();
 		}

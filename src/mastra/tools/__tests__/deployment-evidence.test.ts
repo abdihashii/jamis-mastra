@@ -64,8 +64,7 @@ async function withSocket<T>(response: string | null, read: (path: string) => Pr
 	await new Promise<void>(resolve => server.listen(path, resolve));
 	try {
 		return await read(path);
-	}
-	finally {
+	} finally {
 		server.close();
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -174,7 +173,7 @@ describe('deployment evidence boundary', () => {
 		expect(partial.cloudflareTunnel.freshness).toBe('fresh');
 		expect(partial.tailscale.freshness).toBe('fresh');
 		expect(partial.clickhouse.freshness).toBe('fresh');
-		const empty = await readFullDeploymentEvidence(async () => ({ listTracesLight: async () => ({ spans: [] }) }) as never, () => async () => [], undefined, '/tmp/jamis-evidence-missing.sock', now);
+		const empty = await readFullDeploymentEvidence(async () => ({ listTracesLight: async () => ({ spans: [] }) }) as never, () => async () => [], '', '/tmp/jamis-evidence-missing.sock', now);
 		expect(empty.clickhouse.gaps).toContain('no_recent_traces');
 		expect(empty.postgres.gaps).toContain('fantasy_not_configured');
 	});
