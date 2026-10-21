@@ -9,7 +9,7 @@ import { readCurrentTime } from '../current-time';
 function memorySql(initialOverride?: string | null) {
 	let override = initialOverride;
 	const sql: SqlLike = async (strings, ...values) => {
-		const query = strings.join('?');
+		const query = strings.join('?').replace(/\s+/g, ' ').trim();
 		if (query.includes('SELECT override_time_zone')) {
 			return override === undefined ? [] : [{ override_time_zone: override }];
 		}
