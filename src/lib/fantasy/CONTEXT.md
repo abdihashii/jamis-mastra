@@ -26,9 +26,9 @@ The caller supplies the trusted current NFL season. Older-season projections are
 
 ## Editorial candidate contract
 
-`editorial.ts` owns the strict structured draft, packet-local source/numeric references and deterministic candidate rendering. The Pundit selects awards rather than inheriting high/low/closest; shared honors retain unique subjects and factual matchup ties remain ties. Evidence v1 does not establish pregame decision quality, so management-based awards are rejected and accepted performance fallbacks are labeled explicitly. Optional history/player/NFL gaps withhold dependent references, not independent results; invalid historical rows are not promoted into verified numeric facts.
+`editorial.ts` owns the strict structured draft, packet-local source/numeric references and deterministic candidate rendering. The Pundit selects awards rather than inheriting high/low/closest; shared honors retain unique subjects and factual matchup ties remain ties. Evidence v1 does not establish pregame decision quality, so management-based awards are rejected and performance basis stays explicit in the structured draft, not a public label. Editorial v2 renders the heading directly above the write-up; existing editorial-v1 saved reports remain readable with their original bytes. Optional history/player/NFL gaps withhold dependent references, not independent results; invalid historical rows are not promoted into verified numeric facts.
 
-Names and numbers resolve from known references; quote IDs resolve full original messages and mapped attribution without normalization or recursive token expansion. Context, privacy, fairness and arbitrary prose truth still need the separate editorial gate. A structurally valid candidate is not an approved report or send authority. Zero stories/no suitable quote remain explicit; an unreadable or incomplete archive blocks the candidate.
+Names and numbers resolve from known references; quote IDs resolve full original messages and mapped attribution without normalization or recursive token expansion. Context, privacy, fairness and arbitrary prose truth still need the separate editorial gate. Writer/editor voice guidance calls for sharp, proportionate performance roasts when warranted, without judging-policy explanations or defensive disclaimers; unexpected injuries and unsupported management blame remain out of scope. A structurally valid candidate is not an approved report or send authority. Zero stories/no suitable quote remain explicit; an unreadable or incomplete archive blocks the candidate.
 
 Complete sections/stories are packed before review into at most three ordered parts, each at most 18,000 UTF-16 units including headers, below Sendblue's documented general message limit. This is a technical safety ceiling, not a word target or live group-delivery proof. Overflow returns safe path/code issues rather than truncating quotes, dropping stories or splitting during transport. Candidate identity covers the evidence ID, parsed draft and exact ordered parts; output is detached and frozen.
 
@@ -83,10 +83,10 @@ League results, comparisons, and standings context established from Sleeper data
 _Avoid_: agent analysis, recap claims
 
 **Manager of the Week**:
-An editorial award for the strongest supported positive case. Evidence v1 cannot establish pregame decision quality, so its explicitly labeled performance fallback is not an automatic highest-score award. Genuine editorial ties may share honors.
+An editorial award for the strongest supported positive case. Evidence v1 cannot establish pregame decision quality, so its internally recorded performance fallback is not an automatic highest-score award. Genuine editorial ties may share honors.
 
 **Loser of the Week**:
-An editorial award for the most defensibly roast-worthy supported failure, not an automatic lowest-score award. Evidence v1 uses the explicit performance fallback rather than inventing bad management; genuine editorial ties may share honors.
+An editorial award for the most defensibly roast-worthy supported failure, not an automatic lowest-score award. Evidence v1 records the performance fallback internally rather than inventing bad management; genuine editorial ties may share honors.
 
 **Match of the Week**:
 The most compelling supported contest, not automatically the smallest margin. Shared selections are allowed when equally supported; tied scores remain factual ties.

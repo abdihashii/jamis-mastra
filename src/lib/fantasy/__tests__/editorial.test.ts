@@ -149,7 +149,10 @@ describe('deterministic editorial candidates (off live path)', () => {
 		const packet = fixture();
 		const out = candidate(packet);
 		const text = out.parts.join('\n\n');
-		expect(text).toContain('Manager of the Week: Alpha\nBasis: weekly performance.');
+		expect(text).toContain('Manager of the Week: Alpha\n\nAlpha made a convincing case');
+		expect(text).not.toContain('Basis:');
+		expect(out.draft.manager.basis).toBe('performance');
+		expect(out.draft.loser.basis).toBe('performance');
 		expect(text).toContain('Loser of the Week: Delta');
 		expect(text).toContain('Match of the Week: Alpha 120 vs. Bravo 80 (margin 40)');
 		expect(text).toContain('Alpha made a convincing case with 120 points, including Runner One at 30.');
@@ -175,6 +178,16 @@ describe('deterministic editorial candidates (off live path)', () => {
 		expect(start).toBeGreaterThan(-1);
 		expect(Buffer.from(out.parts[0].slice(start, start + quoteText.length))).toEqual(Buffer.from(quoteText));
 		expect(out.parts[0]).toContain('{fact:scope:week} stays literal.');
+	});
+
+	it('removes generated basis labels without editing the same words in an exact quote', () => {
+		const packet = fixture();
+		const source = 'Basis: weekly performance.\nA league message, not a generated label.';
+		packet.chat!.sources[0].text = source;
+		const text = candidate(packet).parts.join('\n\n');
+		expect(text).toContain(`Quote of the Week: Alpha\n\n${source}\n\n`);
+		expect(text.match(/Basis: weekly performance\./g)).toHaveLength(1);
+		expect(packet.chat!.sources[0].text).toBe(source);
 	});
 
 	it('does not recursively interpret untrusted subject labels', () => {

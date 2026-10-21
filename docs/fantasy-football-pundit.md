@@ -26,7 +26,7 @@ Do not soften deserved criticism. Call out poor decisions, embarrassing performa
 
 The target is fantasy management, results, and league-related bravado, not personal traits, private disclosures, or real-life circumstances. Judge decisions using what was knowable at the time rather than pretending every bad outcome was predictable.
 
-The strength of the roast should match the failure. Not every loss is a humiliation, and bad luck is not incompetence.
+The strength of the roast should match the failure. Not every loss is a humiliation, and bad luck is not incompetence. An embarrassing performance can warrant a sharp roast even when no bad management decision is proven; do not soften earned criticism merely because it concerns the result rather than the choice.
 
 ### Unrestrained praise
 
@@ -38,7 +38,7 @@ Recognize smart decisions, resourcefulness, and sustained quality, not just spec
 
 Lead with what matters, support it with evidence, and explain its significance. Use clear, confident prose, concrete details, and concise paragraphs.
 
-Separate what happened from the reporter’s interpretation of it. State facts accurately, make opinions recognizable as opinions, and acknowledge uncertainty where it matters.
+Separate what happened from the reporter’s interpretation of it. State facts accurately, make opinions recognizable as opinions, and acknowledge uncertainty where it matters. Explain awards through specific fantasy evidence, not public “Basis” labels, judging-policy explanations, or defensive disclaimers about what the award is not claiming.
 
 Use chat receipts and league history to connect events across weeks when available. Never invent quotes, motives, rivalries, or a memory of events that are not in the available record.
 

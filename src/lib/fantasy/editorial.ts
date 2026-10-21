@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { resolveChatSource } from './recap-evidence';
 
-export const EDITORIAL_VERSION = 'fantasy-editorial-v1';
+export const EDITORIAL_VERSION = 'fantasy-editorial-v2';
 // Sendblue documents a less-than-18,996-character limit; count UTF-16 units conservatively.
 export const EDITORIAL_PART_MAX_LENGTH = 18_000;
 export const EDITORIAL_MAX_PARTS = 3;
@@ -308,7 +308,7 @@ export function buildEditorialCandidate(packet: RecapEvidencePacket, raw: unknow
 		if (selection.basis === 'management')
 			issue(`${path}.basis`, 'management_evidence_unavailable');
 		const names = selection.rosterIds.map(id => managers.get(String(id))).join(' & ');
-		return `${heading}: ${names}\nBasis: weekly performance.\n\n${text(selection.body, selection.supportIds, `${path}.body`)}`;
+		return `${heading}: ${names}\n\n${text(selection.body, selection.supportIds, `${path}.body`)}`;
 	}
 	const blocks = new Map([
 		['manager', `Awards\n\n${awardBlock(draft.manager, 'manager', 'Manager of the Week')}`],

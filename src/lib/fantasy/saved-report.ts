@@ -22,7 +22,7 @@ const savedReportSchema = z.object({
 	}).strict(),
 	evidenceId: z.string().regex(/^evidence-[a-f0-9]{64}$/),
 	candidateId: z.string().regex(/^candidate-[a-f0-9]{64}$/),
-	editorialVersion: z.literal(EDITORIAL_VERSION),
+	editorialVersion: z.enum(['fantasy-editorial-v1', EDITORIAL_VERSION]),
 	writer: roleSchema,
 	reviewer: roleSchema,
 	counts: z.object({

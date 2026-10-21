@@ -1,0 +1,28 @@
+{
+	"version": "fantasy-saved-report-v1",
+	"id": "report-017dc2248a597e98b21092e50b7ac87adc2b282780c8b98f901e58faf0b8dd7c",
+	"scope": {
+		"leagueId": "fixture-league",
+		"groupId": "fixture-group",
+		"season": 2026,
+		"week": 1
+	},
+	"evidenceId": "evidence-5a9d99259d4f8be9ef31bcfa57f61093d688fa933adef85dbc6f5d142984430d",
+	"candidateId": "candidate-833dc59fe9166772dc21598f3fc50eb7afbf4bd08dd62a1a4447093005fb679c",
+	"editorialVersion": "fantasy-editorial-v1",
+	"writer": {
+		"model": "openai-codex/gpt-6-astra",
+		"effort": "xhigh"
+	},
+	"reviewer": {
+		"model": "openai-codex/gpt-6-astra",
+		"effort": "xhigh"
+	},
+	"counts": {
+		"drafts": 1,
+		"reviews": 1
+	},
+	"parts": [
+		"Week 1 Recap\n\nAwards\n\nManager of the Week: Alpha\nBasis: weekly performance.\n\nAlpha delivered 20 points without needing a miracle.\n\nLoser of the Week: Bravo\nBasis: weekly performance.\n\nThe result left little room for an argument.\n\nMatch of the Week: Alpha 20 vs. Bravo 10 (margin 10)\n\nThe contrast made the contest worth remembering.\n\nQuote of the Week: Alpha\n\n  PRIVATE_FOOTBALL_CHAT\n\nWatch this. 🏈 é **exact**  \n\nConfidence met a receptive scoreboard.\n\nStories of the Week\n\nNo additional stories warranted a write-up."
+	]
+}
