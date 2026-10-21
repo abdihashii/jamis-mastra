@@ -14,8 +14,7 @@ export async function pinProjectView(path = process.env.PROJECT_VIEW_PATH) {
 		if (!isView(view) || (await readFile(join(basePath, '.prepared-at'), 'utf8')).trim() !== view.preparedAt)
 			return undefined;
 		return { basePath, view };
-	}
-	catch { return undefined; }
+	} catch { return undefined; }
 }
 
 // An unavailable capability must not stop unrelated requests or fall back to the checkout.
@@ -38,8 +37,7 @@ export async function createProjectWorkspace(path = process.env.PROJECT_VIEW_PAT
 				instructions: ({ defaultInstructions }) => `${defaultInstructions} Approved checkout view prepared at ${preparedAt}. This does not prove the running build.`,
 			}),
 		});
-	}
-	catch {
+	} catch {
 		return undefined;
 	}
 }

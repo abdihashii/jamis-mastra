@@ -18,8 +18,7 @@ if (!process.env.RESEARCH_AGENT_CONTRACT_TEST) {
 		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
 		expect({ exit, output: exit === 0 ? '' : stdout + stderr }).toEqual({ exit: 0, output: '' });
 	}, 10_000);
-}
-else {
+} else {
 	test('production invocation preserves task contracts across fresh turns and filters parent conversation', async () => {
 		const calls: string[] = [];
 		const prompts: unknown[] = [];
@@ -72,8 +71,7 @@ else {
 						controller.enqueue({ type: 'stream-start', warnings: [] });
 						if ('tool' in action) {
 							controller.enqueue({ type: 'tool-call', toolCallId: `call-${step}`, toolName: action.tool, input: JSON.stringify(action.input) });
-						}
-						else {
+						} else {
 							controller.enqueue({ type: 'text-start', id: 'reply' });
 							controller.enqueue({ type: 'text-delta', id: 'reply', delta: action.text });
 							controller.enqueue({ type: 'text-end', id: 'reply' });
@@ -201,9 +199,7 @@ else {
 					});
 					expect(incident).toMatchObject(failed ? { status: 'found', incident: { component, stage: 'tool', classification: 'execution_failed' } } : { status: 'not_found' });
 				}
-			}
-			finally { await observability.getInstance('test')!.shutdown(); }
-		}
-		finally { server.stop(true); }
+			} finally { await observability.getInstance('test')!.shutdown(); }
+		} finally { server.stop(true); }
 	}, 5000);
 }

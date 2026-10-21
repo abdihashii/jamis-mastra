@@ -83,8 +83,7 @@ if (phase === 'queries') {
 	const missing = await createProjectCli('/project', { rg: '/absent', jq: sockets.jq });
 	assert.deepEqual(await missing.query(count), { ok: false, error: 'unavailable' });
 	console.log('PASS: results, no-match/invalid/missing, paths/symlinks, injection, jq visibility/import metadata, credentials/env/socket/fd, writes/network, bounded/malformed IPC, missing backend');
-}
-else if (phase === 'limits') {
+} else if (phase === 'limits') {
 	for (const fault of ['stdout', 'stderr', 'pids']) {
 		await failure(search(`__jam86_${fault}`), 'limit');
 		await success(count, 2);
@@ -102,8 +101,7 @@ else if (phase === 'limits') {
 	await success(count, 2);
 	await success(search('__jam86_reaped'), 'descendant reaped\n');
 	console.log('PASS: stdout/stderr ceilings, PID ceiling, deadline, resistant descendant cleanup, cross-worker busy/slot reuse');
-}
-else if (phase === 'disconnect') {
+} else if (phase === 'disconnect') {
 	const cancellation = new AbortController();
 	const running = owner.query(search('__jam86_timeout'), cancellation.signal);
 	await Bun.sleep(300);
@@ -115,8 +113,7 @@ else if (phase === 'disconnect') {
 	await success(search('__jam86_reaped'), 'descendant reaped\n');
 	await success(count, 2);
 	console.log('PASS: disconnect cancels/reaps, lost IPC fails closed, both idle instances required for reuse');
-}
-else if (phase === 'memory' || phase === 'crash') {
+} else if (phase === 'memory' || phase === 'crash') {
 	const result = await owner.query(search(phase === 'memory' ? '__jam86_memory' : '__jam86_timeout'));
 	assert.ok(!result.ok && ['limit', 'unavailable'].includes(result.error));
 	if (!result.ok && result.error === 'unavailable')
@@ -132,12 +129,10 @@ else if (phase === 'memory' || phase === 'crash') {
 		await success(count, 2);
 	}
 	console.log(`PASS: ${phase} never returns partial success`);
-}
-else if (phase === 'reuse') {
+} else if (phase === 'reuse') {
 	assert.ok(await owner.ready());
 	await success(count, 2);
 	console.log('PASS: restarted instances establish idle before query reuse');
-}
-else { throw new Error('Unknown synthetic phase'); }
+} else { throw new Error('Unknown synthetic phase'); }
 await assert.rejects(import('node:fs/promises').then(fs => fs.writeFile('/rg-ipc/app-write', 'denied')), (e: NodeJS.ErrnoException) => e.code === 'EROFS');
 assert.equal((await readFile('/project/src/send.ts', 'utf8')).trim(), 'Sendblue');

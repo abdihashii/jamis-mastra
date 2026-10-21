@@ -87,8 +87,7 @@ export async function loadCredential(path: string = defaultCredentialPath()): Pr
 	let raw: string;
 	try {
 		raw = await readFile(path, 'utf8');
-	}
-	catch {
+	} catch {
 		return null;
 	}
 	try {
@@ -103,8 +102,7 @@ export async function loadCredential(path: string = defaultCredentialPath()): Pr
 			earliestRefreshAt: parsed.earliestRefreshAt,
 			accountId: parsed.accountId,
 		};
-	}
-	catch {
+	} catch {
 		return null;
 	}
 }
@@ -125,8 +123,7 @@ function decodeJwt(token: string): Record<string, unknown> | null {
 		const payload = parts[1] ?? '';
 		const base64 = payload.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(payload.length / 4) * 4, '=');
 		return JSON.parse(atob(base64)) as Record<string, unknown>;
-	}
-	catch {
+	} catch {
 		return null;
 	}
 }
@@ -189,8 +186,7 @@ async function postTokenUrl(params: Record<string, string>, signal?: AbortSignal
 				: parsed.error?.code ?? parsed.error?.type;
 			if (candidate && /^[\w.-]{1,80}$/.test(candidate))
 				detail = candidate;
-		}
-		catch {
+		} catch {
 			// Provider text is intentionally not logged or returned.
 		}
 		return { ok: false, status: response.status, detail };
@@ -239,8 +235,7 @@ async function serializeCredentialMutation<T>(mutation: () => Promise<T>): Promi
 	await previous;
 	try {
 		return await mutation();
-	}
-	finally {
+	} finally {
 		release();
 	}
 }
@@ -276,8 +271,7 @@ export async function refreshCredential(
 				refresh_token: refreshable.refresh,
 				client_id: CLIENT_ID,
 			}, signal);
-		}
-		catch {
+		} catch {
 			console.error('[openai-codex] Credential refresh status=failed detail=token_request_failed. Re-login required.');
 			throw new CodexAuthFailure('refresh_transport_failed');
 		}
@@ -295,8 +289,7 @@ export async function refreshCredential(
 		};
 		try {
 			await saveCredential(next, path);
-		}
-		catch {
+		} catch {
 			console.error('[openai-codex] Credential refresh status=failed detail=credential_write_failed. Re-login required.');
 			throw new CodexAuthFailure('credential_write_failed');
 		}
@@ -438,8 +431,7 @@ export async function runDeviceLogin(
 					throw new Error(result.error);
 				await sleep();
 			}
-		}
-		catch (error) {
+		} catch (error) {
 			if (signal.aborted)
 				throw new Error(DEVICE_LOGIN_TIMEOUT_ERROR);
 			throw error;
@@ -532,8 +524,7 @@ async function readSseText(response: Response): Promise<string> {
 					};
 					try {
 						event = JSON.parse(data) as typeof event;
-					}
-					catch {
+					} catch {
 						continue;
 					}
 					if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
@@ -546,8 +537,7 @@ async function readSseText(response: Response): Promise<string> {
 				separator = buffer.indexOf('\n\n');
 			}
 		}
-	}
-	finally {
+	} finally {
 		reader.releaseLock();
 	}
 	return text;

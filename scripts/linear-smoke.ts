@@ -20,14 +20,12 @@ try {
 				console.log(JSON.stringify({ action: input.action, status: result.status, partial: result.partial, nextCursor: result.nextCursor, identifier: result.issue?.identifier, state: result.issue?.state, issues: result.issues?.map(issue => issue.identifier), comments: result.comments?.length, attachments: result.attachments?.length, reason: result.reason }));
 				if (result.status !== ('reference' in input && input.reference === 'OUTSIDE-1' ? 'denied' : 'ok'))
 					throw new Error('Unexpected smoke outcome');
-			}
-			else {
+			} else {
 				throw new Error('Tool rejected smoke input');
 			}
 		}
 	}
-}
-catch (error) {
+} catch (error) {
 	console.error(error instanceof LinearError ? error.message : 'Linear smoke failed.');
 	process.exitCode = 1;
 }

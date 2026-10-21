@@ -33,8 +33,7 @@ if (!process.env.LINEAR_AGENT_CONTRACT_TEST) {
 		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
 		expect({ exit, output: exit === 0 ? '' : stdout + stderr }).toEqual({ exit: 0, output: '' });
 	}, 10_000);
-}
-else {
+} else {
 	test('native account delegation preserves tools, isolates history, and exports no credentials on success or failure', async () => {
 		const originalFetch = globalThis.fetch;
 		const calls: string[] = [];
@@ -95,8 +94,7 @@ else {
 						controller.enqueue({ type: 'stream-start', warnings: [] });
 						if ('tool' in action) {
 							controller.enqueue({ type: 'tool-call', toolCallId: `call-${step}`, toolName: action.tool, input: JSON.stringify(action.input) });
-						}
-						else {
+						} else {
 							controller.enqueue({ type: 'text-start', id: 'reply' });
 							controller.enqueue({ type: 'text-delta', id: 'reply', delta: action.text });
 							controller.enqueue({ type: 'text-end', id: 'reply' });
@@ -153,8 +151,7 @@ else {
 			await linearReadTool.execute!({ action: 'list', limit: 21 }, { observe: noopObserve });
 			expect(calls).toHaveLength(before);
 			expect(linearReadInputSchema.safeParse({ action: 'mutation' }).success).toBe(false);
-		}
-		finally {
+		} finally {
 			globalThis.fetch = originalFetch;
 			await observability.getInstance('test')!.shutdown();
 		}

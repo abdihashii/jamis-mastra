@@ -1,8 +1,8 @@
 import type { Processor } from '@mastra/core/processors';
 
+import { expect, test } from 'bun:test';
 import { createOpenAI } from '@ai-sdk/openai';
 import { Mastra } from '@mastra/core';
-import { expect, test } from 'bun:test';
 
 if (!process.env.JAMIS_PROVIDER_SCHEMA_TEST) {
 	test('production tool schemas reach the Responses SDK with object roots', async () => {

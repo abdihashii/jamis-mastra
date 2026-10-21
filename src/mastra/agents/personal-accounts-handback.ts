@@ -64,8 +64,7 @@ export function validatePersonalAccountsHandback(
 	if (handback.case === 'needs_help' && handback.need.kind === 'approval') {
 		if (!proposed || !pendingOperationId || handback.need.operationId !== pendingOperationId)
 			throw new Error('Accounts approval does not match a posted proposal.');
-	}
-	else if (proposed) {
+	} else if (proposed) {
 		throw new Error('A posted proposal still needs its recorded approval decision.');
 	}
 	const result = 'result' in handback ? handback.result : handback.progress;

@@ -192,8 +192,7 @@ try {
 	await cleanupProjectViews(root, replacement.generation);
 	await assert.rejects(readFile(join(oldPath, '.prepared-at')));
 	console.log('PASS: exact unchanged-image view switch, cleanup only after matching owner queries');
-}
-finally {
+} finally {
 	try {
 		if (backendAvailable) {
 			await compose(['down', '--volumes', '--remove-orphans'], true);
@@ -203,7 +202,6 @@ finally {
 			assert.equal((await docker(['network', 'ls', '--filter', `label=com.docker.compose.project=${id}`, '--format', '{{.Name}}'])).out, '');
 			assert.equal((await docker(['image', 'ls', '--filter', `reference=${id}:*`, '--format', '{{.Repository}}:{{.Tag}}'])).out, '');
 		}
-	}
-	finally { await rm(root, { recursive: true, force: true }); }
+	} finally { await rm(root, { recursive: true, force: true }); }
 }
 console.log('PASS: synthetic Compose deployment lifetime; disposable resources removed');

@@ -14,8 +14,7 @@ if (!process.env.RESEARCH_SOURCE_CONTRACT_TEST) {
 		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
 		expect({ exit, output: exit === 0 ? '' : stdout + stderr }).toEqual({ exit: 0, output: '' });
 	}, 10_000);
-}
-else {
+} else {
 	test('bounded discovery, evidence, failures, identity, telemetry and delegation isolation', async () => {
 		const query = 'public fixture question';
 		const secret = 'raw upstream diagnostic fc-fixture';
@@ -285,7 +284,6 @@ else {
 			expect(telemetry.some(entry => entry.outcome === 'unknown_outcome' && entry.credits === 'unknown')).toBe(true);
 			const state = ctx.requestContext!.getRaw('jamis.research-source-contracts') as { requests: Array<{ requestId: string }> };
 			expect(state.requests.at(-1)!.requestId).toBe(requests.at(-1)!.id);
-		}
-		finally { server.stop(true); }
+		} finally { server.stop(true); }
 	}, 5000);
 }

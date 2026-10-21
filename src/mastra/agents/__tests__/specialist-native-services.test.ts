@@ -95,8 +95,7 @@ test('constructor injection resolves the configured gateway, logger and tracing 
 		expect(spans.some(event => event.type === TracingEventType.SPAN_STARTED && event.span.entityId === 'weather-agent')).toBe(true);
 		expect(spans.some(event => event.span.type === SpanType.TOOL_CALL)).toBe(true);
 		expect(spans.some(event => event.span.type === SpanType.MODEL_GENERATION)).toBe(true);
-	}
-	finally {
+	} finally {
 		errorOutput.mockRestore();
 		await observability.getInstance('test')!.shutdown();
 	}

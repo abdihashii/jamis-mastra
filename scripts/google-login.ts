@@ -73,8 +73,7 @@ const server = createServer((req, res) => {
 	let url: URL;
 	try {
 		url = new URL(req.url ?? '/', redirectUri);
-	}
-	catch {
+	} catch {
 		res.writeHead(400).end();
 		return;
 	}
@@ -119,15 +118,13 @@ const server = createServer((req, res) => {
 				// as failed (the credential above was already saved).
 				try {
 					await pickCalendarPool(cred.access);
-				}
-				catch (poolError) {
+				} catch (poolError) {
 					console.error('[google-login] calendar pool step failed:', poolError);
 					console.log('Credential stands. Re-run this script when you want to pick calendars.');
 				}
 			}
 			console.log('Reminder: changing the Google account password invalidates Gmail-scoped refresh tokens. Re-run this script to recover.');
-		}
-		catch (exchangeError) {
+		} catch (exchangeError) {
 			console.error(`[google-login] ${exchangeError instanceof Error ? exchangeError.message : String(exchangeError)}`);
 			res.writeHead(500, { 'Content-Type': 'text/html' }).end(DENIED_PAGE, () => finish(1));
 			return;
@@ -174,8 +171,7 @@ async function pickFromStdin(calendars: Array<{ id: string; summary: string; tim
 		// Dedupe: "1,1" must not store the same calendar twice (stage 2 queries once per id).
 		const unique = [...new Set(indices)];
 		return unique.length > 0 ? unique.map(i => calendars[i]) : [primary];
-	}
-	finally {
+	} finally {
 		rl.close();
 	}
 }

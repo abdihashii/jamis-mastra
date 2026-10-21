@@ -56,10 +56,8 @@ if (fault === '__jam86_boundary') {
 			});
 		});
 		console.log('boundary checked');
-	}
-	catch { console.log(`FAIL: ${category}`); }
-}
-else if (fault === '__jam86_timeout') {
+	} catch { console.log(`FAIL: ${category}`); }
+} else if (fault === '__jam86_timeout') {
 	process.on('SIGTERM', () => {});
 	const child = spawn('/bin/sh', ['-c', 'trap "" TERM; sleep 60'], { stdio: 'inherit' });
 	await writeFile('/ipc/descendant.pid', String(child.pid));
@@ -69,18 +67,15 @@ else if (fault === '__jam86_timeout') {
 	await noControlDescriptors([process.pid, child.pid!]);
 	assert.ok(await readFile(`/proc/${child.pid}/stat`), 'descendant must resist SIGTERM');
 	await new Promise(() => {});
-}
-else if (fault === '__jam86_reaped') {
+} else if (fault === '__jam86_reaped') {
 	const pid = (await readFile('/ipc/descendant.pid', 'utf8')).trim();
 	await assert.rejects(readFile(`/proc/${pid}/stat`));
 	await unlink('/ipc/descendant.pid');
 	console.log('descendant reaped');
-}
-else if (fault === '__jam86_memory') {
+} else if (fault === '__jam86_memory') {
 	const buffers: Buffer[] = [];
 	while (true) buffers.push(Buffer.alloc(16 * 1024 * 1024, 1));
-}
-else if (fault === '__jam86_pids') {
+} else if (fault === '__jam86_pids') {
 	while (true) {
 		const child = spawn('/bin/sleep', ['60'], { stdio: 'ignore' });
 		await new Promise<void>((resolve) => {
@@ -88,9 +83,7 @@ else if (fault === '__jam86_pids') {
 			child.once('error', () => process.exit(137));
 		});
 	}
-}
-else if (fault === '__jam86_stdout' || fault === '__jam86_stderr') {
+} else if (fault === '__jam86_stdout' || fault === '__jam86_stderr') {
 	const stream = fault === '__jam86_stdout' ? process.stdout : process.stderr;
 	for (let i = 0; i < 1000; i++) stream.write('x'.repeat(4096));
-}
-else { process.exit(2); }
+} else { process.exit(2); }

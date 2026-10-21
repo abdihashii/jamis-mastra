@@ -42,8 +42,7 @@ export function boundaryModel(actions: Action[], inspect?: (options: unknown) =>
 			controller.enqueue({ type: 'stream-start', warnings: [] });
 			if ('tool' in action) {
 				controller.enqueue({ type: 'tool-call', toolCallId: `call-${step}`, toolName: action.tool, input: JSON.stringify(action.input) });
-			}
-			else {
+			} else {
 				controller.enqueue({ type: 'text-start', id: 'reply' });
 				controller.enqueue({ type: 'text-delta', id: 'reply', delta: 'handback' in action ? JSON.stringify({ handback: action.handback }) : action.text });
 				controller.enqueue({ type: 'text-end', id: 'reply' });

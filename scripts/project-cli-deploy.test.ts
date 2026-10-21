@@ -86,12 +86,10 @@ test.each(['SIGTERM', 'SIGINT', 'SIGHUP'] as const)('%s retains deployment admis
 		assert.notEqual(await child.exited, 0);
 		assert.notEqual(await deploy('recreate').exited, 0); // Interrupted lock requires Operator recovery.
 		assert.equal(await readFile(join(root, 'commands'), 'utf8'), before);
-	}
-	finally {
+	} finally {
 		try {
 			process.kill(-child.pid, 'SIGKILL');
-		}
-		catch (e) {
+		} catch (e) {
 			assert.equal((e as NodeJS.ErrnoException).code, 'ESRCH');
 		}
 		await child.exited;

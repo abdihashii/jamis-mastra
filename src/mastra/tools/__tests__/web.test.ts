@@ -98,8 +98,7 @@ async function verifyWebContract() {
 			} });
 			span.end({ output: result });
 			return result;
-		}
-		catch (error) {
+		} catch (error) {
 			span.error({ error: error as Error, endSpan: true });
 			throw error;
 		}
@@ -247,8 +246,7 @@ async function verifyWebContract() {
 		for (const span of spans.filter(span => span.errorInfo)) {
 			expect(span.errorInfo?.message).toMatch(/^Web (search|scrape) failed\.$/);
 		}
-	}
-	finally {
+	} finally {
 		fetchSpy.mockRestore();
 		timeoutSpy.mockRestore();
 		if (apiUrl === undefined)

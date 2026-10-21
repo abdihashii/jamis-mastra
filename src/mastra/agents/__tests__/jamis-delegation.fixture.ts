@@ -282,8 +282,7 @@ export async function runJamisChannelFixture(mastra: Mastra, sql: SqlLike) {
 		assert.equal(forecastCalls, 2);
 		assert(JSON.stringify(prompts[2]).includes('Which city?'), 'The next DM receives the native session context.');
 		return { nativeDmTurns: replies.length, controlledReplyAcceptances: replies.length, forecastCalls, clarificationAndSupersession: true, calendarWeatherPartial: true, externalMessages: 0 };
-	}
-	finally { await channels.sdk!.shutdown(); }
+	} finally { await channels.sdk!.shutdown(); }
 }
 
 export async function runJamisNestedResearchFixture(mastra: Mastra) {

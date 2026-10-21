@@ -17,8 +17,7 @@ if (phase === 'unavailable') {
 	assert.deepEqual(await owner.query(count), { ok: false, error: 'unavailable' });
 	assert.deepEqual(await tools.projectRg.execute!(count, context), { ok: false, error: 'unavailable' });
 	assert.match(await readFile('/project/src/send.ts', 'utf8'), /Sendblue/);
-}
-else if (phase === 'drain') {
+} else if (phase === 'drain') {
 	assert.ok(await owner.ready());
 	const started = Date.now();
 	const pending = owner.query({ operation: 'search', path: 'src', pattern: '__jam86_timeout' });
@@ -28,8 +27,7 @@ else if (phase === 'drain') {
 	assert.ok(Date.now() - started >= 9500, 'deployment cancelled the query before its deadline');
 	assert.ok(Date.now() - started < 13000);
 	assert.ok(!result.ok && ['limit', 'unavailable'].includes(result.error));
-}
-else {
+} else {
 	assert.ok(await owner.ready());
 	const result = await owner.query(count);
 	assert.ok(result.ok);

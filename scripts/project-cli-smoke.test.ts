@@ -21,8 +21,7 @@ test.each(['project-cli-smoke', 'project-cli-deploy-smoke'])('%s removes tempora
 		assert.notEqual(exit, 0);
 		assert.match(stderr, /docker/);
 		assert.deepEqual(await readdir(root), []);
-	}
-	finally {
+	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
 });

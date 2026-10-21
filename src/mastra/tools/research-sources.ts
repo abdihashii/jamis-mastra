@@ -63,8 +63,7 @@ const httpUrl = text.refine((value) => {
 	try {
 		const url = new URL(value);
 		return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
-	}
-	catch { return false; }
+	} catch { return false; }
 });
 const sourceSchema = z.object({
 	originalId: text,
@@ -133,11 +132,9 @@ function failure(error: unknown, output: Output) {
 	if (parsed.success && parsed.data.code === 'THIRD_PARTY_DATA_TERMS_REQUIRED') {
 		output.status = 'terms_required';
 		output.adminActionUrl = adminUrl(parsed.data.requiresAction?.url);
-	}
-	else if (parsed.success && [401, 403].includes(parsed.data.status ?? 0)) {
+	} else if (parsed.success && [401, 403].includes(parsed.data.status ?? 0)) {
 		output.status = 'access_denied';
-	}
-	else {
+	} else {
 		output.status = parsed.success && parsed.data.status && parsed.data.status !== 408 ? 'upstream_error' : 'unknown_outcome';
 	}
 }
@@ -178,8 +175,7 @@ async function executeCall(operation: Operation | 'discovery', options: Record<s
 			return;
 		}
 		return item.data;
-	}
-	catch (error) {
+	} catch (error) {
 		if (error instanceof z.ZodError)
 			output.status = 'invalid_response';
 		else
@@ -192,8 +188,7 @@ async function runOperation(operation: Operation | 'discovery', context: ToolExe
 	const started = performance.now();
 	try {
 		return await run(output);
-	}
-	finally {
+	} finally {
 		context?.tracing?.currentSpan?.update({ metadata: { researchOperation: {
 			source: operation === 'discovery' ? 'catalogue' : operation.startsWith('paper-') ? 'papers' : 'developer',
 			capability: operation === 'discovery' ? 'find-tools' : routes[operation].capability,
@@ -385,8 +380,7 @@ export const researchSourceDiscover = createTool({
 			context.requestContext.setRaw(stateKey, { ...state, contracts });
 			output.gaps = [...new Set(output.gaps)];
 			output.status = output.operations.length ? output.gaps.length ? 'partial' : 'success' : 'blocked';
-		}
-		catch { output.status = 'invalid_response'; }
+		} catch { output.status = 'invalid_response'; }
 		return output;
 	}),
 });
@@ -418,8 +412,7 @@ export const researchSourceRetrieve = createTool({
 		if (data !== undefined) {
 			try {
 				normalize(operation, data, output, paperId ?? undefined);
-			}
-			catch { output.status = 'invalid_response'; }
+			} catch { output.status = 'invalid_response'; }
 		}
 		return output;
 	}),

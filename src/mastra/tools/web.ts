@@ -65,11 +65,9 @@ async function runWebOperation<T>(operation: 'search' | 'scrape', run: () => Pro
 		const result = await run();
 		outcome = 'success';
 		return result;
-	}
-	catch {
+	} catch {
 		throw new Error(operation === 'search' ? 'Web search failed.' : 'Web scrape failed.');
-	}
-	finally {
+	} finally {
 		span?.update({
 			metadata: { webOperation: {
 				operation,

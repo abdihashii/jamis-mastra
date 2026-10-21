@@ -32,8 +32,7 @@ if (!process.env.JAMIS_DELEGATION_TEST) {
 		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
 		expect({ exit, output: exit ? stdout + stderr : '' }).toEqual({ exit: 0, output: '' });
 	}, 35_000);
-}
-else {
+} else {
 	const { runJamisChannelFixture, runJamisDelegationFixture, runJamisNestedResearchFixture, runJamisResearchFixture, runJamisWeatherValidationFixture } = await import('./jamis-delegation.fixture');
 	const { runJamisAmbientAuthorityFixture } = await import('./specialist-ambient.fixture');
 	const { runSpecialistClarificationFixture } = await import('./specialist-clarification.fixture');
@@ -73,8 +72,7 @@ else {
 				const usage = (value as { attributes?: { usage?: { inputTokens?: number; outputTokens?: number } } }).attributes?.usage;
 				return typeof usage?.inputTokens === 'number' && typeof usage.outputTokens === 'number';
 			})).toBe(true);
-		}
-		finally { await observability.getInstance('fixture')!.shutdown(); }
+		} finally { await observability.getInstance('fixture')!.shutdown(); }
 	}, 10_000);
 	test.skipIf(!process.env.JAMIS_TEST_DATABASE_URL)('native production DM handler preserves clarification and supersedes unfinished weather', async () => {
 		const databaseUrl = process.env.JAMIS_TEST_DATABASE_URL!;
@@ -88,13 +86,11 @@ else {
 			await runJamisChannelFixture(new Mastra({ logger: false, storage }), sql);
 			await runJamisAmbientAuthorityFixture(new Mastra({ logger: false, storage }), sql);
 			await runSpecialistClarificationFixture(new Mastra({ logger: false, storage }), sql);
-		}
-		finally {
+		} finally {
 			await sql.close();
 			try {
 				await storage.db.none(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
-			}
-			finally { await storage.close(); }
+			} finally { await storage.close(); }
 		}
 	}, 20_000);
 }

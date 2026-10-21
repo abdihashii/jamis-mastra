@@ -178,8 +178,7 @@ test('preparation avoids symlink cycles and publishes a readable descriptor unde
 	let view: Awaited<ReturnType<typeof prepareProjectView>>;
 	try {
 		view = await prepareProjectView(root);
-	}
-	finally { process.umask(originalMask); }
+	} finally { process.umask(originalMask); }
 	expect(await readlink(join(view.path, 'src/outside-directory'))).toBe(join(root, 'data'));
 	expect((await lstat(join(view.path, '.project-view.json'))).mode & 0o777).toBe(0o644);
 	expect(await pinProjectView(view.path)).toBeDefined();
@@ -250,8 +249,7 @@ test.skipIf(!process.env.PROJECT_VIEW_DOCKER_SMOKE)('Linux mount rejects non-roo
 		expect(await run([...compose, 'ps', '-q', 'postgres', 'clickhouse', 'cloudflared'])).toBe(othersBefore);
 		expect(await run([...compose, 'exec', '-T', 'app', 'cat', '/project/src/handler.ts'])).toBe('replacement handler');
 		console.warn('Linux smoke: UID 1000, EROFS, unchanged image, fresh read, only app recreated.');
-	}
-	finally {
+	} finally {
 		await run([...compose, 'down', '--volumes', '--remove-orphans']);
 	}
 }, 120000);

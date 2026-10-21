@@ -85,8 +85,7 @@ export async function prepareProjectView(checkout = process.cwd()) {
 		await rename(pointer, current);
 		published = true;
 		return { path: current, generation, preparedAt };
-	}
-	catch (error) {
+	} catch (error) {
 		await rm(pointer, { force: true });
 		// Never remove a generation that was already published.
 		if (!published)
@@ -110,8 +109,7 @@ export async function cleanupProjectViews(checkout = process.cwd(), generation?:
 if (import.meta.main) {
 	if (process.argv[2] === '--cleanup') {
 		await cleanupProjectViews(resolve(process.argv[3] ?? '.'), process.argv[4]);
-	}
-	else {
+	} else {
 		const view = await prepareProjectView(resolve(process.argv[2] ?? '.'));
 		console.log(`Project view prepared at ${view.preparedAt}\nPROJECT_VIEW_PATH=${view.path}`);
 	}
