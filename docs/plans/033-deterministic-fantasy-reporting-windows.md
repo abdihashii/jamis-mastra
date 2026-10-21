@@ -1,6 +1,6 @@
 # 033: Deterministic Fantasy reporting windows
 
-**Status:** Step 1 committed as `2fd4867`. Step 2 implemented and verified; the Operator approved commit only and owns push/deployment. The production recap cron remains Operator-paused.
+**Status:** Steps 1–2 committed (`2fd4867`, `517a31a`) and Operator-confirmed deployed. The corrected Week 6 editorial-only no-send preview passed. The production recap cron remains Operator-paused.
 
 ## Goal and constraints
 
@@ -57,8 +57,12 @@ Step 1 commit approval does not authorize an assistant push or deployment. Step 
 
 **Verification result (2026-10-21 UTC):** full suite 1,476 passed, one Linux-only skip, zero failures (1,477 tests across 79 files; 13,998 assertions). Full typecheck, lint (zero errors, 334 line-length warnings), standard production Mastra/Studio Docker build, four infra tests and whitespace checks passed. Native disposable PostgreSQL and scripted model fixtures exercised persistence, exact saved retries, read-only previews, source filtering and restart holds. Four fresh read-only correctness/contracts/security/Ponytail reviews found one concrete integration defect: equivalent games in a different response order falsely blocked restart. It was reproduced first (60 passed/one failed), fixed by sorting copies only for comparison, and independently rechecked with no remaining findings. Original stored proof and packet bytes are never reordered or rewritten.
 
-No live model, paid NFL read, production DB/SSH access, report regeneration, real message, deployment or cron change occurred. Both retained Week 6 artifacts stay unchanged and held. Next acceptance is a separately authorized, corrected Week 6 editorial-only no-send preview after commit/deployment; previous protocol/voice acceptance does not approve the old coverage.
+During implementation verification, no live model, paid NFL read, production DB/SSH access, report regeneration, real message, deployment or cron change occurred. Both prior retained Week 6 artifacts remain unchanged and held; previous protocol/voice acceptance does not approve their old coverage.
 
-**Approved commit:** `fix: enforce one queried fantasy reporting window across evidence` (commit only; push/deployment remain Operator-owned).
+**Commit:** `517a31a` (`fix: enforce one queried fantasy reporting window across evidence`), with commit-only approval. The Operator pushed and reported deployment.
 
-The Operator approved this commit only. Paid/model preview, publication and cron resumption remain separate gates.
+**Operator-run editorial-only acceptance (2026-10-21 UTC):** `preview-candidate --week 6 --nfl` returned `approved` with the fixed interval `[2026-10-14T07:00:00.000Z, 2026-10-21T07:00:00.000Z)`. Evidence `evidence-917cfdf760647a85a8b8bc8df3ae99c9fcd1ebe162449d4bbd8176b57520ba3a` admitted 66 chat sources and three NFL reads. The result had fourteen `transactions:transaction_time_unverified` gaps plus `nfl:source_player_mapping_unavailable`, `nfl:reporting_window_exclusion` and `nfl:source_partial`; unavailable temporal/player claims were not guessed. Actual credit totals are not printed by this CLI result.
+
+One writer and one reviewer approved `fantasy-editorial-v2` candidate `candidate-8421ce2a1a7afa478ac151e0bb05fc7049ecfce9e8e14f5ffdcb59ddbb1dfb8b` as one 2,378-UTF-16-unit part, without the generated public Basis label. Database state was verified unchanged, Broadcaster was not invoked, and sends were zero. No private report/quote text is copied into this record.
+
+This is an Operator-run read-only editorial sample, not a source-checksummed full-pipeline run, scheduled tick, durable production save/retry, provider acceptance or handset receipt. The CLI does not retain a new SavedReport; printed approval is not saved delivery authority. No rerun, further commit/push, publication or cron resumption is authorized by recording acceptance.
