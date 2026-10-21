@@ -1,10 +1,10 @@
 import type { GoogleCredential } from '../google-oauth.js';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
 	buildAuthUrl,

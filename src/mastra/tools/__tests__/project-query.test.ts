@@ -57,11 +57,9 @@ async function fixture() {
 			if (op.operation === 'jq') {
 				expect(Buffer.from(request.input, 'base64').toString()).toBe(JSON.stringify(pkg));
 				result = { ok: true, operation: op.operation, path: op.path, view, output: `${JSON.stringify({ scripts: pkg.scripts, dependencies: { '@mastra/core': pkg.dependencies['@mastra/core'] } })}\n` };
-			}
-			else if (op.pattern === '[' || op.pattern === 'overflow') {
+			} else if (op.pattern === '[' || op.pattern === 'overflow') {
 				result = { ok: false, error: op.pattern === '[' ? 'invalid' : 'limit' };
-			}
-			else {
+			} else {
 				const matching = Object.entries(source).filter(([, contents]) => (op.ignoreCase ? contents.toLowerCase() : contents).includes(op.ignoreCase ? op.pattern.toLowerCase() : op.pattern)).map(([path]) => path).sort();
 				result = { ok: true, operation: op.operation, path: op.path, view, output: op.operation === 'count' ? matching.length : op.operation === 'files' ? matching : `src/a.ts:2:${untrusted}\n` };
 			}
@@ -114,8 +112,7 @@ test('bounded tools reuse owner admission, recover readiness and preserve exact 
 		expect(f.requests).toHaveLength(before);
 		f.set({ idle: true });
 		expect(await tools.projectRg.execute!(count, context)).toEqual({ ok: true, operation: 'count', path: 'src', view, output: 2 });
-	}
-	finally { await f.close(); }
+	} finally { await f.close(); }
 });
 
 test('actual agent/tool/model/channel exports and storage omit raw evidence while retaining query and usage diagnostics', async () => {
@@ -168,8 +165,7 @@ test('actual agent/tool/model/channel exports and storage omit raw evidence whil
 				controller.enqueue({ type: 'stream-start', warnings: [] });
 				if (invoke) {
 					controller.enqueue({ type: 'tool-call', toolCallId: 'fixture-call', toolName: call.name, input: JSON.stringify(call.input) });
-				}
-				else {
+				} else {
 					controller.enqueue({ type: 'text-start', id: 'reply' });
 					controller.enqueue({ type: 'text-delta', id: 'reply', delta: `src/a.ts:2 ${untrusted}. View ${view.preparedAt}.` });
 					controller.enqueue({ type: 'text-end', id: 'reply' });
@@ -267,8 +263,7 @@ test('actual agent/tool/model/channel exports and storage omit raw evidence whil
 		expect(tokenRecords.value).toBeGreaterThan(0);
 		const applicationLogs = await store!.listLogs({ filters: { rootEntityName: 'Jamis' }, pagination: { page: 0, perPage: 100 } });
 		expect(applicationLogs.logs.length).toBeGreaterThan(0);
-	}
-	finally {
+	} finally {
 		consoleWarning.mockRestore();
 		consoleError.mockRestore();
 		await observability.getInstance('test')!.shutdown();

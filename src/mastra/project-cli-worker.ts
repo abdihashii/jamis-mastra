@@ -50,8 +50,7 @@ async function groupExists(pid: number) {
 			const stat = await readFile(`/proc/${entry}/stat`, 'utf8');
 			if (Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[2]) === pid)
 				return true;
-		}
-		catch (e) {
+		} catch (e) {
 			if ((e as NodeJS.ErrnoException).code !== 'ENOENT')
 				throw e;
 		}
@@ -72,8 +71,7 @@ async function execute(op: Operation, input: Buffer | undefined, disconnected: A
 	if (op.operation !== 'jq') {
 		try {
 			await scope(op.path, deadline, disconnected);
-		}
-		catch (e) { return failure((e as Error).message === 'limit' ? 'limit' : (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'denied'); }
+		} catch (e) { return failure((e as Error).message === 'limit' ? 'limit' : (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'denied'); }
 	}
 	if (disconnected.aborted)
 		return failure('unavailable');
@@ -93,8 +91,7 @@ async function execute(op: Operation, input: Buffer | undefined, disconnected: A
 		if (child.pid) {
 			try {
 				process.kill(-child.pid, 'SIGKILL');
-			}
-			catch (e) {
+			} catch (e) {
 				if ((e as NodeJS.ErrnoException).code !== 'ESRCH')
 					throw e;
 			}
@@ -115,8 +112,7 @@ async function execute(op: Operation, input: Buffer | undefined, disconnected: A
 			if (sizes[index] > limits.streamBytes) {
 				error = 'limit';
 				kill();
-			}
-			else { chunks[index].push(data); }
+			} else { chunks[index].push(data); }
 		});
 	}
 	child.stdin.on('error', () => { /* EPIPE after a cancelled/failed command is expected. */ });
@@ -196,8 +192,7 @@ const server = createServer((socket) => {
 		let request;
 		try {
 			request = JSON.parse(data.toString('utf8'));
-		}
-		catch {
+		} catch {
 			reply({
 				ok: false,
 				error: 'denied',
@@ -229,9 +224,10 @@ const server = createServer((socket) => {
 		activeSocket = socket;
 		try {
 			reply(await execute(request.op, input, disconnected.signal));
-		}
-		catch { process.exit(1); } // Unconfirmed cleanup requires container restart, never an idle acknowledgement.
-		finally {
+		} catch {
+			// Unconfirmed cleanup requires container restart, never an idle acknowledgement.
+			process.exit(1);
+		} finally {
 			active = false;
 			activeSocket = undefined;
 			finishDrain();

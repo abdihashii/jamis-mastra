@@ -26,8 +26,7 @@ test('owner fails closed on mismatched identities, oversized IPC and malformed q
 					return;
 				}
 				socket.end(`${JSON.stringify({ instance: '00000000-0000-0000-0000-000000000000', mode, idle: bad !== 'active', view: bad === 'view' ? { ...view, generation: 'view-wrong' } : view })}\n`);
-			}
-			else {
+			} else {
 				queries++;
 				socket.end(`${JSON.stringify({ ok: true, operation: 'count', path: '.', view, output: bad === 'result' ? -1 : 0 })}\n`);
 			}
@@ -60,8 +59,7 @@ test('owner fails closed on mismatched identities, oversized IPC and malformed q
 		bad = '';
 		assert.deepEqual(await owner.query(op), { ok: true, operation: 'count', path: '.', view, output: 0 });
 		assert.deepEqual(await owner.query({ ...op, argv: ['sh'] }), { ok: false, error: 'denied' });
-	}
-	finally {
+	} finally {
 		for (const server of servers) server.close();
 		await rm(root, { recursive: true, force: true });
 	}

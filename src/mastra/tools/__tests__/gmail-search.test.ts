@@ -120,8 +120,7 @@ function operatorSql(override: string): SqlLike {
 async function captureError(action: () => Promise<unknown>): Promise<Error> {
 	try {
 		await action();
-	}
-	catch (error) {
+	} catch (error) {
 		return error as Error;
 	}
 	throw new Error('expected the action to throw, but it resolved');

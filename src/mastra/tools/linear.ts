@@ -14,8 +14,7 @@ export const linearReadTool = createTool({
 		try {
 			client ??= createLinearClient();
 			return await client.readIssues(input, abortSignal);
-		}
-		catch (error) {
+		} catch (error) {
 			return { status: 'unavailable' as const, reason: error instanceof LinearError ? error.category : 'unavailable', partial: false, nextCursor: null };
 		}
 	},

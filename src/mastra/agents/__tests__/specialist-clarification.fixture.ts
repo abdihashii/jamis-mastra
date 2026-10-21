@@ -115,8 +115,7 @@ export async function runSpecialistClarificationFixture(mastra: Mastra, sql: Sql
 					const value = part.output?.value;
 					try {
 						rootHandbacks.push(typeof value === 'string' ? JSON.parse(value) : value);
-					}
-					catch {
+					} catch {
 						rootHandbacks.push(value);
 					}
 				}
@@ -239,8 +238,7 @@ export async function runSpecialistClarificationFixture(mastra: Mastra, sql: Sql
 		};
 		try {
 			await assert.rejects(() => send('Mastra'));
-		}
-		finally {
+		} finally {
 			memory.updateThreadMetadata = updateMetadata;
 		}
 		assert.equal(publicPrompts.length, beforeFailure);
@@ -248,6 +246,5 @@ export async function runSpecialistClarificationFixture(mastra: Mastra, sql: Sql
 		assert.equal(publicPrompts.length, beforeFailure, 'A failed intervening intake cannot reset the old Research task budget.');
 		assert.equal((await currentThread()).metadata?.[specialistClarificationKey], null);
 		return { priorResearchReused: true, originalResearchTaskPreserved: true, supersessionAndSessionIsolation: true, forgedAndCorruptStateDenied: true, storageFailureStopped: true, publicSourceReads: sourceReads };
-	}
-	finally { await channels.sdk?.shutdown(); }
+	} finally { await channels.sdk?.shutdown(); }
 }

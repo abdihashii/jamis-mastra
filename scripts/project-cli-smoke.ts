@@ -133,8 +133,7 @@ try {
 		assert.equal(logs.err.trim(), '');
 	}
 	console.log('PASS: hard memory/OOM, crash/restart removes descendants, bounded logs, read-only app IPC');
-}
-finally {
+} finally {
 	try {
 		for (const name of containers) await docker(['rm', '-f', name], true).catch(() => {});
 		for (const volume of volumes) await docker(['volume', 'rm', volume], true).catch(() => {});
@@ -144,7 +143,6 @@ finally {
 			assert.equal((await docker(['volume', 'ls', '--filter', `name=${id}`, '--format', '{{.Name}}'])).out.trim(), '');
 			assert.equal((await docker(['image', 'ls', '--filter', `reference=${id}:*`, '--format', '{{.Repository}}:{{.Tag}}'])).out.trim(), '');
 		}
-	}
-	finally { await rm(root, { recursive: true, force: true }); }
+	} finally { await rm(root, { recursive: true, force: true }); }
 }
 console.log('PASS: complete local worker boundary proof; disposable resources removed (target-server synthetic proof required before stage 2)');

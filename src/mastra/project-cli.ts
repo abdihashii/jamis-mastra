@@ -42,8 +42,7 @@ async function rpc(path: string, request: unknown, signal?: AbortSignal): Promis
 				complete = true;
 				finish();
 				resolve(response);
-			}
-			catch { cancel(); }
+			} catch { cancel(); }
 		});
 		socket.once('error', (e) => {
 			finish();
@@ -80,12 +79,10 @@ export async function createProjectCli(path: string | undefined, sockets = { rg:
 		try {
 			identities = await status();
 			return true;
-		}
-		catch {
+		} catch {
 			identities = undefined;
 			return false;
-		}
-		finally { active = false; }
+		} finally { active = false; }
 	}
 	async function query(value: unknown, signal?: AbortSignal): Promise<Result> {
 		if (!validOperation(value))
@@ -104,8 +101,7 @@ export async function createProjectCli(path: string | undefined, sockets = { rg:
 				let resolved: string;
 				try {
 					resolved = await checkedProjectPath(pinned.basePath, op.path);
-				}
-				catch (e) { return { ok: false, error: (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'denied' }; }
+				} catch (e) { return { ok: false, error: (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'denied' }; }
 				const file = await open(resolved, 'r');
 				try {
 					const stat = await file.stat();
@@ -124,8 +120,7 @@ export async function createProjectCli(path: string | undefined, sockets = { rg:
 					if (size > limits.jsonBytes)
 						return { ok: false, error: 'limit' };
 					input = buffer.subarray(0, size).toString('base64');
-				}
-				finally { await file.close(); }
+				} finally { await file.close(); }
 			}
 			const mode = op.operation === 'jq' ? 'jq' : 'rg';
 			const result = await rpc(sockets[mode], { type: 'query', instance: identities[mode].instance, view: pinned.view, op, ...(input === undefined ? {} : { input }) }, signal) as Result;
@@ -138,12 +133,10 @@ export async function createProjectCli(path: string | undefined, sockets = { rg:
 			if (current.rg.instance !== identities.rg.instance || current.jq.instance !== identities.jq.instance)
 				throw new Error('unavailable');
 			return result;
-		}
-		catch {
+		} catch {
 			identities = undefined; // No reconnect shortcut: both current instances must prove idle.
 			return unavailable;
-		}
-		finally { active = false; }
+		} finally { active = false; }
 	}
 	await ready();
 	return { query, ready };

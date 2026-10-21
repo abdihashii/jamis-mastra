@@ -53,12 +53,10 @@ try {
 	await observability.getInstance('smoke')!.flush();
 	assert(!JSON.stringify(events).includes('PRIVATE_ARCHITECTURE_SENTINEL'), 'Private context entered exported signals.');
 	console.log('PASS: native typed handback, migrated DM clarification/composition, nested public isolation, stored outcome recovery; no live mutations or outbound messages.');
-}
-finally {
+} finally {
 	await observability.getInstance('smoke')!.shutdown();
 	await sql.close();
 	try {
 		await storage.db.none(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
-	}
-	finally { await storage.close(); }
+	} finally { await storage.close(); }
 }
