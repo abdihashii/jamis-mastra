@@ -1,6 +1,6 @@
 # 033: Deterministic Fantasy reporting windows
 
-**Status:** Steps 1–2 committed (`2fd4867`, `517a31a`) and Operator-confirmed deployed. The corrected Week 6 editorial-only no-send preview passed. The production recap cron remains Operator-paused.
+**Status:** Steps 1–2 committed (`2fd4867`, `517a31a`) and Operator-confirmed deployed. Corrected editorial-only preview and one explicitly authorized saved Week 6 group publication passed, including Operator-observed receipt. The production recap cron remains Operator-paused.
 
 ## Goal and constraints
 
@@ -65,4 +65,16 @@ During implementation verification, no live model, paid NFL read, production DB/
 
 One writer and one reviewer approved `fantasy-editorial-v2` candidate `candidate-8421ce2a1a7afa478ac151e0bb05fc7049ecfce9e8e14f5ffdcb59ddbb1dfb8b` as one 2,378-UTF-16-unit part, without the generated public Basis label. Database state was verified unchanged, Broadcaster was not invoked, and sends were zero. No private report/quote text is copied into this record.
 
-This is an Operator-run read-only editorial sample, not a source-checksummed full-pipeline run, scheduled tick, durable production save/retry, provider acceptance or handset receipt. The CLI does not retain a new SavedReport; printed approval is not saved delivery authority. No rerun, further commit/push, publication or cron resumption is authorized by recording acceptance.
+This is an Operator-run read-only editorial sample, not a source-checksummed full-pipeline run, scheduled tick, durable production save/retry, provider acceptance or handset receipt. The CLI does not retain a new SavedReport; printed approval is not saved delivery authority. Recording that sample granted no further commit/push, publication or cron resumption. The separately authorized preparation and publication below used a new saved artifact, not reconstructed preview text.
+
+## 3. Controlled first official Week 6 publication
+
+**Operator-confirmed acceptance (2026-10-21 UTC):** the Operator chose save/review first rather than immediate generation-and-send. A read-only preflight confirmed season 2026, latest completed week 6 and no existing configured-league Week 6 run. A source-checked temporary operator runner then used the canonical durable pipeline with the exact queried window above, three NFL reads, one Astra writer and one reviewer. Its 173-file source proof matched the code at `517a31a` (the later `872d3ea` changes only acceptance documentation).
+
+The new approved editorial-v2 artifact is `report-50efe9712a16aea0be67cf9956756d1c3927ee08584d3e77bb0b4a3faf10846c`, one 2,591-UTF-16-unit part, retained at `data/fantasy-publish-review/fantasy-week6-official-held-report.json` (0600). Approval/history and a manual recovery hold committed atomically through the existing owners before any publication callback. The report was durably held with zero send attempts; alerts were suppressed. Native disposable-PostgreSQL self-checks on macOS and Linux/Bun 1.3.14 covered hold failure rollback, lost commit acknowledgment, visible paid intents, duplicate-budget refusal and automatic-retry denial; four fresh read-only reviews found no issues. No rejected earlier artifact was edited or published.
+
+The actual Luna/max Broadcaster then exercised these exact saved bytes with a mocked sender in a disposable isolated schema. It made two HTTP 200 model calls and one mock send; exact bytes and replay blocking passed. Production stayed held, ordinary rows and the private artifact were unchanged, and the temporary schema was removed. Real Sendblue calls were zero. Two fresh read-only reviews and native offline checks covered the mock runner's isolation and protocol.
+
+After reviewing the text and mock result, the Operator explicitly authorized one real send of this saved report. The trusted CLI `retry --week 6 --report-id <exact ID above>` resumed only its pending part through the existing checked Broadcaster and exact sender, with no new writer, editor, research or regeneration. The receipt reported `status: sent`, `acceptedParts: 1`, `totalParts: 1`, `recoveryRequired: false` and `unresolved: null`. The Operator also confirmed seeing the report in the group chat.
+
+This proves one controlled saved-report delivery and Operator-observed group receipt, not an automatic scheduled tick, recurring cron resumption, universal editorial quality or physical exactly-once guarantees. No schedule-run POST was used. The recurring cron remains Operator-paused; no further send, regeneration, commit/push or resumption is authorized by recording this acceptance.

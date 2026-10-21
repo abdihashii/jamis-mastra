@@ -457,6 +457,12 @@ This is one model-approved voice sample, not a quality guarantee or Operator pub
 
 **Commit:** `4e4f2df` (`fix: sharpen fantasy recap voice and remove basis labels`), committed with commit-only approval. The no-send acceptance record is documentation only, with no further commit/push, deployment, real sending or cron resumption authorized.
 
+## First official saved-report publication
+
+**Operator-confirmed acceptance (2026-10-21 UTC):** following the corrected queried-window preview, a separately authorized canonical generation saved editorial-v2 `report-50efe9712a16aea0be67cf9956756d1c3927ee08584d3e77bb0b4a3faf10846c` as one 2,591-UTF-16-unit part with delivery durably held. The Operator reviewed the exact text; real Luna/max mock-tested those same saved bytes only in an isolated schema, preserving the production hold and artifact. After separate explicit real-send approval, the trusted saved-report retry sent the existing part without regeneration. The receipt accepted 1/1 parts, with no recovery required or unresolved delivery, and the Operator confirmed arrival in the Fantasy group. [Plan 033](033-deterministic-fantasy-reporting-windows.md#3-controlled-first-official-week-6-publication) records preparation, artifact, mock and actual-delivery evidence without private report text.
+
+This closes the first controlled publication, not a scheduled tick or recurring activation. Earlier rejected-window artifacts stay held and unchanged; the recurring cron remains Operator-paused. No further send, commit/push or cron resumption is implied.
+
 ## Repository gate, reviews and closeout
 
 For each stage and again after final integration, run focused checks followed by the exact plan 030 repository gate:
