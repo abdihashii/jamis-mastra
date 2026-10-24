@@ -20,6 +20,14 @@ The caller supplies the trusted current NFL season. Older-season projections are
 
 `evidence-preview.ts` opens read-only PostgreSQL clients with initialization disabled and compares league-scoped recap/run counts and whole-row hashes before/after collection. Changed state is reported without attributing concurrent writes to preview. Evidence-path Sleeper reads carry 20-second abort signals through response-body consumption; their lower transport layer suppresses raw errors. Source/storage exceptions return safe partial/blocked outcomes, never raw errors or empty-success substitutions. The CLI `fantasy:recap evidence --week N --since <instant> --until <instant>` prints coverage only, without model calls, source text, run/report mutations or sends. `--nfl` explicitly opts into the existing bounded paid reader. Existing `inspect`, v12 model `preview`, scheduled `run`, retries and saved text retain their contracts; the new collector is not wired into production scheduling. Automatic scheduled window selection remains an activation gate.
 
+## Editorial candidate contract (off the live path)
+
+`editorial.ts` owns the strict structured draft, packet-local source/numeric references and deterministic candidate rendering. The Pundit selects awards rather than inheriting high/low/closest; shared honors retain unique subjects and factual matchup ties remain ties. Evidence v1 does not establish pregame decision quality, so management-based awards are rejected and accepted performance fallbacks are labeled explicitly. Optional history/player/NFL gaps withhold dependent references, not independent results; invalid historical rows are not promoted into verified numeric facts.
+
+Names and numbers resolve from known references; quote IDs resolve full original messages and mapped attribution without normalization or recursive token expansion. Context, privacy, fairness and arbitrary prose truth still need the separate editorial gate. A structurally valid candidate is not an approved report or send authority. Zero stories/no suitable quote remain explicit; an unreadable or incomplete archive blocks the candidate.
+
+Complete sections/stories are packed before review into at most three ordered parts, each at most 18,000 UTF-16 units including headers, below Sendblue's documented general message limit. This is a technical safety ceiling, not a word target or live group-delivery proof. Overflow returns safe path/code issues rather than truncating quotes, dropping stories or splitting during transport. Candidate identity covers the evidence ID, parsed draft and exact ordered parts; output is detached and frozen. No writer/reviewer loop, CLI candidate command, persistence or sending is connected in this slice. Sol/v12 and all existing runtime callers remain unchanged.
+
 ## Language
 
 **Fantasy group**:
