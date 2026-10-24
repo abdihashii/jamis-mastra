@@ -125,6 +125,101 @@ export function admitNflSourceRequest(raw: unknown[], input: NflSourceInput) {
 	}
 	return { provider: route.provider, capability: route.capability, options };
 }
+const sourceEnvelopeSchema = z.object({
+	source_url: z.string().max(2048),
+	observed_at_ms: observed,
+	count: credits,
+}).passthrough();
+type SourceEnvelope = z.infer<typeof sourceEnvelopeSchema>;
+
+function parseInjurySource(envelope: SourceEnvelope, input: Extract<NflSourceInput, { operation: 'injuries' }>, gaps: string[]) {
+	const scope = z.object({
+		season,
+		week,
+		season_type: z.literal('REG'),
+		report_date: date.nullable(),
+		team: z.object({ abbreviation: team }),
+		weeks_available: z.array(week).max(30),
+	}).parse(envelope);
+	if (scope.season !== input.season || scope.week !== input.week || scope.team.abbreviation !== input.team)
+		throw new Error('Scope mismatch');
+	if (!scope.weeks_available.includes(input.week))
+		gaps.push('week_unavailable');
+	const url = sourceUrl(envelope.source_url, routes.injuries.provider);
+	if (new URL(url).pathname !== `/injuries/league/${input.season}/reg${input.week}`)
+		throw new Error('Provenance scope mismatch');
+	return {
+		url,
+		sourceDate: scope.report_date,
+		truncated: false,
+		parseRow(row: unknown): NflSourceRecord {
+			const item = injuryRow.parse(row);
+			if (item.report_date === null)
+				gaps.push('source_date_unknown');
+			if (item.team.abbreviation !== input.team || item.season !== input.season || item.week !== input.week)
+				throw new Error('Subject mismatch');
+			return { kind: 'injury', sourceId: item.player.id, gsisId: item.player.gsis_id, name: item.player.display_name, position: item.player.position, team: item.team.abbreviation, sourceDate: item.report_date, designation: item.injury_status, injuries: item.injuries, practiceInjuries: item.practice_injuries, practiceStatus: item.practice_status, practiceDays: item.practice_days };
+		},
+	};
+}
+function parseNewsSource(envelope: SourceEnvelope, input: Extract<NflSourceInput, { operation: 'news' }>, gaps: string[]) {
+	const scope = z.object({
+		tag: z.literal(clubs[input.team]),
+		next_cursor: z.string().max(4096).nullable(),
+		generated_at: instant,
+	}).parse(envelope);
+	return {
+		url: sourceUrl(envelope.source_url, routes.news.provider),
+		sourceDate: null,
+		truncated: scope.next_cursor !== null,
+		parseRow(row: unknown): NflSourceRecord {
+			const item = newsRow.parse(row);
+			const url = sourceUrl(item.web_url, routes.news.provider);
+			if (!item.tags.some(tag => tag.slug === clubs[input.team]) || !new URL(url).pathname.startsWith('/news/'))
+				throw new Error('Subject mismatch');
+			if (item.publish_date === null)
+				gaps.push('source_date_unknown');
+			return { kind: 'news-summary', sourceId: item.id, title: item.title, description: item.description, summary: item.summary, url, publishedAtUtc: item.publish_date, updatedAtUtc: item.last_updated };
+		},
+	};
+}
+function parseWeeklySource(
+	envelope: SourceEnvelope,
+	input: Extract<NflSourceInput, { operation: 'weekly-results' }>,
+	gaps: string[],
+) {
+	const scope = z.object({ season, week, position, scoring, total_count: credits }).parse(envelope);
+	if (scope.season !== input.season || scope.week !== input.week || scope.position !== input.position
+		|| scope.scoring !== input.scoring || scope.total_count < envelope.count) {
+		throw new Error('Scope mismatch');
+	}
+	const url = sourceUrl(envelope.source_url, routes['weekly-results'].provider);
+	const source = new URL(url);
+	const format = input.scoring === 'HALF' ? 'Half-PPR' : input.scoring;
+	if (source.pathname !== '/api/week-results' || source.searchParams.get('week') !== String(input.week)
+		|| source.searchParams.get('format') !== format || source.searchParams.get('position') !== input.position) {
+		throw new Error('Provenance scope mismatch');
+	}
+	return {
+		url,
+		sourceDate: null,
+		truncated: scope.total_count > envelope.count,
+		parseRow(row: unknown): NflSourceRecord {
+			const item = resultRow.parse(row);
+			if (item.projected_points === null)
+				gaps.push('projection_unavailable');
+			if (item.game_kickoff_at === null)
+				gaps.push('kickoff_unavailable');
+			if (item.status === 'final' && item.actual_points === null)
+				throw new Error('Final result has no actual points');
+			const positions = input.position === 'ALL' ? ['QB', 'RB', 'WR', 'TE', 'K', 'DST'] : input.position === 'FLX' ? ['RB', 'WR', 'TE'] : [input.position];
+			if (!positions.includes(item.position))
+				throw new Error('Subject mismatch');
+			return { kind: 'weekly-result', sourceId: item.player_id, name: item.name, teamName: item.team, position: item.position, opponent: item.opponent, projectedPoints: item.projected_points, actualPoints: item.actual_points, actualStats: item.actual_stats, kickoffAtUtc: item.game_kickoff_at, status: item.status };
+		},
+	};
+}
+
 export function normalizeNflSourceResult(
 	data: unknown,
 	input: NflSourceInput,
@@ -132,105 +227,36 @@ export function normalizeNflSourceResult(
 	retrievedAtUtc: string,
 ) {
 	const route = routes[input.operation];
-	const envelope = z.object({
-		source_url: z.string().max(2048),
-		observed_at_ms: observed,
-		count: credits,
-	}).passthrough().parse(data);
+	const envelope = sourceEnvelopeSchema.parse(data);
 	const maximumRows = input.operation === 'news' ? 10 : input.operation === 'weekly-results' ? 100 : 500;
 	const rows = z.array(z.unknown()).max(maximumRows).parse(envelope[route.field]);
 	if (envelope.count !== rows.length)
 		throw new Error('Inconsistent record count');
-	let sourceDate: string | null = null;
-	let truncated = false;
-	if (input.operation === 'injuries') {
-		const scope = z.object({
-			season,
-			week,
-			season_type: z.literal('REG'),
-			report_date: date.nullable(),
-			team: z.object({ abbreviation: team }),
-			weeks_available: z.array(week).max(30),
-		}).parse(envelope);
-		if (scope.season !== input.season || scope.week !== input.week || scope.team.abbreviation !== input.team)
-			throw new Error('Scope mismatch');
-		sourceDate = scope.report_date;
-		if (!scope.weeks_available.includes(input.week))
-			output.gaps.push('week_unavailable');
-	} else if (input.operation === 'news') {
-		const scope = z.object({
-			tag: z.literal(clubs[input.team]),
-			next_cursor: z.string().max(4096).nullable(),
-			generated_at: instant,
-		}).parse(envelope);
-		truncated = scope.next_cursor !== null;
-	} else {
-		const scope = z.object({ season, week, position, scoring, total_count: credits }).parse(envelope);
-		if (scope.season !== input.season || scope.week !== input.week || scope.position !== input.position
-			|| scope.scoring !== input.scoring || scope.total_count < rows.length) {
-			throw new Error('Scope mismatch');
-		}
-		truncated = scope.total_count > rows.length;
-	}
-	const url = sourceUrl(envelope.source_url, route.provider);
-	if (input.operation === 'injuries' && new URL(url).pathname !== `/injuries/league/${input.season}/reg${input.week}`)
-		throw new Error('Provenance scope mismatch');
-	if (input.operation === 'weekly-results') {
-		const source = new URL(url);
-		const format = input.scoring === 'HALF' ? 'Half-PPR' : input.scoring;
-		if (source.pathname !== '/api/week-results' || source.searchParams.get('week') !== String(input.week)
-			|| source.searchParams.get('format') !== format || source.searchParams.get('position') !== input.position) {
-			throw new Error('Provenance scope mismatch');
-		}
-	}
+	const parsed = input.operation === 'injuries'
+		? parseInjurySource(envelope, input, output.gaps)
+		: input.operation === 'news'
+			? parseNewsSource(envelope, input, output.gaps)
+			: parseWeeklySource(envelope, input, output.gaps);
 	output.source = {
 		provider: route.provider,
 		capability: route.capability,
 		scope: input,
-		url,
+		url: parsed.url,
 		retrievedAtUtc,
 		observedAtUtc: new Date(envelope.observed_at_ms).toISOString(),
-		sourceDate,
+		sourceDate: parsed.sourceDate,
 		// The provider's pregame label is not proof of an immutable pre-kickoff capture.
 		snapshotAsOfUtc: null,
 		licenseState: 'unknown',
 		scoring: input.operation === 'weekly-results' ? input.scoring : null,
 		coverage: input.operation === 'injuries' ? 'week-report' : input.operation === 'news' ? 'recent-headlines' : 'current-season-week',
-		truncated,
+		truncated: parsed.truncated,
 	};
 	const ids = new Set<string>();
 	let ambiguous = false;
 	for (const row of rows) {
 		try {
-			let record: NflSourceRecord;
-			if (input.operation === 'injuries') {
-				const item = injuryRow.parse(row);
-				if (item.report_date === null)
-					output.gaps.push('source_date_unknown');
-				if (item.team.abbreviation !== input.team || item.season !== input.season || item.week !== input.week)
-					throw new Error('Subject mismatch');
-				record = { kind: 'injury', sourceId: item.player.id, gsisId: item.player.gsis_id, name: item.player.display_name, position: item.player.position, team: item.team.abbreviation, sourceDate: item.report_date, designation: item.injury_status, injuries: item.injuries, practiceInjuries: item.practice_injuries, practiceStatus: item.practice_status, practiceDays: item.practice_days };
-			} else if (input.operation === 'news') {
-				const item = newsRow.parse(row);
-				const articleUrl = sourceUrl(item.web_url, route.provider);
-				if (!item.tags.some(tag => tag.slug === clubs[input.team]) || !new URL(articleUrl).pathname.startsWith('/news/'))
-					throw new Error('Subject mismatch');
-				if (item.publish_date === null)
-					output.gaps.push('source_date_unknown');
-				record = { kind: 'news-summary', sourceId: item.id, title: item.title, description: item.description, summary: item.summary, url: articleUrl, publishedAtUtc: item.publish_date, updatedAtUtc: item.last_updated };
-			} else {
-				const item = resultRow.parse(row);
-				if (item.projected_points === null)
-					output.gaps.push('projection_unavailable');
-				if (item.game_kickoff_at === null)
-					output.gaps.push('kickoff_unavailable');
-				if (item.status === 'final' && item.actual_points === null)
-					throw new Error('Final result has no actual points');
-				const positions = input.position === 'ALL' ? ['QB', 'RB', 'WR', 'TE', 'K', 'DST'] : input.position === 'FLX' ? ['RB', 'WR', 'TE'] : [input.position];
-				if (!positions.includes(item.position))
-					throw new Error('Subject mismatch');
-				record = { kind: 'weekly-result', sourceId: item.player_id, name: item.name, teamName: item.team, position: item.position, opponent: item.opponent, projectedPoints: item.projected_points, actualPoints: item.actual_points, actualStats: item.actual_stats, kickoffAtUtc: item.game_kickoff_at, status: item.status };
-			}
+			const record = parsed.parseRow(row);
 			if (ids.has(record.sourceId)) {
 				ambiguous = true;
 				throw new Error('Ambiguous source identity');
@@ -241,12 +267,15 @@ export function normalizeNflSourceResult(
 	}
 	if (ambiguous)
 		throw new Error('Ambiguous source identity');
-	if (truncated)
+	if (parsed.truncated)
 		output.gaps.push('truncated_results');
 	output.gaps = [...new Set(output.gaps)];
-	output.status = output.gaps.includes('week_unavailable')
-		? 'blocked'
-		: rows.length === 0
-			? truncated ? 'partial' : 'empty'
-			: output.records.length === 0 ? 'invalid_response' : output.gaps.length ? 'partial' : 'success';
+	if (output.gaps.includes('week_unavailable'))
+		output.status = 'blocked';
+	else if (rows.length === 0)
+		output.status = parsed.truncated ? 'partial' : 'empty';
+	else if (output.records.length === 0)
+		output.status = 'invalid_response';
+	else
+		output.status = output.gaps.length ? 'partial' : 'success';
 }

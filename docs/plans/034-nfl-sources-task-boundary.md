@@ -1,6 +1,6 @@
 # 034: Separate NFL source parsing from task execution
 
-Status: Stage 1 verified and approved for commit. Stages 2–3 pending.
+Status: Stage 1 committed as `8efe964`. Stage 2 implemented and verified, awaiting commit sign-off. Stage 3 pending.
 
 ## 1. Split the reader in PR #50
 
@@ -19,6 +19,8 @@ Verification: 71 focused source/gateway tests passed. Full suite: 527 passed, 14
 - Verify: compare normalized outputs against the committed implementation for valid, partial, empty, malformed and duplicate cases; run the standard verification suite.
 - Proposed commit: `refactor: group NFL normalization by source`.
 - Gate: show the verified diff and wait for explicit commit sign-off.
+
+Verification: 76 focused source/gateway tests passed, including five regression cases that also passed before extraction. A temporary offline comparison harness checked 93 old/new normalized outcomes for exact equality. Full suite: 532 passed, 14 skipped, the same one calendar PostgreSQL connection failure. Typecheck, build, lint (zero errors, 206 existing warnings) and whitespace checks passed.
 
 ## 3. Sync the dependent PR stack
 

@@ -263,6 +263,51 @@ describe('public NFL sources (native Firecrawl SDK, loopback HTTP)', () => {
 		expect(JSON.stringify(result)).not.toContain('opaque-public-cursor');
 	});
 
+	test.each([
+		{ query: injuryQuery, capability: 'sports-league-data/injury_report', field: 'reports', payload: injuryData() },
+		{ query: newsQuery, capability: 'sports-league-data/news', field: 'articles', payload: newsData() },
+		{ query: weeklyQuery, capability: 'fantasy-sports-rankings/weekly_results', field: 'players', payload: weeklyData() },
+	])('keeps valid records and provenance when a $query.operation row is malformed', async ({ query, capability, field, payload }) => {
+		const rows = field === 'reports' ? injuryData().reports : field === 'articles' ? newsData().articles : weeklyData().players;
+		data[capability] = { ...payload, count: 2, total_count: 2, [field]: [...rows, { id: 'malformed' }] };
+		const result = await task()(query);
+		expect(result.status).toBe('partial');
+		expect(result.records).toHaveLength(1);
+		expect(result.gaps).toEqual(['malformed_record']);
+		expect(result.source).toMatchObject({ scope: query, url: payload.source_url, truncated: false });
+		expect(result.credits).toBe(5);
+	});
+
+	test('preserves missing-date uncertainty even when an injury row has the wrong subject', async () => {
+		const injury = injuryData();
+		data['sports-league-data/injury_report'] = {
+			...injury,
+			reports: [{ ...injury.reports[0], report_date: null, team: { abbreviation: 'BUF' } }],
+		};
+		const result = await task()(injuryQuery);
+		expect(result.status).toBe('invalid_response');
+		expect(result.records).toEqual([]);
+		expect(result.gaps).toEqual(['source_date_unknown', 'malformed_record', 'invalid_response']);
+		expect(result.source?.sourceDate).toBe(injury.report_date);
+		expect(result.credits).toBe(5);
+	});
+
+	test('preserves missing projection and kickoff gaps when a final result has no actual points', async () => {
+		const weekly = weeklyData();
+		data['fantasy-sports-rankings/weekly_results'] = {
+			...weekly,
+			players: [{ ...weekly.players[0], projected_points: null, actual_points: null, game_kickoff_at: null }],
+		};
+		const read = task();
+		const result = await read(weeklyQuery);
+		expect(result.status).toBe('invalid_response');
+		expect(result.records).toEqual([]);
+		expect(result.gaps).toEqual(['projection_unavailable', 'kickoff_unavailable', 'malformed_record', 'invalid_response']);
+		expect(result.source?.url).toBe(weekly.source_url);
+		expect(result.credits).toBe(5);
+		expect((await read(newsQuery)).gaps).toEqual(['task_stopped']);
+	});
+
 	for (const badContract of [
 		{ creditsCost: 6 },
 		{ creditsCost: undefined },
