@@ -1,56 +1,20 @@
-import { Firecrawl } from 'firecrawl';
+import type { NflSourceInput } from './nfl-sources.schema';
+import type { NflSourceRecord, NflSourceResult } from './nfl-sources.types';
 import { z } from 'zod';
+import { clubs, position, scoring, season, team, week } from './nfl-sources.schema';
 
-const clubs = {
-	ATL: 'atlanta-falcons',
-	AZ: 'arizona-cardinals',
-	BAL: 'baltimore-ravens',
-	BUF: 'buffalo-bills',
-	CAR: 'carolina-panthers',
-	CHI: 'chicago-bears',
-	CIN: 'cincinnati-bengals',
-	CLE: 'cleveland-browns',
-	DAL: 'dallas-cowboys',
-	DEN: 'denver-broncos',
-	DET: 'detroit-lions',
-	GB: 'green-bay-packers',
-	HOU: 'houston-texans',
-	IND: 'indianapolis-colts',
-	JAX: 'jacksonville-jaguars',
-	KC: 'kansas-city-chiefs',
-	LAC: 'los-angeles-chargers',
-	LAR: 'los-angeles-rams',
-	LV: 'las-vegas-raiders',
-	MIA: 'miami-dolphins',
-	MIN: 'minnesota-vikings',
-	NE: 'new-england-patriots',
-	NO: 'new-orleans-saints',
-	NYG: 'new-york-giants',
-	NYJ: 'new-york-jets',
-	PHI: 'philadelphia-eagles',
-	PIT: 'pittsburgh-steelers',
-	SEA: 'seattle-seahawks',
-	SF: 'san-francisco-49ers',
-	TB: 'tampa-bay-buccaneers',
-	TEN: 'tennessee-titans',
-	WAS: 'washington-commanders',
-} as const;
-const team = z.enum(Object.keys(clubs) as [keyof typeof clubs, ...(keyof typeof clubs)[]]);
-const season = z.number().int().min(1920).max(2100);
-const week = z.number().int().min(1).max(22);
-const position = z.enum(['QB', 'RB', 'WR', 'TE', 'K', 'DST', 'FLX', 'ALL']);
-const scoring = z.enum(['STD', 'HALF', 'PPR']);
-export const nflSourceInputSchema = z.discriminatedUnion('operation', [
-	z.object({ operation: z.literal('injuries'), season, week, team }).strict(),
-	z.object({ operation: z.literal('news'), team }).strict(),
-	z.object({ operation: z.literal('weekly-results'), season, week, position, scoring }).strict(),
-]);
-export type NflSourceInput = z.infer<typeof nflSourceInputSchema>;
 const routes = {
 	'injuries': { provider: 'nfl-com', capability: 'sports-league-data/injury_report', key: '', field: 'reports' },
 	'news': { provider: 'nfl-com', capability: 'sports-league-data/news', key: '', field: 'articles' },
 	'weekly-results': { provider: 'startwho-com', capability: 'fantasy-sports-rankings/weekly_results', key: 'players', field: 'players' },
 } as const;
+export const nflSourceCatalogueOptions = {
+	providers: ['nfl-com', 'startwho-com'],
+	capabilities: Object.values(routes).map(route => route.capability),
+	level: 'tools',
+	expand: ['options', 'response'],
+	limit: 3,
+};
 const text = z.string().min(1).max(200);
 const prose = z.string().max(8000);
 const credits = z.number().int().nonnegative();
@@ -110,77 +74,12 @@ const resultRow = z.object({
 	game_kickoff_at: instant.nullable(),
 	status: z.enum(['final', 'dnp', 'scheduled', 'pending']),
 });
-export type NflSourceRecord
-	= | { kind: 'injury'; sourceId: string; gsisId: string | null; name: string; position: string; team: string; sourceDate: string | null; designation: string | null; injuries: string[]; practiceInjuries: string[]; practiceStatus: string | null; practiceDays: Array<{ date: string; status: string }> }
-		| { kind: 'news-summary'; sourceId: string; title: string; description: string | null; summary: string | null; url: string; publishedAtUtc: string | null; updatedAtUtc: string | null }
-		| { kind: 'weekly-result'; sourceId: string; name: string; teamName: string; position: string; opponent: string; projectedPoints: number | null; actualPoints: number | null; actualStats: Record<string, number>; kickoffAtUtc: string | null; status: string };
-export interface NflSourceResult {
-	status: 'success' | 'partial' | 'empty' | 'blocked' | 'terms_required' | 'access_denied'
-		| 'upstream_error' | 'unknown_outcome' | 'invalid_response';
-	trust: 'untrusted-source-data';
-	requestId: string | null;
-	catalogueRequestId: string | null;
-	quotedCredits: number | null;
-	credits: number | null;
-	adminActionUrl: string | null;
-	chargeIdPresent: boolean;
-	gaps: string[];
-	source: null | {
-		provider: string;
-		capability: string;
-		scope: NflSourceInput;
-		url: string;
-		retrievedAtUtc: string;
-		observedAtUtc: string;
-		sourceDate: string | null;
-		snapshotAsOfUtc: null;
-		licenseState: 'unknown';
-		coverage: 'week-report' | 'recent-headlines' | 'current-season-week';
-		scoring: 'STD' | 'HALF' | 'PPR' | null;
-		truncated: boolean;
-	};
-	records: NflSourceRecord[];
-}
-function empty(): NflSourceResult {
-	return {
-		status: 'blocked',
-		trust: 'untrusted-source-data',
-		requestId: null,
-		catalogueRequestId: null,
-		quotedCredits: null,
-		credits: null,
-		adminActionUrl: null,
-		chargeIdPresent: false,
-		gaps: [],
-		source: null,
-		records: [],
-	};
-}
 function sourceUrl(value: string, provider: string) {
 	const url = new URL(value);
 	const host = provider === 'nfl-com' ? 'www.nfl.com' : 'startwho.com';
 	if (url.protocol !== 'https:' || url.host !== host || url.username || url.password || url.hash)
 		throw new Error('Unsupported provenance');
 	return url.href;
-}
-function failure(error: unknown, output: NflSourceResult) {
-	const details = z.object({
-		code: z.string().optional(),
-		status: z.number().optional(),
-		chargeId: z.string().optional(),
-		requiresAction: z.object({ url: z.string() }).optional(),
-	}).safeParse(error);
-	output.chargeIdPresent = details.success && Boolean(details.data.chargeId);
-	if (details.success && details.data.code === 'THIRD_PARTY_DATA_TERMS_REQUIRED') {
-		output.status = 'terms_required';
-		const url = details.data.requiresAction?.url;
-		if (url === 'https://www.firecrawl.dev/app/settings?tab=data-sources')
-			output.adminActionUrl = url;
-	} else if (details.success && [401, 403].includes(details.data.status ?? 0)) {
-		output.status = 'access_denied';
-	} else {
-		output.status = output.credits === null ? 'unknown_outcome' : 'upstream_error';
-	}
 }
 function optionsFor(input: NflSourceInput): Record<string, string | number> {
 	if (input.operation === 'injuries')
@@ -189,7 +88,7 @@ function optionsFor(input: NflSourceInput): Record<string, string | number> {
 		return { tag: clubs[input.team], limit: 10 };
 	return { week: input.week, position: input.position, scoring: input.scoring, limit: 100 };
 }
-function admit(raw: unknown[], input: NflSourceInput) {
+export function admitNflSourceRequest(raw: unknown[], input: NflSourceInput) {
 	const route = routes[input.operation];
 	const identity = z.object({ provider: z.literal(route.provider), capability: z.literal(route.capability) });
 	const matches = raw.filter(item => identity.safeParse(item).success);
@@ -224,9 +123,14 @@ function admit(raw: unknown[], input: NflSourceInput) {
 			throw new Error('Unsupported option value');
 		}
 	}
-	return options;
+	return { provider: route.provider, capability: route.capability, options };
 }
-function normalize(data: unknown, input: NflSourceInput, output: NflSourceResult, retrievedAtUtc: string) {
+export function normalizeNflSourceResult(
+	data: unknown,
+	input: NflSourceInput,
+	output: NflSourceResult,
+	retrievedAtUtc: string,
+) {
 	const route = routes[input.operation];
 	const envelope = z.object({
 		source_url: z.string().max(2048),
@@ -345,146 +249,4 @@ function normalize(data: unknown, input: NflSourceInput, output: NflSourceResult
 		: rows.length === 0
 			? truncated ? 'partial' : 'empty'
 			: output.records.length === 0 ? 'invalid_response' : output.gaps.length ? 'partial' : 'success';
-}
-
-/** One fresh public-NFL task: one catalogue, at most three distinct reads, no automatic retries. */
-export function createNflSourceTask(config: {
-	currentSeason: number;
-	apiKey: string;
-	apiUrl?: string;
-	now?: () => Date;
-}) {
-	const currentSeason = season.parse(config.currentSeason);
-	if (!config.apiKey.trim())
-		throw new Error('NFL research credentials unavailable.');
-	const client = new Firecrawl({ apiKey: config.apiKey, apiUrl: config.apiUrl ?? 'https://api.firecrawl.dev', maxRetries: 1 });
-	const now = config.now ?? (() => new Date());
-	let halted = false;
-	let catalogueId: string | null = null;
-	let contracts: Promise<unknown[] | NflSourceResult> | undefined;
-	const reads = new Map<string, Promise<NflSourceResult>>();
-	async function execute(
-		provider: string,
-		capability: string,
-		options: Record<string, unknown>,
-		price: number,
-		output: NflSourceResult,
-	) {
-		output.requestId = crypto.randomUUID();
-		output.quotedCredits = price;
-		try {
-			const response = await client.scrape({
-				alexandria: { provider, capability, options },
-				requestId: output.requestId,
-				timeout: 20_000,
-			});
-			output.credits = credits.parse(response.creditsCost);
-			const item = z.object({
-				provider: z.literal(provider),
-				capability: z.literal(capability),
-				creditsCost: credits,
-				upstreamStatus: z.number().int().optional(),
-				error: z.unknown().optional(),
-				data: z.unknown().optional(),
-			}).parse(z.array(z.unknown()).length(1).parse(response.alexandria)[0]);
-			if (item.creditsCost !== output.credits || output.credits > price)
-				throw new Error('Unexpected charge');
-			if (item.error !== undefined) {
-				failure(item.error, output);
-			} else if (item.upstreamStatus !== undefined && (item.upstreamStatus < 200 || item.upstreamStatus >= 300)) {
-				failure({ status: item.upstreamStatus }, output);
-			} else if (item.data === undefined) {
-				throw new Error('Missing source data');
-			} else {
-				return item.data;
-			}
-		} catch (error) {
-			if (output.credits === null)
-				failure(error, output);
-			else
-				output.status = 'invalid_response';
-		}
-		if (output.status !== 'upstream_error')
-			halted = true;
-		return undefined;
-	}
-	async function inspect() {
-		const output = empty();
-		const data = await execute('firecrawl', 'find-tools', {
-			providers: ['nfl-com', 'startwho-com'],
-			capabilities: Object.values(routes).map(route => route.capability),
-			level: 'tools',
-			expand: ['options', 'response'],
-			limit: 3,
-		}, 0, output);
-		catalogueId = output.requestId;
-		if (data === undefined) {
-			halted = true;
-			return output;
-		}
-		try {
-			return z.object({ items: z.array(z.unknown()).max(3) }).parse(data).items;
-		} catch {
-			halted = true;
-			output.status = 'invalid_response';
-			return output;
-		}
-	}
-	async function run(input: NflSourceInput) {
-		const output = empty();
-		const inspected = await (contracts ??= inspect());
-		if (!Array.isArray(inspected))
-			return inspected;
-		output.catalogueRequestId = catalogueId;
-		if (halted) {
-			output.gaps.push('task_stopped');
-			return output;
-		}
-		let options: Record<string, string | number>;
-		try {
-			options = admit(inspected, input);
-		} catch {
-			output.gaps.push('pricing_or_contract_unsupported');
-			return output;
-		}
-		const route = routes[input.operation];
-		const data = await execute(route.provider, route.capability, options, 5, output);
-		if (data !== undefined) {
-			try {
-				normalize(data, input, output, now().toISOString());
-			} catch {
-				output.status = 'invalid_response';
-				output.records = [];
-				output.source = null;
-			}
-		}
-		if (output.status === 'invalid_response') {
-			halted = true;
-			output.gaps.push('invalid_response');
-		}
-		return output;
-	}
-	return async (raw: unknown): Promise<NflSourceResult> => {
-		const parsed = nflSourceInputSchema.safeParse(raw);
-		const output = empty();
-		if (!parsed.success) {
-			output.gaps.push('invalid_public_projection');
-			return output;
-		}
-		if (parsed.data.operation === 'weekly-results' && parsed.data.season !== currentSeason) {
-			output.gaps.push('older_season_projections_unsupported');
-			return output;
-		}
-		const key = JSON.stringify(parsed.data);
-		const previous = reads.get(key);
-		if (previous)
-			return previous;
-		if (halted || reads.size >= 3) {
-			output.gaps.push(halted ? 'task_stopped' : 'request_budget_exhausted');
-			return output;
-		}
-		const result = run(parsed.data);
-		reads.set(key, result);
-		return result;
-	};
 }

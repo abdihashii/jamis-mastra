@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
-import { createNflSourceTask } from '../nfl-sources';
+import { createNflSourceTask } from '../nfl-sources-task';
 
 const now = () => new Date('2026-10-17T18:10:00.000Z');
 const observed = Date.parse('2026-10-17T18:09:00Z');
