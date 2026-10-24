@@ -32,6 +32,39 @@ describe('sendblueSendClient', () => {
 		}
 	});
 
+	it.each(['QUEUED', 'SENT', 'DELIVERED'])('preserves exact saved bytes with verified %s acceptance and no SDK retries', async (status) => {
+		const text = '  **Exact**\r\n🏈 e\u0301\n{fact:scope:week}\t  ';
+		const sendMessage = spyOn(sendblueAdapter.getSdk().groups, 'sendMessage')
+			.mockResolvedValue({ message_handle: 'exact-handle', status, error_code: null } as never);
+		try {
+			expect(await sendblueSendClient.sendExactToGroup('fixed-group', text)).toEqual({ kind: 'sent', handle: 'exact-handle' });
+			expect(sendMessage).toHaveBeenCalledTimes(1);
+			expect(sendMessage).toHaveBeenCalledWith({
+				from_number: process.env.SENDBLUE_FROM_NUMBER ?? '',
+				group_id: 'fixed-group',
+				content: text,
+			}, { maxRetries: 0, signal: expect.any(AbortSignal), timeout: 15_000 });
+		} finally {
+			sendMessage.mockRestore();
+		}
+	});
+
+	it.each([
+		{ message_handle: 'handle', status: 'ERROR' },
+		{ message_handle: 'handle', status: 'PENDING' },
+		{ message_handle: 'handle' },
+		{ message_handle: '', status: 'SENT' },
+		{ message_handle: 'handle', status: 'QUEUED', error_code: 37 },
+	])('does not invent exact-send acceptance from %j', async (response) => {
+		const sendMessage = spyOn(sendblueAdapter.getSdk().groups, 'sendMessage').mockResolvedValue(response as never);
+		try {
+			expect((await sendblueSendClient.sendExactToGroup('fixed-group', 'exact')).kind).toBe('unknown');
+			expect(sendMessage).toHaveBeenCalledTimes(1);
+		} finally {
+			sendMessage.mockRestore();
+		}
+	});
+
 	it('keeps the deadline active while the provider response is being parsed', async () => {
 		const controller = new AbortController();
 		const timeout = spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
