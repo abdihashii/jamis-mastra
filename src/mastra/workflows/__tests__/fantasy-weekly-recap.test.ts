@@ -1,7 +1,8 @@
 import type { AnyExportedSpan } from '@mastra/core/observability';
-import { expect, spyOn, test } from 'bun:test';
+
 import { SpanType, TracingEventType } from '@mastra/core/observability';
 import { Observability } from '@mastra/observability';
+import { expect, spyOn, test } from 'bun:test';
 
 import * as fantasyConfig from '../../../lib/fantasy/config';
 import { fantasyWeeklyRecapWorkflow } from '../fantasy-weekly-recap';

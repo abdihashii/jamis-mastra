@@ -1,8 +1,11 @@
 import type { z } from 'zod';
-import type { SqlLike } from '../../../lib/fantasy/recaps';
-import { describe, expect, test } from 'bun:test';
+
 import { SpanType } from '@mastra/core/observability';
 import { TraceStatus } from '@mastra/core/storage';
+import { describe, expect, test } from 'bun:test';
+
+import type { SqlLike } from '../../../lib/fantasy/recaps';
+
 import { checkMonitoringTool } from '../check-monitoring';
 import { listRecentWorkflowRuns, readDeploymentMonitoring } from '../deployment-monitoring';
 

@@ -1,14 +1,16 @@
 /* eslint-disable antfu/no-top-level-await -- Fixed worker process entrypoint. */
 import type { Socket } from 'node:net';
-import type { Failure, Operation, ProjectView, Result } from './project-cli-contract';
+
 import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
 import { access, lstat, readdir, readFile, unlink } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-
 import process from 'node:process';
+
+import type { Failure, Operation, ProjectView, Result } from './project-cli-contract';
+
 import { checkedProjectPath, isView, limits, sameView, validOperation } from './project-cli-contract';
 
 const mode = process.argv[2];

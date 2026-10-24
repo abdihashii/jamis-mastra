@@ -1,7 +1,8 @@
-import type { Operation, Result, Status } from './project-cli-contract';
 import { Buffer } from 'node:buffer';
 import { open } from 'node:fs/promises';
 import { createConnection } from 'node:net';
+
+import type { Operation, Result, Status } from './project-cli-contract';
 
 import { checkedProjectPath, isView, limits, sameView, validOperation } from './project-cli-contract';
 import { pinProjectView } from './project-workspace';

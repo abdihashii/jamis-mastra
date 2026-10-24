@@ -1,10 +1,9 @@
 import type { AnyExportedSpan, AnySpan, CorrelationContext, ExportedLog, ExportedMetric, ObservabilityExporter, SpanOutputProcessor } from '@mastra/core/observability';
 
-import process from 'node:process';
-
 import { ConsoleLogger, LogLevel } from '@mastra/core/logger';
 import { resolveCurrentSpan } from '@mastra/core/observability';
 import { SensitiveDataFilter } from '@mastra/observability';
+import process from 'node:process';
 
 import { isView } from './project-cli-contract';
 

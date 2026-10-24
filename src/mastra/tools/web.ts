@@ -1,9 +1,8 @@
 import type { AnySpan } from '@mastra/core/observability';
 
-import process from 'node:process';
-
 import { createTool } from '@mastra/core/tools';
 import { Firecrawl } from 'firecrawl';
+import process from 'node:process';
 import { z } from 'zod';
 
 import { requireEnv } from '../env';

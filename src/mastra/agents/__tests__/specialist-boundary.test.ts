@@ -1,6 +1,6 @@
-import { expect, test } from 'bun:test';
 import { Mastra } from '@mastra/core';
 import { Agent } from '@mastra/core/agent';
+import { expect, test } from 'bun:test';
 import { z } from 'zod';
 
 import { createSpecialistContext, createSpecialistInvocation, normalizeSpecialistResult } from '../../tools/invoke-specialist';

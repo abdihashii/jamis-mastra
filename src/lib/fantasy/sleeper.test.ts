@@ -1,9 +1,10 @@
-import type { BracketGame, SleeperLeague, SleeperState } from './sleeper';
-
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
+
+import type { BracketGame, SleeperLeague, SleeperState } from './sleeper';
+
 import {
 
 	championshipWeek,

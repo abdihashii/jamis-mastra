@@ -1,6 +1,6 @@
-import type { SpecialistHandback } from './specialist-handback';
-
 import { z } from 'zod';
+
+import type { SpecialistHandback } from './specialist-handback';
 
 const text = z.string().min(1);
 const forecastSchema = z.object({

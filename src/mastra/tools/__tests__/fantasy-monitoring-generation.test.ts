@@ -1,7 +1,10 @@
 import type { z } from 'zod';
-import type { SqlLike } from '../../../lib/fantasy/recaps';
+
 import { SQL } from 'bun';
 import { describe, expect, test } from 'bun:test';
+
+import type { SqlLike } from '../../../lib/fantasy/recaps';
+
 import { listFantasyMonitoringRuns } from '../../../lib/fantasy/runs';
 import { checkMonitoringTool, readFantasyMonitoring } from '../check-monitoring';
 import { deploymentEvidenceTool, readFullDeploymentEvidence } from '../deployment-evidence';

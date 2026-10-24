@@ -19,9 +19,8 @@
  */
 
 import type { OpenAIProviderSettings } from '@ai-sdk/openai';
-
 import type { GatewayAuthResult, GatewayLanguageModel, ProviderConfig } from '@mastra/core/llm';
-import process from 'node:process';
+
 import { createOpenAI } from '@ai-sdk/openai';
 import {
 
@@ -30,6 +29,7 @@ import {
 } from '@mastra/core/llm';
 import { SpanType } from '@mastra/core/observability';
 import { getCurrentSpan } from '@mastra/core/observability/context-storage';
+import process from 'node:process';
 
 import { CODEX_AUTH_FAILURE_EVENT } from '../observability.js';
 import {

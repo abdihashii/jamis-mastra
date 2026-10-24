@@ -1,11 +1,13 @@
-import type { EditorialDraft } from './editorial';
-import type { EditorialOutcome } from './editorial-loop';
-import type { RecapEvidencePacket } from './recap-evidence';
-import type { SavedReport, SavedReportScope } from './saved-report';
 import { describe, expect, it } from 'bun:test';
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+
+import type { EditorialDraft } from './editorial';
+import type { EditorialOutcome } from './editorial-loop';
+import type { RecapEvidencePacket } from './recap-evidence';
+import type { SavedReport, SavedReportScope } from './saved-report';
+
 import { buildEditorialCandidate, EDITORIAL_VERSION } from './editorial';
 import { runEditorialLoop } from './editorial-loop';
 import { FANTASY_EDITORIAL_MODEL } from './editorial-policy';

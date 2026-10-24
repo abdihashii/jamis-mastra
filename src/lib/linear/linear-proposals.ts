@@ -1,9 +1,10 @@
-import type { LinearCreateInspection, LinearCreateOperation, LinearCreateOutcome } from './linear';
-import type { SqlLike } from '../operator-time-zone';
-
-import process from 'node:process';
 import { SQL } from 'bun';
+import process from 'node:process';
 import { z } from 'zod';
+
+import type { SqlLike } from '../operator-time-zone';
+import type { LinearCreateInspection, LinearCreateOperation, LinearCreateOutcome } from './linear';
+
 import { linearCreateInspectionSchema, linearCreateOperationSchema, linearCreateOutcomeSchema } from './linear';
 
 export const linearContinuationSchema = z.object({

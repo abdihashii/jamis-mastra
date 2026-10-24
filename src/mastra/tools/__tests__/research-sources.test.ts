@@ -1,8 +1,8 @@
 import type { ToolExecutionContext } from '@mastra/core/tools';
 
-import { expect, test } from 'bun:test';
 import { RequestContext } from '@mastra/core/request-context';
 import { noopObserve, validateToolInput, validateToolOutput } from '@mastra/core/tools';
+import { expect, test } from 'bun:test';
 
 if (!process.env.RESEARCH_SOURCE_CONTRACT_TEST) {
 	test('research source HTTP contracts run in an isolated process', async () => {

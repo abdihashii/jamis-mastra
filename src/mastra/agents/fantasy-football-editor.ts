@@ -1,5 +1,7 @@
 import type { AgentConfig } from '@mastra/core/agent';
+
 import { Agent } from '@mastra/core/agent';
+
 import { FANTASY_EDITORIAL_MODEL, fantasyEditorialDefaults } from '../../lib/fantasy/editorial-policy';
 
 export function createFantasyFootballEditor(mastra: NonNullable<AgentConfig['mastra']>): Agent {

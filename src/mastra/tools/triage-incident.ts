@@ -1,17 +1,18 @@
 import type { RequestContext } from '@mastra/core/request-context';
 import type { GetStructureResponse, ObservabilityStorage } from '@mastra/core/storage';
-import type { FantasyMonitoringRun } from '../../lib/fantasy/runs';
 
-import type { DeploymentSnapshotFinding } from './deployment-monitoring';
 import { SpanType } from '@mastra/core/observability';
 import { extractBranchSpans, TraceStatus } from '@mastra/core/storage';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+
+import type { FantasyMonitoringRun } from '../../lib/fantasy/runs';
+import type { DeploymentSnapshotFinding } from './deployment-monitoring';
+
 import { getFantasyConfig } from '../../lib/fantasy/config';
 import { getFantasySql } from '../../lib/fantasy/recaps';
 import { fantasyGenerationSummarySchema, listFantasyMonitoringRuns } from '../../lib/fantasy/runs';
 import { resolveOperatorTimeZone } from '../../lib/operator-time-zone';
-
 import { dateTimeInstant } from '../../lib/time';
 import {
 	getSendblueChannelCapability,

@@ -1,10 +1,10 @@
 import type { AnyExportedSpan } from '@mastra/core/observability';
 import type { ToolExecutionContext } from '@mastra/core/tools';
 
-import { expect, spyOn, test } from 'bun:test';
 import { createObservabilityContext, SpanType, TracingEventType } from '@mastra/core/observability';
 import { noopObserve, validateToolInput, validateToolOutput } from '@mastra/core/tools';
 import { Observability } from '@mastra/observability';
+import { expect, spyOn, test } from 'bun:test';
 
 const contractProvider = process.env.WEB_CONTRACT_PROVIDER;
 

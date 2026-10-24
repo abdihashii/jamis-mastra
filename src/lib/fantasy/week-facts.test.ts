@@ -1,7 +1,8 @@
-import type { BracketGame, SleeperLeague, SleeperManager, SleeperPlayer, SleeperScore } from './sleeper';
-
-import type { WeekFactsInput } from './week-facts';
 import { describe, expect, it } from 'bun:test';
+
+import type { BracketGame, SleeperLeague, SleeperManager, SleeperPlayer, SleeperScore } from './sleeper';
+import type { WeekFactsInput } from './week-facts';
+
 import { SleeperDataError } from './sleeper';
 import { buildWeekFacts, buildWeekSnapshot } from './week-facts';
 

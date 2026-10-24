@@ -1,11 +1,12 @@
 import type { RequestContext } from '@mastra/core/request-context';
-import type { GmailSearchResult } from '../../tools/gmail-search';
 
-import { expect, test } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { Mastra } from '@mastra/core';
 import { createTool, noopObserve } from '@mastra/core/tools';
+import { expect, test } from 'bun:test';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+
+import type { GmailSearchResult } from '../../tools/gmail-search';
 
 import { createSpecialistTools } from '../../specialist-invocations';
 import { createSpecialistContext, recordAccountsGmailRead, requireAccountsReplySource, resolveAccountsGmailReferences, revokeSpecialistAuthority } from '../../tools/invoke-specialist';

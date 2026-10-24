@@ -1,6 +1,5 @@
 import type { AnyExportedSpan } from '@mastra/core/observability';
 
-import { expect, spyOn, test } from 'bun:test';
 import { Mastra } from '@mastra/core';
 import { Agent } from '@mastra/core/agent';
 import { MastraModelGateway } from '@mastra/core/llm';
@@ -9,6 +8,7 @@ import { InMemoryStore } from '@mastra/core/storage';
 import { createTool } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import { Observability } from '@mastra/observability';
+import { expect, spyOn, test } from 'bun:test';
 import { z } from 'zod';
 
 import { createProjectLogger, filterProjectTrace, protectProjectSignals, spanOutputProcessors } from '../../observability';

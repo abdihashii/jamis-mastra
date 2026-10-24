@@ -1,12 +1,4 @@
 import type { AnyExportedSpan, ExportedLog, ExportedMetric } from '@mastra/core/observability';
-import type { Operation } from '../../project-cli-contract';
-
-import { expect, spyOn, test } from 'bun:test';
-import { Buffer } from 'node:buffer';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 import { Mastra } from '@mastra/core';
 import { Agent } from '@mastra/core/agent';
@@ -16,7 +8,15 @@ import { InMemoryStore, TraceStatus } from '@mastra/core/storage';
 import { MastraLanguageModelV2Mock } from '@mastra/core/test-utils/llm-mock';
 import { createTool, isValidationError, noopObserve } from '@mastra/core/tools';
 import { MastraStorageExporter, Observability } from '@mastra/observability';
+import { expect, spyOn, test } from 'bun:test';
+import { Buffer } from 'node:buffer';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { z } from 'zod';
+
+import type { Operation } from '../../project-cli-contract';
 
 import { createProjectLogger, filterProjectTrace, protectProjectSignals, spanOutputProcessors } from '../../observability';
 import { limits } from '../../project-cli-contract';

@@ -1,9 +1,9 @@
-import { SQL } from 'bun';
-import { expect, test } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { Mastra } from '@mastra/core';
 import { Observability } from '@mastra/observability';
 import { PostgresStore } from '@mastra/pg';
+import { SQL } from 'bun';
+import { expect, test } from 'bun:test';
+import { randomUUID } from 'node:crypto';
 
 import { filterProjectTrace, protectProjectSignals, spanOutputProcessors } from '../../observability';
 

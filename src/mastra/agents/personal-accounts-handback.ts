@@ -1,9 +1,9 @@
 import type { RequestContext } from '@mastra/core/request-context';
-import type { SpecialistHandback } from './specialist-handback';
 
 import { isDeepStrictEqual } from 'node:util';
-
 import { z } from 'zod';
+
+import type { SpecialistHandback } from './specialist-handback';
 
 import { linearReadResultSchema } from '../../lib/linear/linear';
 import { resolveAccountsGmailReferences } from '../tools/invoke-specialist';

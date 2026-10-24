@@ -1,7 +1,8 @@
+import { Mastra } from '@mastra/core';
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { Mastra } from '@mastra/core';
+
 import { FANTASY_EDITORIAL_MODEL, fantasyEditorialDefaults } from '../../../lib/fantasy/editorial-policy';
 import { DEFAULT_RECAP_MODEL, FANTASY_GENERATOR_VERSION } from '../../../lib/fantasy/generate';
 import { createFantasyFootballEditor } from '../fantasy-football-editor';

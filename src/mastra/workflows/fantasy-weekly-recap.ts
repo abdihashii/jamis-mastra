@@ -1,6 +1,5 @@
 import { SpanType } from '@mastra/core/observability';
 import { createStep, createWorkflow } from '@mastra/core/workflows';
-
 import { z } from 'zod';
 
 import { getFantasyConfig } from '../../lib/fantasy/config';
@@ -17,7 +16,14 @@ const outcomeSchema = z.object({
 	generatorVersion: z.literal('fantasy-recap-v13').optional(),
 	attemptId: z.uuid().optional(),
 	reportId: z.string().regex(/^report-[a-f0-9]{64}$/).optional(),
-	counts: z.object({ nfl: z.number().int().min(0).max(3), drafts: z.number().int().min(0).max(3), reviews: z.number().int().min(0).max(3) }).strict().optional(),
+	counts: z
+		.object({
+			nfl: z.number().int().min(0).max(3),
+			drafts: z.number().int().min(0).max(3),
+			reviews: z.number().int().min(0).max(3),
+		})
+		.strict()
+		.optional(),
 }).strict();
 
 const weeklyRecapStep = createStep({

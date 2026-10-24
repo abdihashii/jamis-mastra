@@ -1,8 +1,9 @@
 import type { z } from 'zod';
 
+import { describe, expect, test } from 'bun:test';
+
 import type { personalAccountsResultSchema } from '../personal-accounts-handback';
 
-import { describe, expect, test } from 'bun:test';
 import { validatePersonalAccountsHandback } from '../personal-accounts-handback';
 import { insufficientResearchReason, researchResultSchema, validateResearchHandback } from '../research-handback';
 import { createResearchQuestionProjector, publicFareLabels, researchQuestionSchema } from '../research-question';

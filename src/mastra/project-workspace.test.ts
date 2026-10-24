@@ -1,9 +1,8 @@
+import { createWorkspaceTools } from '@mastra/core/workspace';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { chmod, lstat, mkdir, mkdtemp, readFile, readlink, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-
-import { createWorkspaceTools } from '@mastra/core/workspace';
 
 import { cleanupProjectViews, prepareProjectView } from '../../scripts/prepare-project-view';
 import { createProjectWorkspace, pinProjectView } from './project-workspace';

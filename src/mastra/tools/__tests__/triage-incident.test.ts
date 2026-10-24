@@ -1,13 +1,14 @@
 import type { ChannelHandlerContext } from '@mastra/core/channels';
 import type { Message, Thread } from 'chat';
-import type { RecapRun } from '../../../lib/fantasy/runs';
-import type { SqlLike } from '../../../lib/operator-time-zone';
 
-import { describe, expect, test } from 'bun:test';
 import { SpanType } from '@mastra/core/observability';
 import { RequestContext as MastraRequestContext } from '@mastra/core/request-context';
 import { TraceStatus } from '@mastra/core/storage';
+import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
+
+import type { RecapRun } from '../../../lib/fantasy/runs';
+import type { SqlLike } from '../../../lib/operator-time-zone';
 
 process.env.JAMIS_ALLOWED_NUMBER = '+15555550101';
 process.env.SENDBLUE_API_KEY = 'test-api-key';

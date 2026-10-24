@@ -1,6 +1,6 @@
-import type { SqlLike } from '../../../lib/operator-time-zone';
-
 import { describe, expect, it } from 'bun:test';
+
+import type { SqlLike } from '../../../lib/operator-time-zone';
 
 import { ensureOperatorTimeZoneTable, resolveOperatorTimeZone, setOperatorTimeZoneOverride } from '../../../lib/operator-time-zone';
 import { requireOperatorTimeZone } from '../../env';

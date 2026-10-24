@@ -1,11 +1,11 @@
 import type { Mastra } from '@mastra/core';
 import type { ToolExecutionContext } from '@mastra/core/tools';
 
-import assert from 'node:assert/strict';
 import { Agent } from '@mastra/core/agent';
 import { RequestContext } from '@mastra/core/request-context';
 import { MastraLanguageModelV2Mock } from '@mastra/core/test-utils/llm-mock';
 import { createTool, noopObserve } from '@mastra/core/tools';
+import assert from 'node:assert/strict';
 import { z } from 'zod';
 
 import { createSpecialistContext, createSpecialistInvocation, normalizeSpecialistResult } from '../../tools/invoke-specialist';

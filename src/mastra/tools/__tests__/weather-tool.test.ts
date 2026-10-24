@@ -1,7 +1,8 @@
 import type { z } from 'zod';
-import type { SqlLike } from '../../../lib/operator-time-zone';
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+
+import type { SqlLike } from '../../../lib/operator-time-zone';
 
 process.env.OPEN_WEATHER_API_KEY = 'test-weather-key';
 process.env.OPERATOR_TIMEZONE = 'America/Chicago';

@@ -1,13 +1,7 @@
 import type { ChannelConfig } from '@mastra/core/channels';
 import type { Message, Thread } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
-import type { LinearCreateOperation } from '../../../lib/linear/linear';
-import type { SqlLike } from '../../../lib/operator-time-zone';
 
-import { SQL } from 'bun';
-import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
-import { randomUUID } from 'node:crypto';
-import process from 'node:process';
 import { Agent } from '@mastra/core/agent';
 import { Mastra } from '@mastra/core/mastra';
 import { TracingEventType } from '@mastra/core/observability';
@@ -17,8 +11,16 @@ import { createTool, noopObserve } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import { Observability } from '@mastra/observability';
 import { PostgresStore } from '@mastra/pg';
+import { SQL } from 'bun';
+import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
+import { randomUUID } from 'node:crypto';
+import process from 'node:process';
 import { z } from 'zod';
+
+import type { LinearCreateOperation } from '../../../lib/linear/linear';
+import type { SqlLike } from '../../../lib/operator-time-zone';
+
 import { claimLinearCreate, finishLinearCreate, isImmediatelyFollowingLinearMessage, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../../lib/linear/linear-proposals';
 import { clearOperatorTimeZoneConversation, saveOperatorTimeZoneProposal } from '../../../lib/operator-time-zone';
 import { redactChannelRenderContext } from '../../observability';

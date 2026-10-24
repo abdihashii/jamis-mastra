@@ -1,8 +1,10 @@
 import type { ObservabilityStorage } from '@mastra/core/storage';
-import type { FantasyMonitoringRun } from '../../lib/fantasy/runs';
 
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+
+import type { FantasyMonitoringRun } from '../../lib/fantasy/runs';
+
 import { getFantasyConfig } from '../../lib/fantasy/config';
 import { getFantasySql } from '../../lib/fantasy/recaps';
 import { fantasyGenerationSummarySchema, listFantasyMonitoringRuns } from '../../lib/fantasy/runs';

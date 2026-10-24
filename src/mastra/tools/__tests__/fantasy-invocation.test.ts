@@ -1,15 +1,16 @@
 import type { AgentConfig } from '@mastra/core/agent';
 import type { ToolExecutionContext } from '@mastra/core/tools';
-import type { SpecialistCaller } from '../invoke-specialist';
 
-import { expect, spyOn, test } from 'bun:test';
 import { createOpenAI } from '@ai-sdk/openai';
 import { Mastra } from '@mastra/core';
 import { Agent } from '@mastra/core/agent';
 import { RequestContext } from '@mastra/core/request-context';
 import { createTool, noopObserve } from '@mastra/core/tools';
 import { createStep, createWorkflow } from '@mastra/core/workflows';
+import { expect, spyOn, test } from 'bun:test';
 import { z } from 'zod';
+
+import type { SpecialistCaller } from '../invoke-specialist';
 
 import { FANTASY_EDITORIAL_LIMITS, FANTASY_EDITORIAL_WORKFLOW_ID } from '../../../lib/fantasy/editorial-policy';
 import { boundaryModel, jamisFixtureContext } from '../../agents/__tests__/specialist-boundary.fixture';

@@ -1,13 +1,14 @@
 import type { Mastra } from '@mastra/core';
 import type { ChannelHandlerContext } from '@mastra/core/channels';
 import type { Message, Thread } from 'chat';
-import type { SqlLike } from '../../../lib/operator-time-zone';
 
-import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
 import { RequestContext } from '@mastra/core/request-context';
 import { createTool } from '@mastra/core/tools';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+
+import type { SqlLike } from '../../../lib/operator-time-zone';
 
 import { handleSendblueDirectMessage, LINEAR_PROPOSAL_FAILURE, linearProposalModelOutput } from '../../channels/sendblue';
 import { createJamisAgent } from '../jamis';

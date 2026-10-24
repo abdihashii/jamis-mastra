@@ -1,12 +1,7 @@
 import type { ChannelConfig } from '@mastra/core/channels';
 import type { Message } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
-import type { SqlLike } from '../../../lib/operator-time-zone';
 
-import { SQL } from 'bun';
-import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
-import { randomUUID } from 'node:crypto';
-import process from 'node:process';
 import { Mastra } from '@mastra/core/mastra';
 import { TracingEventType } from '@mastra/core/observability';
 import { RequestContext } from '@mastra/core/request-context';
@@ -14,7 +9,13 @@ import { createTool, noopObserve } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import { Observability } from '@mastra/observability';
 import { PostgresStore } from '@mastra/pg';
+import { SQL } from 'bun';
+import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
+import { randomUUID } from 'node:crypto';
+import process from 'node:process';
+
+import type { SqlLike } from '../../../lib/operator-time-zone';
 
 const databaseUrl = process.env.JAMIS_TEST_DATABASE_URL;
 if (!process.env.FANTASY_BROADCAST_CONTRACT_TEST) {
@@ -68,7 +69,7 @@ if (!process.env.FANTASY_BROADCAST_CONTRACT_TEST) {
 	});
 	const { broadcastTools, readPendingBroadcast } = await import('../../../lib/fantasy/broadcast');
 	const { saveOperatorTimeZoneProposal, clearOperatorTimeZoneConversation } = await import('../../../lib/operator-time-zone');
-		const { postLinearCreateProposal, readLinearProposal } = await import('../../../lib/linear/linear-proposals');
+	const { postLinearCreateProposal, readLinearProposal } = await import('../../../lib/linear/linear-proposals');
 	const { handleSendblueDirectMessage, sendblueAdapter, formatSendblueError, requireSendbluePostAcceptance, postExactSendblueMessage, startJamisDmSession, proposeOperatorTimeZoneChange, proposeLinearCreate } = await import('../sendblue');
 	const { createJamisAgent } = await import('../../agents/jamis');
 	const { boundaryModel } = await import('../../agents/__tests__/specialist-boundary.fixture');

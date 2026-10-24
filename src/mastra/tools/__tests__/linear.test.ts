@@ -1,9 +1,10 @@
-import { expect, test } from 'bun:test';
 import { Mastra } from '@mastra/core';
 import { TracingEventType } from '@mastra/core/observability';
 import { MastraLanguageModelV2Mock } from '@mastra/core/test-utils/llm-mock';
 import { noopObserve } from '@mastra/core/tools';
 import { Observability } from '@mastra/observability';
+import { expect, test } from 'bun:test';
+
 import { linearReadInputSchema } from '../../../lib/linear/linear';
 
 if (!process.env.LINEAR_AGENT_CONTRACT_TEST) {

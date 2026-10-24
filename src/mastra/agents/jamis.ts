@@ -1,9 +1,10 @@
 import type { AgentConfig } from '@mastra/core/agent';
-import type { SpecialistConfig } from '../specialist-invocations';
 
 import { Agent } from '@mastra/core/agent';
 import { LocalFilesystem } from '@mastra/core/workspace';
 import { Memory } from '@mastra/memory';
+
+import type { SpecialistConfig } from '../specialist-invocations';
 
 import { getFantasyConfig } from '../../lib/fantasy/config';
 import { createFantasyGroupHandler } from '../../lib/fantasy/ingest';

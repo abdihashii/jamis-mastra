@@ -1,11 +1,13 @@
 import type { ObservabilityStorage } from '@mastra/core/storage';
-import type { SqlLike } from '../../lib/fantasy/recaps';
-import type { FantasyMonitoringRun } from '../../lib/fantasy/runs';
-import type { readFullDeploymentEvidence } from './deployment-evidence';
 
 import { SpanType } from '@mastra/core/observability';
 import { TraceStatus } from '@mastra/core/storage';
 import { z } from 'zod';
+
+import type { SqlLike } from '../../lib/fantasy/recaps';
+import type { FantasyMonitoringRun } from '../../lib/fantasy/runs';
+import type { readFullDeploymentEvidence } from './deployment-evidence';
+
 import { fantasyGenerationSummarySchema } from '../../lib/fantasy/runs';
 
 const subject = z.enum(['operator_conversation', 'fantasy_recaps', 'host', 'docker', 'app', 'postgres', 'clickhouse', 'cloudflare_tunnel', 'tailscale']);

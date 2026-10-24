@@ -1,8 +1,7 @@
-import { expect, test } from 'bun:test';
-
 import { Agent } from '@mastra/core/agent';
 import { MastraLanguageModelV2Mock } from '@mastra/core/test-utils/llm-mock';
 import { createTool } from '@mastra/core/tools';
+import { expect, test } from 'bun:test';
 import { z } from 'zod';
 
 test('the default stream executes a completed tool call before the model step finishes, exactly once', async () => {

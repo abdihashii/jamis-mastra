@@ -1,9 +1,12 @@
 import type { Mastra } from '@mastra/core';
+
+import { createStep, createWorkflow } from '@mastra/core/workflows';
+import { z } from 'zod';
+
 import type { EditorialDraft } from '../../lib/fantasy/editorial';
 import type { EditorialOutcome, EditorialReview } from '../../lib/fantasy/editorial-loop';
 import type { RecapEvidencePacket } from '../../lib/fantasy/recap-evidence';
-import { createStep, createWorkflow } from '@mastra/core/workflows';
-import { z } from 'zod';
+
 import { editorialDraftSchema } from '../../lib/fantasy/editorial';
 import { editorialOutcomeSchema, editorialReviewSchema, runEditorialLoop } from '../../lib/fantasy/editorial-loop';
 import { FANTASY_EDITORIAL_LIMITS, FANTASY_EDITORIAL_WORKFLOW_ID } from '../../lib/fantasy/editorial-policy';
@@ -22,9 +25,15 @@ export interface FantasyEditorialObserver {
 /** Private native execution only. No root registration, snapshots, scheduled restart, memory or delivery. */
 export function createFantasyEditorialProcedure(parent: Mastra) {
 	const mastra = new StorageFreeRuntime(parent);
-	const inputSchema = z.object({ assignment: z.string().min(1).max(FANTASY_EDITORIAL_LIMITS.assignmentChars) }).strict();
+	const inputSchema = z
+		.object({ assignment: z.string().min(1).max(FANTASY_EDITORIAL_LIMITS.assignmentChars) })
+		.strict();
 	const allowedCallers = [{ kind: 'workflow', id: FANTASY_EDITORIAL_WORKFLOW_ID }] as const;
-	return async (packet: RecapEvidencePacket, signal?: AbortSignal, observer?: FantasyEditorialObserver): Promise<EditorialOutcome> => {
+	return async (
+		packet: RecapEvidencePacket,
+		signal?: AbortSignal,
+		observer?: FantasyEditorialObserver,
+	): Promise<EditorialOutcome> => {
 		let outcome: EditorialOutcome | undefined;
 		const counts = { drafts: 0, reviews: 0 };
 		const unavailable = (reason: string): EditorialOutcome => ({ status: 'blocked', evidenceId: packet.id, reason, candidateId: null, counts, issues: [] });
@@ -37,7 +46,9 @@ export function createFantasyEditorialProcedure(parent: Mastra) {
 			const { remainingMs } = await observer.beforeCall({ kind, ordinal });
 			if (!Number.isFinite(remainingMs) || remainingMs <= 0)
 				throw new Error('Editorial deadline unavailable');
-			return AbortSignal.any([abortSignal, AbortSignal.timeout(Math.floor(Math.min(remainingMs, FANTASY_EDITORIAL_LIMITS.callMs)))]);
+			return AbortSignal.any(
+				[abortSignal, AbortSignal.timeout(Math.floor(Math.min(remainingMs, FANTASY_EDITORIAL_LIMITS.callMs)))],
+			);
 		}
 		async function capture<T, R extends EditorialDraft | EditorialReview>(kind: 'writer' | 'reviewer', ordinal: number, schema: z.ZodType<R, R>, generate: () => Promise<T>): Promise<T> {
 			if (!observer)

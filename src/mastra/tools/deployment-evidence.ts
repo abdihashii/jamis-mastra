@@ -1,11 +1,14 @@
 import type { ObservabilityStorage } from '@mastra/core/storage';
-import type { SqlLike } from '../../lib/fantasy/recaps';
+
+import { createTool } from '@mastra/core/tools';
 import { Buffer } from 'node:buffer';
 import { existsSync } from 'node:fs';
 import { connect } from 'node:net';
 import process from 'node:process';
-import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+
+import type { SqlLike } from '../../lib/fantasy/recaps';
+
 import { getFantasyConfig } from '../../lib/fantasy/config';
 import { getFantasySql } from '../../lib/fantasy/recaps';
 import { fantasyGenerationSummarySchema, listFantasyMonitoringRuns } from '../../lib/fantasy/runs';

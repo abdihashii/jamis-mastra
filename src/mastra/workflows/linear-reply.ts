@@ -1,12 +1,14 @@
 import type { TracingContext } from '@mastra/core/observability';
 import type { Middleware } from '@mastra/core/server';
-import type { LinearProposal } from '../../lib/linear/linear-proposals';
-import type { SqlLike } from '../../lib/operator-time-zone';
 
 import { MastraError } from '@mastra/core/error';
 import { RequestContext } from '@mastra/core/request-context';
 import { createStep, createWorkflow, createWorkflowStateReader } from '@mastra/core/workflows';
 import { z } from 'zod';
+
+import type { LinearProposal } from '../../lib/linear/linear-proposals';
+import type { SqlLike } from '../../lib/operator-time-zone';
+
 import { linearCreateOperationSchema, linearCreateOutcomeSchema } from '../../lib/linear/linear';
 import { effectiveLinearOutcome, isLatestLinearMessage, linearContinuationSchema, linearDecisionSchema, readLinearContinuation } from '../../lib/linear/linear-proposals';
 

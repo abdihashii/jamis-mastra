@@ -1,11 +1,13 @@
 import type { Mastra } from '@mastra/core/mastra';
+
+import { createTool, noopObserve } from '@mastra/core/tools';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+
 import type { SqlLike } from '../../../lib/operator-time-zone';
 import type { LinearReplyInput, LinearReplyOptions } from '../linear-reply';
 
-import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
-import { createTool, noopObserve } from '@mastra/core/tools';
-import { z } from 'zod';
 import { claimLinearCreate, finishLinearCreate, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../../lib/linear/linear-proposals';
 import { boundaryModel } from '../../agents/__tests__/specialist-boundary.fixture';
 import { createPersonalAccountsAgent } from '../../agents/personal-accounts-agent';

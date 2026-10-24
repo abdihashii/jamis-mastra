@@ -1,11 +1,10 @@
 import type { AnyExportedSpan, ExportedLog, ExportedMetric } from '@mastra/core/observability';
 
-import { expect, test } from 'bun:test';
-
 import { Mastra } from '@mastra/core';
 import { RequestContext } from '@mastra/core/di';
 import { SpanType, TracingEventType } from '@mastra/core/observability';
 import { Observability } from '@mastra/observability';
+import { expect, test } from 'bun:test';
 
 import { createProjectLogger, filterProjectTrace, protectProjectSignals, redactChannelRenderContext, spanOutputProcessors } from './observability';
 

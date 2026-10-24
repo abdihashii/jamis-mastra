@@ -1,7 +1,9 @@
-import type { EditorialOutcome } from './editorial-loop';
-import type { RecapEvidencePacket } from './recap-evidence';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+
+import type { EditorialOutcome } from './editorial-loop';
+import type { RecapEvidencePacket } from './recap-evidence';
+
 import { buildEditorialCandidate, EDITORIAL_MAX_PARTS, EDITORIAL_PART_MAX_LENGTH, EDITORIAL_VERSION } from './editorial';
 import { editorialOutcomeSchema } from './editorial-loop';
 import { FANTASY_EDITORIAL_MODEL } from './editorial-policy';

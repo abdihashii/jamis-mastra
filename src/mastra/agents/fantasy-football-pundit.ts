@@ -1,5 +1,7 @@
 import type { AgentConfig } from '@mastra/core/agent';
+
 import { Agent } from '@mastra/core/agent';
+
 import { FANTASY_EDITORIAL_MODEL, fantasyEditorialDefaults } from '../../lib/fantasy/editorial-policy';
 
 const EDITORIAL_INSTRUCTIONS = `You are the Fantasy Football Pundit, the league's sharp-tongued resident reporter.

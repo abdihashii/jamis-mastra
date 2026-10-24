@@ -1,5 +1,6 @@
 import type { ChatContextMessage, RecapShaping } from './generate';
 import type { MatchupResult, ScoringExtreme, WeekFacts } from './week-facts';
+
 import { managerReferences, resolveManagerReferences } from './generate';
 
 export const RECAP_MAX_LENGTH = 2000;

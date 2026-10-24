@@ -1,4 +1,3 @@
-import { expect, test } from 'bun:test';
 import { Mastra } from '@mastra/core';
 import { Agent } from '@mastra/core/agent';
 import { SpanType, TracingEventType } from '@mastra/core/observability';
@@ -7,6 +6,7 @@ import { TraceStatus } from '@mastra/core/storage';
 import { MastraLanguageModelV2Mock } from '@mastra/core/test-utils/llm-mock';
 import { Memory } from '@mastra/memory';
 import { Observability } from '@mastra/observability';
+import { expect, test } from 'bun:test';
 
 if (!process.env.RESEARCH_AGENT_CONTRACT_TEST) {
 	test('research delegation contract runs with isolated source configuration', async () => {

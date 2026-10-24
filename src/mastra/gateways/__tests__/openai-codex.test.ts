@@ -1,11 +1,6 @@
 import type { GatewayLanguageModel } from '@mastra/core/llm';
 import type { AnyExportedSpan } from '@mastra/core/observability';
-import type { CodexCredential } from '../openai-codex-auth.js';
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { realpathSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+
 import { Mastra } from '@mastra/core';
 import { Agent } from '@mastra/core/agent';
 import { SpanType, TracingEventType } from '@mastra/core/observability';
@@ -13,7 +8,14 @@ import { executeWithContext } from '@mastra/core/observability/context-storage';
 import { InMemoryStore } from '@mastra/core/storage';
 import { createTool } from '@mastra/core/tools';
 import { Observability } from '@mastra/observability';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { realpathSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { z } from 'zod';
+
+import type { CodexCredential } from '../openai-codex-auth.js';
 
 import { allowlistCodexAuthFailure, CODEX_AUTH_FAILURE_EVENT } from '../../observability.js';
 import { CodexAuthFailure, defaultCredentialPath, MODEL_AUTH_FAILURE, refreshCredential, runDeviceLogin } from '../openai-codex-auth.js';
