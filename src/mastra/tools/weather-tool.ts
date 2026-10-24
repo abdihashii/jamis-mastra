@@ -3,7 +3,7 @@ import type { SqlLike } from '../../lib/operator-time-zone';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
-import { fetchJson } from '../../lib/fetch/fetch';
+import { fetchJson } from '../../lib/fetch';
 import { geocodeQueries, zipQuery } from '../../lib/geocode';
 import { resolveOperatorTimeZone } from '../../lib/operator-time-zone';
 import { localDate, localTime, nextDayDate, zonedDate } from '../../lib/time';

@@ -5,7 +5,7 @@ import type { SendOutcome } from './deliver';
 import { createHash, randomUUID } from 'node:crypto';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { isImmediatelyFollowingLinearMessage, isLatestLinearMessage } from '../linear-proposals';
+import { isImmediatelyFollowingLinearMessage, isLatestLinearMessage } from '../linear/linear-proposals';
 import { getFantasyConfig } from './config';
 import { getFantasySql } from './recaps';
 

@@ -1,9 +1,9 @@
-import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { test } from 'bun:test';
 
 import { createProjectCli } from './project-cli';
 import { limits } from './project-cli-contract';

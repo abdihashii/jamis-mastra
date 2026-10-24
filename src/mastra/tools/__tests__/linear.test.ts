@@ -4,7 +4,7 @@ import { TracingEventType } from '@mastra/core/observability';
 import { MastraLanguageModelV2Mock } from '@mastra/core/test-utils/llm-mock';
 import { noopObserve } from '@mastra/core/tools';
 import { Observability } from '@mastra/observability';
-import { linearReadInputSchema } from '../../../lib/linear';
+import { linearReadInputSchema } from '../../../lib/linear/linear';
 
 if (!process.env.LINEAR_AGENT_CONTRACT_TEST) {
 	test('Linear tool/delegation contract runs with isolated credentials and stubbed HTTP/model traffic', async () => {

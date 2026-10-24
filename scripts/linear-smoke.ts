@@ -1,6 +1,6 @@
 import process from 'node:process';
 import { noopObserve } from '@mastra/core/tools';
-import { createLinearClient, LinearError, linearReadInputSchema } from '../src/lib/linear';
+import { createLinearClient, LinearError, linearReadInputSchema } from '../src/lib/linear/linear';
 import { linearReadTool } from '../src/mastra/tools/linear';
 
 try {

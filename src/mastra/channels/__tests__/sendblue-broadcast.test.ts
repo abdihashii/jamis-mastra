@@ -68,7 +68,7 @@ if (!process.env.FANTASY_BROADCAST_CONTRACT_TEST) {
 	});
 	const { broadcastTools, readPendingBroadcast } = await import('../../../lib/fantasy/broadcast');
 	const { saveOperatorTimeZoneProposal, clearOperatorTimeZoneConversation } = await import('../../../lib/operator-time-zone');
-	const { postLinearCreateProposal, readLinearProposal } = await import('../../../lib/linear-proposals');
+		const { postLinearCreateProposal, readLinearProposal } = await import('../../../lib/linear/linear-proposals');
 	const { handleSendblueDirectMessage, sendblueAdapter, formatSendblueError, requireSendbluePostAcceptance, postExactSendblueMessage, startJamisDmSession, proposeOperatorTimeZoneChange, proposeLinearCreate } = await import('../sendblue');
 	const { createJamisAgent } = await import('../../agents/jamis');
 	const { boundaryModel } = await import('../../agents/__tests__/specialist-boundary.fixture');

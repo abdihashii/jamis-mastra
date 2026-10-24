@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
-import { createLinearClient, linearCreateInputSchema, LinearError, linearReadInputSchema } from '../linear';
+import { createLinearClient, linearCreateInputSchema, LinearError, linearReadInputSchema } from './linear';
 
 const config = {
 	LINEAR_CLIENT_ID: 'client-id',

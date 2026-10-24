@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { z } from 'zod';
 
-import { linearReadResultSchema } from '../../lib/linear';
+import { linearReadResultSchema } from '../../lib/linear/linear';
 import { resolveAccountsGmailReferences } from '../tools/invoke-specialist';
 import { researchResultSchema } from './research-handback';
 import { specialistHandbackSchema } from './specialist-handback';

@@ -8,7 +8,7 @@ import { Mastra } from '@mastra/core/mastra';
 import { RequestContext } from '@mastra/core/request-context';
 import { PostgresStore } from '@mastra/pg';
 import { Hono } from 'hono';
-import { claimLinearCreate, finishLinearCreate, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../../lib/linear-proposals';
+import { claimLinearCreate, finishLinearCreate, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../../lib/linear/linear-proposals';
 import { createLinearReplyProcedure, LINEAR_OUTCOME_WAIT_ID, LINEAR_REPLY_WORKFLOW_ID, linearReplyApiAdmission } from '../linear-reply';
 import { linearReplyFixtureInput, runLinearReplyFixture } from './linear-reply.fixture';
 

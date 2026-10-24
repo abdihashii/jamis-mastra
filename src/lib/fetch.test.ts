@@ -1,6 +1,6 @@
 import { afterAll, expect, spyOn, test } from 'bun:test';
 
-import { fetchJson } from '../fetch/fetch';
+import { fetchJson } from './fetch';
 
 const server = Bun.serve({
 	port: 0,

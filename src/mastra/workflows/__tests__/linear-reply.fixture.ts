@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createTool, noopObserve } from '@mastra/core/tools';
 import { z } from 'zod';
-import { claimLinearCreate, finishLinearCreate, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../../lib/linear-proposals';
+import { claimLinearCreate, finishLinearCreate, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../../lib/linear/linear-proposals';
 import { boundaryModel } from '../../agents/__tests__/specialist-boundary.fixture';
 import { createPersonalAccountsAgent } from '../../agents/personal-accounts-agent';
 import { createSpecialistContext, createSpecialistInvocation, normalizeSpecialistResult } from '../../tools/invoke-specialist';

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { geocodeQueries, zipQuery } from '../geocode';
+import { geocodeQueries, zipQuery } from './geocode';
 
 test('geocodeQueries tries the text as typed, then the US-state form, then the bare city', () => {
 	expect(geocodeQueries('Mundelein, IL')).toEqual(['Mundelein, IL', 'Mundelein,IL,US', 'Mundelein']);

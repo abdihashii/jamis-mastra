@@ -1,7 +1,7 @@
 import type { ChannelConfig } from '@mastra/core/channels';
 import type { Message, Thread } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
-import type { LinearCreateOperation } from '../../../lib/linear';
+import type { LinearCreateOperation } from '../../../lib/linear/linear';
 import type { SqlLike } from '../../../lib/operator-time-zone';
 
 import { SQL } from 'bun';
@@ -19,7 +19,7 @@ import { Observability } from '@mastra/observability';
 import { PostgresStore } from '@mastra/pg';
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
 import { z } from 'zod';
-import { claimLinearCreate, finishLinearCreate, isImmediatelyFollowingLinearMessage, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../../lib/linear-proposals';
+import { claimLinearCreate, finishLinearCreate, isImmediatelyFollowingLinearMessage, notifyLinearOutcome, postLinearCreateProposal, readLinearContinuation, readLinearProposal, receiveLinearMessage } from '../../../lib/linear/linear-proposals';
 import { clearOperatorTimeZoneConversation, saveOperatorTimeZoneProposal } from '../../../lib/operator-time-zone';
 import { redactChannelRenderContext } from '../../observability';
 import { specialistClarificationKey } from '../../specialist-clarification';

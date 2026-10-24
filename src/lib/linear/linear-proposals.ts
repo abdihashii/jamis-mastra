@@ -1,8 +1,8 @@
 import type { LinearCreateInspection, LinearCreateOperation, LinearCreateOutcome } from './linear';
-import type { SqlLike } from './operator-time-zone';
+import type { SqlLike } from '../operator-time-zone';
 
-import { SQL } from 'bun';
 import process from 'node:process';
+import { SQL } from 'bun';
 import { z } from 'zod';
 import { linearCreateInspectionSchema, linearCreateOperationSchema, linearCreateOutcomeSchema } from './linear';
 
