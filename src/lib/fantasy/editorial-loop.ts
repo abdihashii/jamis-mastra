@@ -1,6 +1,8 @@
+import { z } from 'zod';
+
 import type { EditorialCandidate, EditorialIssue } from './editorial';
 import type { RecapEvidencePacket } from './recap-evidence';
-import { z } from 'zod';
+
 import { buildEditorialCandidate, buildEditorialCatalog, EDITORIAL_MAX_PARTS, EDITORIAL_PART_MAX_LENGTH, EDITORIAL_VERSION, editorialDraftSchema } from './editorial';
 import { FANTASY_EDITORIAL_LIMITS } from './editorial-policy';
 

@@ -1,8 +1,10 @@
 import type { MastraDBMessage } from '@mastra/core/memory';
 import type { MemoryStorage } from '@mastra/core/storage';
+
+import { z } from 'zod';
+
 import type { FantasyConfig } from './config';
 import type { SleeperManager } from './sleeper';
-import { z } from 'zod';
 
 const RECAP_AWARD_HEADINGS = ['Manager of the Week', 'Loser of the Week', 'Match of the Week']
 	.map(heading => new RegExp(`(?:^|\\n)[^\\p{L}\\p{N}\\n]*${heading}:`, 'iu'));

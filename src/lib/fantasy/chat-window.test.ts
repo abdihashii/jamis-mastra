@@ -1,6 +1,8 @@
-import type { SleeperScheduleSnapshot } from './sleeper';
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+
+import type { SleeperScheduleSnapshot } from './sleeper';
+
 import { readReportingWindow } from './chat-window';
 
 const fixtures = JSON.parse(readFileSync(new URL('./nfl-calendar.fixture.json', import.meta.url), 'utf8'));

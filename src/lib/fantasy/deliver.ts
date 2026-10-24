@@ -1,5 +1,6 @@
-import process from 'node:process';
 import { toPlainText } from 'chat-adapter-sendblue';
+import process from 'node:process';
+
 import { requireSendbluePostAcceptance, sendblueAdapter } from '../../mastra/channels/sendblue';
 
 /** What one outbound attempt learned. `unknown` = the request's fate is unobservable to us. */

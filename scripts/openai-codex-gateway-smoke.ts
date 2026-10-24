@@ -1,3 +1,5 @@
+import { Mastra } from '@mastra/core';
+import { Agent } from '@mastra/core/agent';
 /**
  * Gateway smoke: one real generation through the openai-codex gateway, with
  * no agent flips and no server. Proves the full resolution path live:
@@ -7,9 +9,6 @@
  * Usage: bun scripts/openai-codex-gateway-smoke.ts
  */
 import process from 'node:process';
-
-import { Mastra } from '@mastra/core';
-import { Agent } from '@mastra/core/agent';
 
 import { openAICodexGateway } from '../src/mastra/gateways/openai-codex-gateway.js';
 

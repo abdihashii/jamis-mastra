@@ -1,10 +1,11 @@
+import { describe, expect, it } from 'bun:test';
+
 import type { CoordinatorDeps } from './coordinator';
 import type { SendClient, SendOutcome } from './deliver';
 import type { RecapGenerationRecord, SqlLike } from './recaps';
 import type { RecapRun } from './runs';
-
 import type { WeekFacts } from './week-facts';
-import { describe, expect, it } from 'bun:test';
+
 import { parseFantasyConfig } from './config';
 import { confirmSent, retryWeek, runWeeklyRecap } from './coordinator';
 import { ensureFantasyRunsTable, listActionableRuns } from './runs';

@@ -1,8 +1,10 @@
+import { describe, expect, it } from 'bun:test';
+import { Buffer } from 'node:buffer';
+
 import type { EditorialDraft, EditorialIssue } from './editorial';
 import type { RecapEvidencePacket } from './recap-evidence';
 import type { SleeperLeague, SleeperManager, SleeperScore } from './sleeper';
-import { describe, expect, it } from 'bun:test';
-import { Buffer } from 'node:buffer';
+
 import {
 	buildEditorialCandidate,
 	buildEditorialCatalog,

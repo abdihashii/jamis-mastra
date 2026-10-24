@@ -1,11 +1,12 @@
-import type { Status } from '../src/mastra/project-cli-contract';
 // Synthetic app: no Docker authority, dependencies, or writable IPC mounts.
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
-
 import process from 'node:process';
+
+import type { Status } from '../src/mastra/project-cli-contract';
+
 import { createProjectCli } from '../src/mastra/project-cli';
 import { limits } from '../src/mastra/project-cli-contract';
 import { pinProjectView } from '../src/mastra/project-workspace';

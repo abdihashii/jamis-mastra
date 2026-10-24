@@ -1,5 +1,7 @@
-import type { EditorialCalls } from './editorial-loop';
 import { describe, expect, it, spyOn } from 'bun:test';
+
+import type { EditorialCalls } from './editorial-loop';
+
 import { buildEditorialCandidate } from './editorial';
 import { editorialProjection, runEditorialLoop } from './editorial-loop';
 import { frozenEditorialFixture, validEditorialDraft } from './editorial.fixture';

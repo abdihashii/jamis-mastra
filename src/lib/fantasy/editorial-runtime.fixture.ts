@@ -1,4 +1,5 @@
 import type { GatewayLanguageModel } from '@mastra/core/llm';
+
 import { Mastra } from '@mastra/core';
 import { MastraModelGateway } from '@mastra/core/llm';
 import { MastraLanguageModelV2Mock } from '@mastra/core/test-utils/llm-mock';

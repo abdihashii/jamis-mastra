@@ -1,11 +1,10 @@
+import { Mastra } from '@mastra/core';
+import { Observability } from '@mastra/observability';
+import { PostgresStore } from '@mastra/pg';
 import { SQL } from 'bun';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import process from 'node:process';
-
-import { Mastra } from '@mastra/core';
-import { Observability } from '@mastra/observability';
-import { PostgresStore } from '@mastra/pg';
 
 import { runJamisChannelFixture, runJamisDelegationFixture, runJamisNestedResearchFixture, runJamisResearchFixture, runJamisWeatherValidationFixture } from '../src/mastra/agents/__tests__/jamis-delegation.fixture';
 import { runSpecialistBoundaryFixture } from '../src/mastra/agents/__tests__/specialist-boundary.fixture';

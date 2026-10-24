@@ -1,6 +1,8 @@
-import type { RecapEvidencePacket } from './recap-evidence';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+
+import type { RecapEvidencePacket } from './recap-evidence';
+
 import { resolveChatSource } from './recap-evidence';
 
 export const EDITORIAL_VERSION = 'fantasy-editorial-v2';

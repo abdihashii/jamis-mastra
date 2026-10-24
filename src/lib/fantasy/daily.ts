@@ -1,13 +1,16 @@
 import type { Mastra } from '@mastra/core/mastra';
 import type { TracingContext } from '@mastra/core/observability';
 import type { MemoryStorage } from '@mastra/core/storage';
+
+import process from 'node:process';
+
 import type { FantasyConfig } from './config';
 import type { CoordinatorDeps } from './coordinator';
 import type { SendClient } from './deliver';
 import type { PipelineDeps, PipelineResult } from './pipeline';
 import type { EvidenceOptions } from './recap-evidence';
 import type { SqlLike } from './recaps';
-import process from 'node:process';
+
 import { openRecapArchive } from './archive';
 import { readReportingWindow } from './chat-window';
 import { retryWeek } from './coordinator';
