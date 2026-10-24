@@ -41,7 +41,7 @@ Step 1 commit approval does not authorize an assistant push or deployment. Step 
 
 **Goal:** remove the moving reporting cutoff from new generation without rewriting existing artifacts or attempts.
 
-**Critical files:** `daily.ts`, `chat-window.ts`, `pipeline.ts`, `evidence.ts`, `chat-evidence.ts`, `nfl-sources.ts`, generation capture/state compatibility as required, previews/CLI and their tests; maintained Fantasy docs.
+**Critical files:** `daily.ts`, `chat-window.ts`, `pipeline.ts`, `recap-evidence.ts`, `chat-archive.ts`, `nfl-sources.ts`, generation capture/state compatibility as required, previews/CLI and their tests; maintained Fantasy docs.
 
 - Use the verified calendar reader in the shared new-report entrypoint. Persist its immutable bounds and attributable proof with the attempt/evidence; never let a model choose or override them.
 - Admit chat by original sent time. Admit news by publication/version time, withholding later or unverifiable content rather than reconstructing an unavailable historical version. Keep week-scoped result/injury evidence distinct from recent-news timestamps and retrieval time.
