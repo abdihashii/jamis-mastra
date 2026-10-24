@@ -1,13 +1,13 @@
 import type { MastraDBMessage } from '@mastra/core/memory';
 import type { MemoryStorage } from '@mastra/core/storage';
-import type { EvidenceOptions } from '../evidence';
 import type { NflSourceInput } from '../nfl-sources.schema';
 import type { NflSourceRecord, NflSourceResult } from '../nfl-sources.types';
+import type { EvidenceOptions } from '../recap-evidence';
 import type { BracketGame, SleeperLeague, SleeperPlayerDetails, SleeperScore, SleeperTransaction } from '../sleeper';
 import { describe, expect, it, spyOn } from 'bun:test';
 import { Buffer } from 'node:buffer';
-import { collectRecapEvidence, resolveChatSource } from '../evidence';
 import { nflTeamCode } from '../nfl-sources';
+import { collectRecapEvidence, resolveChatSource } from '../recap-evidence';
 
 const now = new Date('2026-09-23T12:00:00Z');
 const window = { startAtUtc: '2026-09-15T12:00:00.000Z', endAtUtc: '2026-09-22T12:00:00.000Z' };

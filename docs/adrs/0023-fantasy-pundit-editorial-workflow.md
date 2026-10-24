@@ -4,7 +4,7 @@ Status: accepted architectural decisions for documentation. Not implemented or r
 
 ## Context
 
-Fantasy already has a Mastra agent, not just deterministic functions. `src/fantasy/generate.ts` constructs `fantasy-agent`; `src/mastra/index.ts` registers it as `fantasy`, without channels. The scheduled workflow calls `daily.ts` and `coordinator.ts`. Code selects high-score, low-score and closest-matchup awards; the agent supplies limited structured story prose. `analysis.ts` also produces standings and retrospective player/bench comparisons. Those comparisons alone do not prove a manager made a bad decision with the information available before kickoff.
+Fantasy already has a Mastra agent, not just deterministic functions. `src/fantasy/generate.ts` constructs `fantasy-agent`; `src/mastra/index.ts` registers it as `fantasy`, without channels. The scheduled workflow calls `daily.ts` and `coordinator.ts`. Code selects high-score, low-score and closest-matchup awards; the agent supplies limited structured story prose. `week-facts.ts` also produces standings and retrospective player/bench comparisons. Those comparisons alone do not prove a manager made a bad decision with the information available before kickoff.
 
 The existing system supplies important boundaries to retain:
 

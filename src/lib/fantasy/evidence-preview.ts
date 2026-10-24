@@ -1,12 +1,12 @@
-import type { ChatWindow } from './chat-evidence';
+import type { ChatWindow } from './chat-archive';
 import type { FantasyConfig } from './config';
-import type { EvidenceOptions, RecapEvidencePacket } from './evidence';
+import type { EvidenceOptions, RecapEvidencePacket } from './recap-evidence';
 import { SQL } from 'bun';
 import { noopLogger } from '@mastra/core/logger';
 import { PostgresStore } from '@mastra/pg';
-import { chatWindowSchema } from './chat-evidence';
-import { collectRecapEvidence } from './evidence';
+import { chatWindowSchema } from './chat-archive';
 import { createNflSourceTask } from './nfl-sources-task';
+import { collectRecapEvidence } from './recap-evidence';
 
 export interface EvidencePreviewResult {
 	status: 'ready' | 'partial' | 'blocked';

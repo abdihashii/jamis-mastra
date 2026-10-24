@@ -1,13 +1,12 @@
 import type { MemoryStorage } from '@mastra/core/storage';
-import type { WeekFacts, WeekFactsInput } from './analysis';
-import type { ArchivedChatEvidence, ChatSource, ChatWindow } from './chat-evidence';
+import type { ArchivedChatEvidence, ChatSource, ChatWindow } from './chat-archive';
 import type { FantasyConfig } from './config';
 import type { NflSourceInput } from './nfl-sources.schema';
 import type { NflSourceRecord, NflSourceResult } from './nfl-sources.types';
 import type { BracketGame, SleeperLeague, SleeperManager, SleeperPlayerDetails, SleeperScore, SleeperState, SleeperTransaction } from './sleeper';
+import type { WeekFacts, WeekFactsInput } from './week-facts';
 import { createHash } from 'node:crypto';
-import { buildUpcomingMatchups, buildWeekHistory, buildWeekSnapshot } from './analysis';
-import { chatWindowSchema, readArchivedChat } from './chat-evidence';
+import { chatWindowSchema, readArchivedChat } from './chat-archive';
 import { nflTeamCode } from './nfl-sources';
 import {
 	getLeague,
@@ -20,6 +19,7 @@ import {
 	isWeekComplete,
 	withBracketRounds,
 } from './sleeper';
+import { buildUpcomingMatchups, buildWeekHistory, buildWeekSnapshot } from './week-facts';
 
 const sleeperReads = {
 	getLeague,

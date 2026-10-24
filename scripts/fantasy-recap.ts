@@ -1,14 +1,13 @@
-import type { WeekFacts } from '../src/lib/fantasy/analysis';
 import type { FantasyConfig } from '../src/lib/fantasy/config';
 import type { ChatContextMessage, RecapGenerator } from '../src/lib/fantasy/generate';
 import type { RecapGenerationRecord } from '../src/lib/fantasy/recaps';
-
 import type { SleeperManager } from '../src/lib/fantasy/sleeper';
+
+import type { WeekFacts } from '../src/lib/fantasy/week-facts';
 import { SQL } from 'bun';
 import { readFile } from 'node:fs/promises';
 import process from 'node:process';
 import { PostgresStore } from '@mastra/pg';
-import { buildWeekFacts } from '../src/lib/fantasy/analysis';
 import { parseFantasyConfig } from '../src/lib/fantasy/config';
 import {
 	buildRecapPrompt,
@@ -19,8 +18,8 @@ import {
 	ShapingValidationError,
 	toChatContext,
 } from '../src/lib/fantasy/generate';
-
 import { RECAP_MAX_LENGTH, renderResult, renderWeekRecap } from '../src/lib/fantasy/render';
+
 import {
 	championshipWeek,
 	getLeague,
@@ -33,6 +32,7 @@ import {
 	SleeperDataError,
 	withBracketRounds,
 } from '../src/lib/fantasy/sleeper';
+import { buildWeekFacts } from '../src/lib/fantasy/week-facts';
 
 const usage = [
 	'bun run fantasy:recap <command>',
@@ -101,7 +101,7 @@ async function main() {
 		const apiKey = flags.includes('--nfl') ? process.env.FIRECRAWL_API_KEY : undefined;
 		if (flags.includes('--nfl') && !apiKey?.trim())
 			fail('FIRECRAWL_API_KEY is required for explicitly requested NFL reads.', 1);
-		const { previewRecapEvidence } = await import('../src/lib/fantasy/preview-evidence');
+		const { previewRecapEvidence } = await import('../src/lib/fantasy/evidence-preview');
 		const result = await previewRecapEvidence({
 			config,
 			week,

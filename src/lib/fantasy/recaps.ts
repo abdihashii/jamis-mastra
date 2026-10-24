@@ -1,4 +1,4 @@
-import type { WeekFacts } from './analysis';
+import type { WeekFacts } from './week-facts';
 
 import { SQL } from 'bun';
 import process from 'node:process';

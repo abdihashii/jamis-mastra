@@ -1,8 +1,8 @@
-import type { WeekFacts } from '../analysis';
 import type { ChatContextMessage, RecapCorrection, RecapGenerator, RecapShaping } from '../generate';
 import type { RecapGenerationRecord, SqlLike } from '../recaps';
-
 import type { SleeperManager } from '../sleeper';
+
+import type { WeekFacts } from '../week-facts';
 
 import { describe, expect, it, spyOn } from 'bun:test';
 import { toPlainText } from 'chat-adapter-sendblue';

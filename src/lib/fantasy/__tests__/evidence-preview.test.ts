@@ -1,5 +1,5 @@
 import type { MemoryStorage } from '@mastra/core/storage';
-import type { EvidenceOptions } from '../evidence';
+import type { EvidenceOptions } from '../recap-evidence';
 import type { SleeperScore } from '../sleeper';
 import { SQL } from 'bun';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from 'bun:test';
@@ -7,8 +7,8 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { noopLogger } from '@mastra/core/logger';
 import { PostgresStore } from '@mastra/pg';
-import { resolveChatSource } from '../evidence';
-import { evidenceReadOnlyDatabaseUrl, previewRecapEvidence } from '../preview-evidence';
+import { evidenceReadOnlyDatabaseUrl, previewRecapEvidence } from '../evidence-preview';
+import { resolveChatSource } from '../recap-evidence';
 
 const config = {
 	sendblueGroupId: 'fixture-group',
@@ -87,12 +87,12 @@ test('invalid scope/window blocks before database or paid/public source reads', 
 
 test('composition dependency files contain no local model, channel, send, or persistence imports', async () => {
 	for (const name of [
-		'preview-evidence',
-		'evidence',
-		'chat-evidence',
+		'evidence-preview',
+		'recap-evidence',
+		'chat-archive',
 		'nfl-sources',
 		'nfl-sources-task',
-		'analysis',
+		'week-facts',
 		'sleeper',
 	]) {
 		const source = await readFile(new URL(`../${name}.ts`, import.meta.url), 'utf8');

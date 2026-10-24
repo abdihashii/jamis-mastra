@@ -2,7 +2,7 @@ import type { MastraDBMessage } from '@mastra/core/memory';
 import type { MemoryStorage } from '@mastra/core/storage';
 import { describe, expect, it } from 'bun:test';
 import { Buffer } from 'node:buffer';
-import { readArchivedChat } from '../chat-evidence';
+import { readArchivedChat } from '../chat-archive';
 
 const config = {
 	sleeperLeagueId: '111',

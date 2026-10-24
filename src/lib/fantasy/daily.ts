@@ -2,19 +2,19 @@ import type { Mastra } from '@mastra/core/mastra';
 import type { MastraDBMessage } from '@mastra/core/memory';
 import type { TracingContext } from '@mastra/core/observability';
 
-import type { WeekFacts } from './analysis';
 import type { FantasyConfig } from './config';
 import type { CoordinatorOutcome } from './coordinator';
 import type { SendClient } from './deliver';
 import type { RecapGenerator } from './generate';
 import type { SleeperManager } from './sleeper';
+import type { WeekFacts } from './week-facts';
 
-import { buildWeekFacts } from './analysis';
 import { runWeeklyRecap } from './coordinator';
 import { buildRecapPrompt, DEFAULT_RECAP_MODEL, recapShapingSchema, ShapingValidationError } from './generate';
 import { ensureFantasyRecapsTable, getFantasySql, recordClaimedGeneration } from './recaps';
 import { createRunsStore } from './runs';
 import { getLeague, getManagers, getNflState, getPlayers, getScores, getWinnersBracket, latestCompletedWeek, withBracketRounds } from './sleeper';
+import { buildWeekFacts } from './week-facts';
 
 export type DailyOutcome
 	= | { outcome: CoordinatorOutcome; week: number | null }

@@ -1,9 +1,9 @@
-import type { WeekFactsInput } from '../analysis';
-
 import type { BracketGame, SleeperLeague, SleeperManager, SleeperPlayer, SleeperScore } from '../sleeper';
+
+import type { WeekFactsInput } from '../week-facts';
 import { describe, expect, it } from 'bun:test';
-import { buildWeekFacts, buildWeekSnapshot } from '../analysis';
 import { SleeperDataError } from '../sleeper';
+import { buildWeekFacts, buildWeekSnapshot } from '../week-facts';
 
 const managers: SleeperManager[] = [
 	{ rosterId: 1, userId: 'u1', displayName: 'alpha' },
