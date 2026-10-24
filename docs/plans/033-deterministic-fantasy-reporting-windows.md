@@ -25,7 +25,7 @@ ESPN's calendar is a provider-defined period, not a final-whistle timestamp. Tue
 
 **Verification:** offline native HTTP fixtures for current Week 6/7, delayed Wednesday game, regular/postseason transition, scope/identity/status/count conflicts, boundary precision, malformed dates, missing next period, cancellation/deadline/body consumption, redirects and no retry. Then full repository typecheck/test/lint/build/infra/diff gates and fresh independent reviews.
 
-**Demo:** `rtk bun test src/lib/fantasy/__tests__/nfl-calendar.test.ts`, showing Week 6's queried `[2026-10-14T07:00Z, 2026-10-21T07:00Z)` unchanged at later collection times, and contradictory or unverified periods blocked.
+**Demo:** `rtk bun test src/lib/fantasy/nfl-calendar.test.ts`, showing Week 6's queried `[2026-10-14T07:00Z, 2026-10-21T07:00Z)` unchanged at later collection times, and contradictory or unverified periods blocked.
 
 **Verification result (2026-10-21 UTC):** 41 focused cases passed. The full repository gate passed: 1,463 tests, one Linux-only skip, zero failures (1,464 tests across 79 files, 12,814 assertions); full typecheck; lint with zero errors/320 line-length warnings; four infra tests; standard Mastra/Studio production Docker build; whitespace checks. Four fresh read-only correctness/contracts/security/Ponytail reviews and two post-fix verification passes found no remaining issues.
 
