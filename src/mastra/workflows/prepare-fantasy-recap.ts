@@ -1,6 +1,6 @@
+import type { Mastra } from '@mastra/core';
 import type { EditorialOutcome } from '../../lib/fantasy/editorial-loop';
 import type { RecapEvidencePacket } from '../../lib/fantasy/recap-evidence';
-import { Mastra } from '@mastra/core';
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { editorialDraftSchema } from '../../lib/fantasy/editorial';
@@ -9,23 +9,12 @@ import { FANTASY_EDITORIAL_LIMITS, FANTASY_EDITORIAL_WORKFLOW_ID } from '../../l
 import { createFantasyFootballEditor } from '../agents/fantasy-football-editor';
 import { createFantasyFootballPundit } from '../agents/fantasy-football-pundit';
 import { specialistHandbackSchema } from '../agents/specialist-handback';
+import { StorageFreeRuntime } from '../storage-free-runtime';
 import { createSpecialistContext, createSpecialistInvocation, revokeSpecialistAuthority } from '../tools/invoke-specialist';
-
-// Agent.generate creates its own checkpointing workflow, independently of our workflow's snapshot policy.
-class EditorialRuntime extends Mastra {
-	constructor(private readonly parent: Mastra) {
-		super({ logger: parent.getLogger(), gateways: parent.listGateways() });
-	}
-
-	override getStorage() { return undefined; }
-
-	// Share tracing without re-registering the application's observability instance on another runtime.
-	override get observability() { return this.parent?.observability ?? super.observability; }
-}
 
 /** Private native execution only. No root registration, snapshots, scheduled restart, memory or delivery. */
 export function createFantasyEditorialProcedure(parent: Mastra) {
-	const mastra = new EditorialRuntime(parent);
+	const mastra = new StorageFreeRuntime(parent);
 	const inputSchema = z.object({ assignment: z.string().min(1).max(FANTASY_EDITORIAL_LIMITS.assignmentChars) }).strict();
 	const allowedCallers = [{ kind: 'workflow', id: FANTASY_EDITORIAL_WORKFLOW_ID }] as const;
 	const writer = createSpecialistInvocation({
