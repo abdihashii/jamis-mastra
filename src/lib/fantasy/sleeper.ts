@@ -425,7 +425,10 @@ export async function getTransactions(leagueId: string, week: number, signal?: A
 		// Every duplicate row is unusable; never pick a winner from conflicting source IDs.
 		if (!t || idCounts.get(t.transaction_id) !== 1 || t.leg !== week
 			|| (t.league_id !== undefined && t.league_id !== leagueId)
-			|| [...Object.values(t.adds ?? {}), ...Object.values(t.drops ?? {})].some(id => !t.roster_ids.includes(id))) {
+			|| [
+				...Object.values(t.adds ?? {}),
+				...Object.values(t.drops ?? {}),
+			].some(id => !t.roster_ids.includes(id))) {
 			malformedCount += 1;
 			continue;
 		}
@@ -447,7 +450,11 @@ export async function getTransactions(leagueId: string, week: number, signal?: A
 				previousOwnerId: p.previous_owner_id,
 				ownerId: p.owner_id,
 			})),
-			faabTransfers: (t.waiver_budget ?? []).map(({ sender, receiver, amount }) => ({ sender, receiver, amount })),
+			faabTransfers: (t.waiver_budget ?? []).map(({
+				sender,
+				receiver,
+				amount,
+			}) => ({ sender, receiver, amount })),
 		});
 	}
 	return { transactions, malformedCount, retrievedAtUtc };
