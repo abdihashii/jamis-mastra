@@ -108,6 +108,8 @@ test('composition dependency files contain no local model, channel, send, or per
 		'chat-archive',
 		'nfl-sources',
 		'nfl-sources-task',
+		'nfl-sources.schema',
+		'nfl-sources.types',
 		'week-facts',
 		'sleeper',
 	]) {
