@@ -1,0 +1,3033 @@
+{
+	"week6": {
+		"week": 6,
+		"current": {
+			"$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/types/2/weeks/6?lang=en&region=us",
+			"number": 6,
+			"startDate": "2026-10-14T07:00Z",
+			"endDate": "2026-10-21T06:59Z",
+			"text": "Week 6"
+		},
+		"next": {
+			"$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/types/2/weeks/7?lang=en&region=us",
+			"number": 7,
+			"startDate": "2026-10-21T07:00Z",
+			"endDate": "2026-10-28T06:59Z",
+			"text": "Week 7"
+		},
+		"scoreboard": {
+			"leagues": [
+				{
+					"id": "28",
+					"slug": "nfl"
+				}
+			],
+			"season": {
+				"type": 2,
+				"year": 2026
+			},
+			"week": {
+				"number": 6
+			},
+			"events": [
+				{
+					"id": "401872995",
+					"date": "2026-10-16T00:15Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401872995",
+							"date": "2026-10-16T00:15Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "DEN"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "SEA"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401872996",
+					"date": "2026-10-18T13:30Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401872996",
+							"date": "2026-10-18T13:30Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "JAX"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "HOU"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401872999",
+					"date": "2026-10-18T17:00Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401872999",
+							"date": "2026-10-18T17:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "ATL"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "CHI"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401872997",
+					"date": "2026-10-18T17:00Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401872997",
+							"date": "2026-10-18T17:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "CLE"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "BAL"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401873003",
+					"date": "2026-10-18T17:00Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401873003",
+							"date": "2026-10-18T17:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "IND"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "TEN"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401873001",
+					"date": "2026-10-18T17:00Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401873001",
+							"date": "2026-10-18T17:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "NE"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "NYJ"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401873000",
+					"date": "2026-10-18T17:00Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401873000",
+							"date": "2026-10-18T17:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "NYG"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "NO"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401872998",
+					"date": "2026-10-18T17:00Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401872998",
+							"date": "2026-10-18T17:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "PHI"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "CAR"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401873002",
+					"date": "2026-10-18T17:00Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401873002",
+							"date": "2026-10-18T17:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "TB"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "PIT"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401873004",
+					"date": "2026-10-18T20:05Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401873004",
+							"date": "2026-10-18T20:05Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "LAR"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "ARI"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401873006",
+					"date": "2026-10-18T20:25Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401873006",
+							"date": "2026-10-18T20:25Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "KC"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "LAC"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401873005",
+					"date": "2026-10-18T20:25Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401873005",
+							"date": "2026-10-18T20:25Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "LV"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "BUF"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401873007",
+					"date": "2026-10-19T00:20Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401873007",
+							"date": "2026-10-19T00:20Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "GB"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "DAL"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401873008",
+					"date": "2026-10-20T00:15Z",
+					"season": {
+						"year": 2026,
+						"type": 2
+					},
+					"week": {
+						"number": 6
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401873008",
+							"date": "2026-10-20T00:15Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "SF"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "WSH"
+									}
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		"sleeper": {
+			"season": "2026",
+			"phase": "regular",
+			"retrievedAtUtc": "2026-10-21T17:00:00.000Z",
+			"games": [
+				{
+					"id": "202610602",
+					"week": 6,
+					"date": "2026-10-18",
+					"status": "complete",
+					"home": "ATL",
+					"away": "CHI"
+				},
+				{
+					"id": "202610608",
+					"week": 6,
+					"date": "2026-10-18",
+					"status": "complete",
+					"home": "CLE",
+					"away": "BAL"
+				},
+				{
+					"id": "202610610",
+					"week": 6,
+					"date": "2026-10-15",
+					"status": "complete",
+					"home": "DEN",
+					"away": "SEA"
+				},
+				{
+					"id": "202610612",
+					"week": 6,
+					"date": "2026-10-18",
+					"status": "complete",
+					"home": "GB",
+					"away": "DAL"
+				},
+				{
+					"id": "202610614",
+					"week": 6,
+					"date": "2026-10-18",
+					"status": "complete",
+					"home": "IND",
+					"away": "TEN"
+				},
+				{
+					"id": "202610615",
+					"week": 6,
+					"date": "2026-10-18",
+					"status": "complete",
+					"home": "JAX",
+					"away": "HOU"
+				},
+				{
+					"id": "202610616",
+					"week": 6,
+					"date": "2026-10-18",
+					"status": "complete",
+					"home": "KC",
+					"away": "LAC"
+				},
+				{
+					"id": "202610621",
+					"week": 6,
+					"date": "2026-10-18",
+					"status": "complete",
+					"home": "NE",
+					"away": "NYJ"
+				},
+				{
+					"id": "202610623",
+					"week": 6,
+					"date": "2026-10-18",
+					"status": "complete",
+					"home": "NYG",
+					"away": "NO"
+				},
+				{
+					"id": "202610625",
+					"week": 6,
+					"date": "2026-10-18",
+					"status": "complete",
+					"home": "LV",
+					"away": "BUF"
+				},
+				{
+					"id": "202610626",
+					"week": 6,
+					"date": "2026-10-18",
+					"status": "complete",
+					"home": "PHI",
+					"away": "CAR"
+				},
+				{
+					"id": "202610631",
+					"week": 6,
+					"date": "2026-10-19",
+					"status": "complete",
+					"home": "SF",
+					"away": "WAS"
+				},
+				{
+					"id": "202610632",
+					"week": 6,
+					"date": "2026-10-18",
+					"status": "complete",
+					"home": "LAR",
+					"away": "AZ"
+				},
+				{
+					"id": "202610633",
+					"week": 6,
+					"date": "2026-10-18",
+					"status": "complete",
+					"home": "TB",
+					"away": "PIT"
+				}
+			]
+		}
+	},
+	"delayed": {
+		"week": 12,
+		"current": {
+			"$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2020/types/2/weeks/12?lang=en&region=us",
+			"number": 12,
+			"startDate": "2020-11-25T08:00Z",
+			"endDate": "2020-12-03T07:59Z",
+			"text": "Week 12"
+		},
+		"next": {
+			"$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2020/types/2/weeks/13?lang=en&region=us",
+			"number": 13,
+			"startDate": "2020-12-03T08:00Z",
+			"endDate": "2020-12-09T07:59Z",
+			"text": "Week 13"
+		},
+		"scoreboard": {
+			"leagues": [
+				{
+					"id": "28",
+					"slug": "nfl"
+				}
+			],
+			"season": {
+				"type": 2,
+				"year": 2020
+			},
+			"week": {
+				"number": 12
+			},
+			"events": [
+				{
+					"id": "401220287",
+					"date": "2020-11-26T17:30Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220287",
+							"date": "2020-11-26T17:30Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "DET"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "HOU"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220244",
+					"date": "2020-11-26T21:30Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220244",
+							"date": "2020-11-26T21:30Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "DAL"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "WSH"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220312",
+					"date": "2020-11-29T18:00Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220312",
+							"date": "2020-11-29T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "ATL"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "LV"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220118",
+					"date": "2020-11-29T18:00Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220118",
+							"date": "2020-11-29T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "BUF"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "LAC"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220160",
+					"date": "2020-11-29T18:00Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220160",
+							"date": "2020-11-29T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "CIN"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "NYG"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220188",
+					"date": "2020-11-29T18:00Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220188",
+							"date": "2020-11-29T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "IND"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "TEN"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220302",
+					"date": "2020-11-29T18:00Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220302",
+							"date": "2020-11-29T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "MIN"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "CAR"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220135",
+					"date": "2020-11-29T18:00Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220135",
+							"date": "2020-11-29T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "NE"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "ARI"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220139",
+					"date": "2020-11-29T18:00Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220139",
+							"date": "2020-11-29T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "NYJ"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "MIA"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220197",
+					"date": "2020-11-29T18:00Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220197",
+							"date": "2020-11-29T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "JAX"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "CLE"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220215",
+					"date": "2020-11-29T21:05Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220215",
+							"date": "2020-11-29T21:05Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "DEN"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "NO"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220345",
+					"date": "2020-11-29T21:05Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220345",
+							"date": "2020-11-29T21:05Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "LAR"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "SF"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220333",
+					"date": "2020-11-29T21:25Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220333",
+							"date": "2020-11-29T21:25Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "TB"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "KC"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220290",
+					"date": "2020-11-30T01:20Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220290",
+							"date": "2020-11-30T01:20Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "GB"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "CHI"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220262",
+					"date": "2020-12-01T01:15Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220262",
+							"date": "2020-12-01T01:15Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "PHI"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "SEA"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401220170",
+					"date": "2020-12-02T20:40Z",
+					"season": {
+						"year": 2020,
+						"type": 2
+					},
+					"week": {
+						"number": 12
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401220170",
+							"date": "2020-12-02T20:40Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "PIT"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "BAL"
+									}
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		"sleeper": {
+			"season": "2020",
+			"phase": "regular",
+			"retrievedAtUtc": "2026-10-21T17:00:00.000Z",
+			"games": [
+				{
+					"id": "202011202",
+					"week": 12,
+					"date": "2020-11-29",
+					"status": "complete",
+					"home": "ATL",
+					"away": "LV"
+				},
+				{
+					"id": "202011204",
+					"week": 12,
+					"date": "2020-11-29",
+					"status": "complete",
+					"home": "BUF",
+					"away": "LAC"
+				},
+				{
+					"id": "202011207",
+					"week": 12,
+					"date": "2020-11-29",
+					"status": "complete",
+					"home": "CIN",
+					"away": "NYG"
+				},
+				{
+					"id": "202011209",
+					"week": 12,
+					"date": "2020-11-26",
+					"status": "complete",
+					"home": "DAL",
+					"away": "WAS"
+				},
+				{
+					"id": "202011210",
+					"week": 12,
+					"date": "2020-11-29",
+					"status": "complete",
+					"home": "DEN",
+					"away": "NO"
+				},
+				{
+					"id": "202011211",
+					"week": 12,
+					"date": "2020-11-26",
+					"status": "complete",
+					"home": "DET",
+					"away": "HOU"
+				},
+				{
+					"id": "202011212",
+					"week": 12,
+					"date": "2020-11-29",
+					"status": "complete",
+					"home": "GB",
+					"away": "CHI"
+				},
+				{
+					"id": "202011214",
+					"week": 12,
+					"date": "2020-11-29",
+					"status": "complete",
+					"home": "IND",
+					"away": "TEN"
+				},
+				{
+					"id": "202011215",
+					"week": 12,
+					"date": "2020-11-29",
+					"status": "complete",
+					"home": "JAX",
+					"away": "CLE"
+				},
+				{
+					"id": "202011220",
+					"week": 12,
+					"date": "2020-11-29",
+					"status": "complete",
+					"home": "MIN",
+					"away": "CAR"
+				},
+				{
+					"id": "202011221",
+					"week": 12,
+					"date": "2020-11-29",
+					"status": "complete",
+					"home": "NE",
+					"away": "AZ"
+				},
+				{
+					"id": "202011224",
+					"week": 12,
+					"date": "2020-11-29",
+					"status": "complete",
+					"home": "NYJ",
+					"away": "MIA"
+				},
+				{
+					"id": "202011226",
+					"week": 12,
+					"date": "2020-11-30",
+					"status": "complete",
+					"home": "PHI",
+					"away": "SEA"
+				},
+				{
+					"id": "202011228",
+					"week": 12,
+					"date": "2020-12-02",
+					"status": "complete",
+					"home": "PIT",
+					"away": "BAL"
+				},
+				{
+					"id": "202011232",
+					"week": 12,
+					"date": "2020-11-29",
+					"status": "complete",
+					"home": "LAR",
+					"away": "SF"
+				},
+				{
+					"id": "202011233",
+					"week": 12,
+					"date": "2020-11-29",
+					"status": "complete",
+					"home": "TB",
+					"away": "KC"
+				}
+			]
+		}
+	},
+	"transition": {
+		"week": 18,
+		"current": {
+			"$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/types/2/weeks/18?lang=en&region=us",
+			"number": 18,
+			"startDate": "2025-12-31T08:00Z",
+			"endDate": "2026-01-07T07:59Z",
+			"text": "Week 18"
+		},
+		"next": {
+			"$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/types/3/weeks/1?lang=en&region=us",
+			"number": 1,
+			"startDate": "2026-01-07T08:00Z",
+			"endDate": "2026-01-14T07:59Z",
+			"text": "Wild Card"
+		},
+		"scoreboard": {
+			"leagues": [
+				{
+					"id": "28",
+					"slug": "nfl"
+				}
+			],
+			"season": {
+				"type": 2,
+				"year": 2025
+			},
+			"week": {
+				"number": 18
+			},
+			"events": [
+				{
+					"id": "401772969",
+					"date": "2026-01-03T21:30Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772969",
+							"date": "2026-01-03T21:30Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "TB"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "CAR"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772961",
+					"date": "2026-01-04T01:00Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772961",
+							"date": "2026-01-04T01:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "SF"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "SEA"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772966",
+					"date": "2026-01-04T18:00Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772966",
+							"date": "2026-01-04T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "ATL"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "NO"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772964",
+					"date": "2026-01-04T18:00Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772964",
+							"date": "2026-01-04T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "CIN"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "CLE"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772968",
+					"date": "2026-01-04T18:00Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772968",
+							"date": "2026-01-04T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "MIN"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "GB"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772963",
+					"date": "2026-01-04T18:00Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772963",
+							"date": "2026-01-04T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "NYG"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "DAL"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772970",
+					"date": "2026-01-04T18:00Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772970",
+							"date": "2026-01-04T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "JAX"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "TEN"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772962",
+					"date": "2026-01-04T18:00Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772962",
+							"date": "2026-01-04T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "HOU"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "IND"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772967",
+					"date": "2026-01-04T21:25Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772967",
+							"date": "2026-01-04T21:25Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "BUF"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "NYJ"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772965",
+					"date": "2026-01-04T21:25Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772965",
+							"date": "2026-01-04T21:25Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "CHI"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "DET"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772956",
+					"date": "2026-01-04T21:25Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772956",
+							"date": "2026-01-04T21:25Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "DEN"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "LAC"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772957",
+					"date": "2026-01-04T21:25Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772957",
+							"date": "2026-01-04T21:25Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "LV"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "KC"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772955",
+					"date": "2026-01-04T21:25Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772955",
+							"date": "2026-01-04T21:25Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "LAR"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "ARI"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772958",
+					"date": "2026-01-04T21:25Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772958",
+							"date": "2026-01-04T21:25Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "NE"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "MIA"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772959",
+					"date": "2026-01-04T21:25Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772959",
+							"date": "2026-01-04T21:25Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "PHI"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "WSH"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772960",
+					"date": "2026-01-05T01:20Z",
+					"season": {
+						"year": 2025,
+						"type": 2
+					},
+					"week": {
+						"number": 18
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772960",
+							"date": "2026-01-05T01:20Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "PIT"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "BAL"
+									}
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		"sleeper": {
+			"season": "2025",
+			"phase": "regular",
+			"retrievedAtUtc": "2026-10-21T17:00:00.000Z",
+			"games": [
+				{
+					"id": "202511802",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "ATL",
+					"away": "NO"
+				},
+				{
+					"id": "202511804",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "BUF",
+					"away": "NYJ"
+				},
+				{
+					"id": "202511806",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "CHI",
+					"away": "DET"
+				},
+				{
+					"id": "202511807",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "CIN",
+					"away": "CLE"
+				},
+				{
+					"id": "202511810",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "DEN",
+					"away": "LAC"
+				},
+				{
+					"id": "202511813",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "HOU",
+					"away": "IND"
+				},
+				{
+					"id": "202511815",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "JAX",
+					"away": "TEN"
+				},
+				{
+					"id": "202511820",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "MIN",
+					"away": "GB"
+				},
+				{
+					"id": "202511821",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "NE",
+					"away": "MIA"
+				},
+				{
+					"id": "202511823",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "NYG",
+					"away": "DAL"
+				},
+				{
+					"id": "202511825",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "LV",
+					"away": "KC"
+				},
+				{
+					"id": "202511826",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "PHI",
+					"away": "WAS"
+				},
+				{
+					"id": "202511828",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "PIT",
+					"away": "BAL"
+				},
+				{
+					"id": "202511831",
+					"week": 18,
+					"date": "2026-01-03",
+					"status": "complete",
+					"home": "SF",
+					"away": "SEA"
+				},
+				{
+					"id": "202511832",
+					"week": 18,
+					"date": "2026-01-04",
+					"status": "complete",
+					"home": "LAR",
+					"away": "AZ"
+				},
+				{
+					"id": "202511833",
+					"week": 18,
+					"date": "2026-01-03",
+					"status": "complete",
+					"home": "TB",
+					"away": "CAR"
+				}
+			]
+		}
+	},
+	"wildcard": {
+		"week": 1,
+		"current": {
+			"$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/types/3/weeks/1?lang=en&region=us",
+			"number": 1,
+			"startDate": "2026-01-07T08:00Z",
+			"endDate": "2026-01-14T07:59Z",
+			"text": "Wild Card"
+		},
+		"next": {
+			"$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/types/3/weeks/2?lang=en&region=us",
+			"number": 2,
+			"startDate": "2026-01-14T08:00Z",
+			"endDate": "2026-01-21T07:59Z",
+			"text": "Divisional Round"
+		},
+		"scoreboard": {
+			"leagues": [
+				{
+					"id": "28",
+					"slug": "nfl"
+				}
+			],
+			"season": {
+				"type": 3,
+				"year": 2025
+			},
+			"week": {
+				"number": 1
+			},
+			"events": [
+				{
+					"id": "401772979",
+					"date": "2026-01-10T21:30Z",
+					"season": {
+						"year": 2025,
+						"type": 3
+					},
+					"week": {
+						"number": 1
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772979",
+							"date": "2026-01-10T21:30Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "CAR"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "LAR"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772981",
+					"date": "2026-01-11T01:00Z",
+					"season": {
+						"year": 2025,
+						"type": 3
+					},
+					"week": {
+						"number": 1
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772981",
+							"date": "2026-01-11T01:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "CHI"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "GB"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772977",
+					"date": "2026-01-11T18:00Z",
+					"season": {
+						"year": 2025,
+						"type": 3
+					},
+					"week": {
+						"number": 1
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772977",
+							"date": "2026-01-11T18:00Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "JAX"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "BUF"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772980",
+					"date": "2026-01-11T21:30Z",
+					"season": {
+						"year": 2025,
+						"type": 3
+					},
+					"week": {
+						"number": 1
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772980",
+							"date": "2026-01-11T21:30Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "PHI"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "SF"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772978",
+					"date": "2026-01-12T01:15Z",
+					"season": {
+						"year": 2025,
+						"type": 3
+					},
+					"week": {
+						"number": 1
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772978",
+							"date": "2026-01-12T01:15Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "NE"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "LAC"
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "401772976",
+					"date": "2026-01-13T01:15Z",
+					"season": {
+						"year": 2025,
+						"type": 3
+					},
+					"week": {
+						"number": 1
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772976",
+							"date": "2026-01-13T01:15Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "PIT"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "HOU"
+									}
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		"sleeper": {
+			"season": "2025",
+			"phase": "post",
+			"retrievedAtUtc": "2026-10-21T17:00:00.000Z",
+			"games": [
+				{
+					"id": "202530100",
+					"week": 1,
+					"date": "2026-01-12",
+					"status": "canceled",
+					"home": "TBD",
+					"away": "HOU"
+				},
+				{
+					"id": "202530105",
+					"week": 1,
+					"date": "2026-01-10",
+					"status": "complete",
+					"home": "CAR",
+					"away": "LAR"
+				},
+				{
+					"id": "202530106",
+					"week": 1,
+					"date": "2026-01-10",
+					"status": "complete",
+					"home": "CHI",
+					"away": "GB"
+				},
+				{
+					"id": "202530115",
+					"week": 1,
+					"date": "2026-01-11",
+					"status": "complete",
+					"home": "JAX",
+					"away": "BUF"
+				},
+				{
+					"id": "202530121",
+					"week": 1,
+					"date": "2026-01-11",
+					"status": "complete",
+					"home": "NE",
+					"away": "LAC"
+				},
+				{
+					"id": "202530126",
+					"week": 1,
+					"date": "2026-01-11",
+					"status": "complete",
+					"home": "PHI",
+					"away": "SF"
+				},
+				{
+					"id": "202530128",
+					"week": 1,
+					"date": "2026-01-12",
+					"status": "complete",
+					"home": "PIT",
+					"away": "HOU"
+				}
+			]
+		}
+	},
+	"superbowl": {
+		"week": 4,
+		"current": {
+			"$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/types/3/weeks/5?lang=en&region=us",
+			"number": 5,
+			"startDate": "2026-02-04T08:00Z",
+			"endDate": "2026-02-12T07:59Z",
+			"text": "Super Bowl"
+		},
+		"next": null,
+		"scoreboard": {
+			"leagues": [
+				{
+					"id": "28",
+					"slug": "nfl"
+				}
+			],
+			"season": {
+				"type": 3,
+				"year": 2025
+			},
+			"week": {
+				"number": 5
+			},
+			"events": [
+				{
+					"id": "401772988",
+					"date": "2026-02-08T23:30Z",
+					"season": {
+						"year": 2025,
+						"type": 3
+					},
+					"week": {
+						"number": 5
+					},
+					"status": {
+						"type": {
+							"state": "post",
+							"completed": true,
+							"name": "STATUS_FINAL"
+						}
+					},
+					"competitions": [
+						{
+							"id": "401772988",
+							"date": "2026-02-08T23:30Z",
+							"status": {
+								"type": {
+									"state": "post",
+									"completed": true,
+									"name": "STATUS_FINAL"
+								}
+							},
+							"competitors": [
+								{
+									"homeAway": "home",
+									"team": {
+										"abbreviation": "NE"
+									}
+								},
+								{
+									"homeAway": "away",
+									"team": {
+										"abbreviation": "SEA"
+									}
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		"sleeper": {
+			"season": "2025",
+			"phase": "post",
+			"retrievedAtUtc": "2026-10-21T17:00:00.000Z",
+			"games": [
+				{
+					"id": "202530400",
+					"week": 4,
+					"date": "2026-02-08",
+					"status": "canceled",
+					"home": "TBD",
+					"away": "TBD"
+				},
+				{
+					"id": "202530421",
+					"week": 4,
+					"date": "2026-02-08",
+					"status": "complete",
+					"home": "NE",
+					"away": "SEA"
+				}
+			]
+		}
+	},
+	"proBowl": {
+		"$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/types/3/weeks/4?lang=en&region=us",
+		"number": 4,
+		"startDate": "2026-01-28T08:00Z",
+		"endDate": "2026-02-04T07:59Z",
+		"text": "Pro Bowl"
+	}
+}
