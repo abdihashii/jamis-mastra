@@ -11,7 +11,9 @@ import { Agent } from '@mastra/core/agent';
 import { SpanType, TracingEventType } from '@mastra/core/observability';
 import { executeWithContext } from '@mastra/core/observability/context-storage';
 import { InMemoryStore } from '@mastra/core/storage';
+import { createTool } from '@mastra/core/tools';
 import { Observability } from '@mastra/observability';
+import { z } from 'zod';
 
 import { allowlistCodexAuthFailure, CODEX_AUTH_FAILURE_EVENT } from '../../observability.js';
 import { CodexAuthFailure, defaultCredentialPath, MODEL_AUTH_FAILURE, refreshCredential, runDeviceLogin } from '../openai-codex-auth.js';
@@ -139,10 +141,10 @@ describe('gateway identity and catalog', () => {
 		expect(openAICodexGateway.handlesModel('openai-codex/gpt-5.6-terra')).toBe(false);
 	});
 
-	test('advertises gpt-5.6-terra with no api-key env var', async () => {
+	test('advertises Astra, Sol and Luna in order with no api-key env var', async () => {
 		const providers = await openAICodexGateway.fetchProviders();
 		expect(Object.keys(providers)).toEqual(['openai-codex']);
-		expect(providers['openai-codex']?.models).toEqual(['gpt-5.6-terra']);
+		expect(providers['openai-codex']?.models).toEqual(['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-luna']);
 		expect(providers['openai-codex']?.apiKeyEnvVar).toBe('');
 		expect(await openAICodexGateway.buildUrl('openai-codex/gpt-5.6-terra', {})).toBe(
 			'https://chatgpt.com/backend-api/codex/responses',
@@ -154,6 +156,90 @@ describe('gateway identity and catalog', () => {
 			id: 'openai-codex',
 			name: 'OpenAI Codex (subscription)',
 		});
+	});
+});
+
+describe('verified model bindings through the native provider', () => {
+	function fixtureResponse(model: string, step: number): Response {
+		const event = (type: string, fields: object) => `event: ${type}\ndata: ${JSON.stringify({ type, ...fields })}\n\n`;
+		const response = { id: `resp_fixture_${step}`, created_at: 1800000000, model, status: 'completed', output: [], usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 } };
+		let sse = event('response.created', { response: { ...response, status: 'in_progress' } });
+		if (step === 0) {
+			const item = { id: 'item_tool', type: 'function_call', call_id: 'call_fixture', name: 'probe', arguments: '{}', status: 'completed' };
+			sse += event('response.output_item.added', { output_index: 0, item: { ...item, arguments: '', status: 'in_progress' } });
+			sse += event('response.function_call_arguments.delta', { item_id: item.id, output_index: 0, delta: item.arguments });
+			sse += event('response.output_item.done', { output_index: 0, item });
+		} else {
+			const text = '{"ok":true}';
+			const item = { id: 'item_message', type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text, annotations: [], logprobs: [] }] };
+			sse += event('response.output_item.added', { output_index: 0, item: { ...item, content: [], status: 'in_progress' } });
+			sse += event('response.output_text.delta', { item_id: item.id, output_index: 0, content_index: 0, delta: text });
+			sse += event('response.output_item.done', { output_index: 0, item });
+		}
+		sse += event('response.completed', { response });
+		return new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+	}
+
+	test.each([
+		['gpt-6-astra', 'xhigh'],
+		['gpt-6.1-sol', 'xhigh'],
+		['gpt-6-luna', 'max'],
+	] as const)('%s preserves %s and native schema/tool options', async (model, effort) => {
+		await writeCredential(makeCredential());
+		mockFetch({ generation: () => fixtureResponse(model, fetchCalls.length - 1) });
+		const schema = z.object({ ok: z.literal(true) }).strict();
+		let toolCalls = 0;
+		const probe = createTool({
+			id: 'probe',
+			description: 'Inert fixture tool.',
+			inputSchema: z.object({}).strict(),
+			outputSchema: schema,
+			execute: async () => {
+				toolCalls++;
+				return { ok: true as const };
+			},
+		});
+		const agent = new Agent({ id: 'probe', name: 'probe', instructions: 'Call probe, then return its JSON object.', model: `openai-codex/${model}`, tools: { probe } });
+		const mastra = new Mastra({ logger: false, agents: { probe: agent }, gateways: { 'openai-codex': openAICodexGateway } });
+		const result = await mastra.getAgent('probe').generate('Run the fixture.', {
+			maxSteps: 2,
+			maxProcessorRetries: 0,
+			modelSettings: { maxRetries: 0 },
+			prepareStep: ({ stepNumber }) => stepNumber === 0
+				? { toolChoice: 'required', activeTools: ['probe'] }
+				: { toolChoice: 'none', activeTools: [] },
+			structuredOutput: { schema, errorStrategy: 'strict', jsonPromptInjection: false },
+			providerOptions: { openai: { reasoningEffort: effort, parallelToolCalls: false } },
+		});
+
+		expect(result.object).toEqual({ ok: true });
+		expect(result.steps).toHaveLength(2);
+		expect(toolCalls).toBe(1);
+		expect(result.toolResults).toHaveLength(1);
+		expect(result.toolResults[0]?.payload.result).toEqual({ ok: true });
+		expect(fetchCalls).toHaveLength(2);
+		for (const [step, call] of fetchCalls.entries()) {
+			expect(call.url).toBe('https://chatgpt.com/backend-api/codex/responses');
+			expect(call.init?.method).toBe('POST');
+			const body = JSON.parse(call.init!.body as string);
+			expect(body).toMatchObject({
+				model,
+				reasoning: { effort },
+				stream: true,
+				store: false,
+				parallel_tool_calls: false,
+				text: { format: { type: 'json_schema', strict: true, schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean' } }, required: ['ok'] } } },
+			});
+			if (step === 0) {
+				expect(body.tools).toMatchObject([{ type: 'function', name: 'probe', parameters: { type: 'object', properties: {}, additionalProperties: false, required: [] } }]);
+				expect(body.tool_choice).toBe('required');
+			} else {
+				expect(body.tools ?? []).toEqual([]);
+				// The native SDK omits tool_choice when activeTools is empty.
+				expect(body.tool_choice).toBeUndefined();
+				expect(body.input).toContainEqual({ type: 'function_call_output', call_id: 'call_fixture', output: '{"ok":true}' });
+			}
+		}
 	});
 });
 

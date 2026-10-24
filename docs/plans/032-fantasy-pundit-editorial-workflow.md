@@ -1,6 +1,6 @@
 # 032: Fantasy Football Pundit editorial workflow
 
-Status: **Stage 1 complete. Stages 2–6 pending.**
+Status: **Stages 1–2 complete. Stage 3 in progress. Stages 4–6 pending.**
 
 Product authority: [Fantasy Football Pundit specification](../fantasy-football-pundit.md). Design authority: [ADR 0023](../adrs/0023-fantasy-pundit-editorial-workflow.md). Existing boundaries: [ADR 0009 typed execution amendment](../adrs/0009-jamis-as-mastra-supervisor.md#typed-execution-boundaries-jam-77-2026-10-10-utc), [ADR 0017](../adrs/0017-fantasy-group-is-passive-channel-context.md), and [ADR 0018](../adrs/0018-durable-recap-state-owns-delivery-correctness.md). Terminology belongs to [Jamis CONTEXT](../CONTEXT.md), [Fantasy CONTEXT](../../src/lib/fantasy/CONTEXT.md), and [CONTEXT-MAP](../../CONTEXT-MAP.md). Their path migration is implementation scope, not evidence that code has moved.
 
@@ -36,7 +36,7 @@ Installed manifest: `@mastra/core@1.71.0`, `@mastra/pg@1.27.1`, `@ai-sdk/openai@
 
 Use that common runtime for internal agents and expose only intended roots/workflows. Strict schemas prove shape, not truth. Reject missing output and native validation-error values; do not parse prose into success or add a fallback structuring model. A workflow can return `success` after `bail()`, so inspect the domain outcome. Disable automatic active-run restart and workflow/step retries on the effect-bearing procedure; native snapshots and cancellation do not replace durable send eligibility.
 
-Requested models are **GPT-6-Astra, xhigh** for all recap model-backed Pundit, NFL-research and editorial-review work, and **GPT-6-Luna, max** for Broadcaster. Do not change unrelated Research defaults. Local, read-only registry inspection lists `gpt-6-astra` and `gpt-6-luna` under `openai`; the custom `openai-codex` gateway advertises only `gpt-5.6-terra`, although its resolver accepts a model ID. The installed Responses option accepts a reasoning-effort string. Neither fact verifies the requested subscription-backend model IDs or effort support. Resolve exact provider-qualified IDs and reasoning behavior in Stage 2; do not guess an alias, silently lower effort, or switch providers. No live model/provider request was made for this plan.
+Requested models are **GPT-6-Astra, xhigh** for recap model-backed Pundit, NFL-research and editorial-review work, and **GPT-6-Luna, max** for Broadcaster. Stage 2 verified the exact subscription bindings `openai-codex/gpt-6-astra` and `openai-codex/gpt-6-luna`, using `providerOptions.openai.reasoningEffort`, strict structured output and an inert tool round-trip. The catalog follows the Operator's Astra, Sol, Luna order; Terra is removed. Active Sol recap and unrelated Research defaults remain unchanged. See Stage 2 for live receipts and limits: request acceptance is not proof of internal reasoning allocation or editorial quality.
 
 ## Implementation invariants
 
@@ -55,8 +55,8 @@ Follow [ADR 0023's flow](../adrs/0023-fantasy-pundit-editorial-workflow.md#flow)
 
 | Gate | Required decision or evidence |
 | --- | --- |
-| Model contract, Stage 2 | Exact provider-qualified Astra/Luna IDs, `xhigh`/`max` support, strict structured output and required tool combinations through the installed gateway. Local registry/type acceptance is insufficient backend proof. Obtain separate approval for any bounded live probe. |
-| Alexandria contract and spend, Stage 2 | Concrete sports operations, read shapes, identifier mapping, historical season/week availability, licensing/terms, maximum per-call/task cost and call bounds. Discover before assuming handles; fixtures cannot establish current upstream coverage. |
+| Model contract, Stage 2 | **Resolved:** actual gateway/backend accepted Astra/xhigh and Luna/max with strict JSON and a tool round-trip. Protocol proof and remaining limits are recorded below. |
+| Alexandria contract and spend, Stage 2 | **Resolved for the selected scope:** official REG injuries/news and StartWho current-season weekly results; one zero-credit catalogue and up to three reads quoted at five credits each per task. Source-native IDs remain explicit; Sleeper mapping belongs to Stage 3. No immutable pregame snapshot or known license is inferred, and the API cannot enforce an atomic credit ceiling. |
 | Historical and partial evidence, before Stage 3 acceptance | Evidence windows/freshness and which gaps allow a narrower recap versus blocking the week, including unavailable pregame history, transactions, player data or archived chat. Define gap disclosure and when performance fallbacks are justified; never use current rankings/injuries as historical pregame facts. |
 | Editorial structure, before Stage 4 implementation | Required schema, numeric-reference representation, quote/full-message versus continuous-excerpt handling and editorial tie treatment. Preserve factual ties without inheriting the old automatic award-selection contract. |
 | Output size and transport, before Stage 4 schema/final-render implementation | Expanded-report length and section budgets, single message versus splitting, ordering and exact-text preservation. If splitting is chosen, approve partial-send/unknown-part recovery under the existing delivery owner and revise Stages 5/6's single-payload acceptance before proceeding. The old 2,000 characters, 180 words/twelve sentences, four stories, no-number prose and paraphrase-only labels are not new limits. |
@@ -136,19 +136,35 @@ The corrected preview also exposed a sentence-shape failure: preview bypassed th
 
 ### 2. Prove NFL source, privacy and model contracts off the live path
 
+**Status: complete, committed and pushed as `adf070e`. Operator deployment and the live reader smoke passed.**
+
+**Post-deployment acceptance (2026-10-17 23:19 UTC):** the Operator-run smoke verified the exact `adf070e` reader source and the running image's Firecrawl 4.41.0 dependencies. It returned seven injury records, ten news summaries correctly marked truncated, and thirty weekly QB results. One catalogue lookup and three reads cost 15 credits; zero model calls, sends or database access. This tests the isolated reader, not scheduled integration or delivery; the reader remains off the live recap path.
+
+1. **Live contract proof complete (2026-10-17 UTC).** Five catalogue lookups cost zero credits. Six data attempts cost 20 credits: KC week-5 injury report empty (5), official KC news with dated headlines/summaries (5), KC week-6 injury report with seven records (5), two FFToday season queries returning upstream 502 (0 each), and StartWho week-5 QB projected-versus-actual results with 30 records (5). After FFToday failed, the Operator explicitly approved testing StartWho as the primary projection source, not a runtime fallback. Each execution was quoted at 5 credits before dispatch; no identical-query retry, private context, terms acceptance or send occurred.
+2. **Model proof complete.** The actual Codex gateway on Mastra 1.71.0/OpenAI SDK 3.0.88 accepted `openai-codex/gpt-6-astra` with `providerOptions.openai.reasoningEffort: 'xhigh'` and `openai-codex/gpt-6-luna` with `'max'`. Each completed one inert tool call followed by strict object-root JSON: four HTTP 200 responses total, exact backend model identities, no fallback or auth refresh, `store:false` and parallel tools disabled. This proves request acceptance and protocol compatibility, not internal reasoning allocation, token-cap enforcement or editorial quality.
+3. **Implemented:** isolated `src/lib/fantasy/nfl-sources.ts`, synthetic native-SDK/HTTP fixtures, and the verified model catalog/provider regressions. Retrieval is deterministic, with no new agent or live caller. Sol remains active until cutover; unrelated Research defaults are unchanged.
+
+**Verification (2026-10-17 UTC):** 548 tests passed, one Linux-only mount smoke skipped (549 tests, 54 files); 68 focused source/gateway tests passed. Typecheck, standard build, lint (zero errors, 206 pre-existing warnings), four infra tests and whitespace checks pass. Four fresh Astra review lanes covered correctness, contracts/spend, privacy/security and integration/Ponytail. One zero-row truncation finding was reproduced with two failing tests, fixed, and independently rechecked with no remaining finding. The final full gate passed after the fix. Offline replay of the captured live contracts/responses normalized all seven injury records, ten news summaries and thirty weekly results with zero external calls. Tests used fixture credentials, disposable loopback PostgreSQL and external-network denial; the standard build used the approved build-only wrapper. No manifests, lockfiles or lint rules changed. Stage 2 was committed, pushed and Operator-deployed; post-deployment acceptance is recorded above. The active recap remains unchanged; no new send path is activated.
+
+**Coverage limits:** StartWho has no season selector: reject older-season projection requests, and preserve its scoring preset rather than treating its points as Sleeper scoring. A provider-described pregame projection is not an immutable pre-kickoff snapshot. Injury practice dates are source-effective calendar dates, distinct from retrieval time. News supplies recent headlines/summaries, not full article text or guaranteed historical coverage. Empty, unavailable and truncated remain different outcomes; unknown licensing remains unknown.
+
+**Execution receipts:** official injury records `03a8b194-d83c-4511-a6f0-b8b834022574`; news `845328f6-7c14-490a-a638-b6fb08c68491`; weekly results `8c9fa717-5b80-448f-a165-6b13a097f7c4`. These are public/synthetic API proofs, not production report or delivery acceptance.
+
 **Goal:** establish the concrete source/model boundary before any editorial feature depends on it.
 
 **Critical files:** installed registry/gateway/SDK evidence; existing `src/mastra/tools/research-sources.ts` and `agents/research-agent.ts` as reuse references; a narrow Fantasy NFL source module under `src/lib/fantasy`; `src/mastra/gateways/openai-codex-gateway.ts` only if a verified catalog correction is needed; focused source and provider-schema tests.
 
-**Work:** resolve model and sports-contract gates above. Implement only demonstrated read-only sports operations using the installed Firecrawl SDK. Retain task-local inspected contracts, bounded prices/requests, attributable response parsing and explicit uncertainty. Runtime projection accepts trusted public NFL identifiers/time bounds, not model-authored private queries. Configure recap-only Astra research without changing unrelated Research callers/defaults. Reuse the checked Research contract where it fits; do not force sports records into a paper schema or build a provider registry.
+**Work:** resolve model and sports-contract gates above. Implement only demonstrated read-only sports operations using the installed Firecrawl SDK. Retain task-local inspected contracts, bounded prices/requests, attributable response parsing and explicit uncertainty. Runtime projection accepts trusted public NFL identifiers/time bounds, not model-authored private queries. Use the verified Astra/xhigh binding if recap-only research needs model judgment; deterministic retrieval does not warrant a new agent. Do not change unrelated Research callers/defaults. Reuse the checked Research contract where it fits; do not force sports records into a paper schema or build a provider registry.
 
 **Verify:** local HTTP/SDK fixtures for discovered contracts, routing, malformed/empty/partial content, source dates, historical queries, unsupported player mapping, unknown/excessive charges, terms/access denial, timeout and request identity. Capture the real provider request shape with a controlled transport: model ID, reasoning effort, object-root schemas and fixed options. Verify private chat/manager/Operator-memory sentinels are absent from model research inputs, source requests and exported signals. No real secrets or paid calls in tests.
 
-**Demo:** proposed `rtk bun test src/lib/fantasy/__tests__/research.test.ts` prints/asserts a normalized historical-versus-current evidence fixture and a denied private projection with zero upstream calls. Separately authorized discovery/read and model probes must record actual contracts/effort behavior before this slice is declared externally proven. If unavailable, report the blocker; do not pass downstream acceptance using invented fixtures alone.
+**Demo:** proposed `rtk bun test src/lib/fantasy/__tests__/nfl-sources.test.ts` prints/asserts a normalized historical-versus-current evidence fixture and a denied private projection with zero upstream calls. Separately authorized discovery/read and model probes must record actual contracts/effort behavior before this slice is declared externally proven. If unavailable, report the blocker; do not pass downstream acceptance using invented fixtures alone.
 
-**Proposed commit:** `feat: add bounded fantasy NFL research contracts`.
+**Approved commit:** `feat: add bounded fantasy NFL research contracts`.
 
 ### 3. Assemble frozen league, chat and NFL evidence for preview
+
+**Status: in progress: boundary inspection and evidence-admission decisions.**
 
 **Goal:** produce one reproducible evidence packet with explicit temporal and coverage limits, without report/run writes or publication.
 
