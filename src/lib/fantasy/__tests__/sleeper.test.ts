@@ -8,7 +8,9 @@ import {
 	getManagers,
 	getNflState,
 	getPlayers,
+	getPlayerSnapshot,
 	getScores,
+	getTransactions,
 	getWinnersBracket,
 	isWeekComplete,
 	latestCompletedWeek,
@@ -98,10 +100,37 @@ describe('normalization', () => {
 		expect(await getNflState()).toEqual({ week: 10, season: '2026', seasonType: 'regular' });
 	});
 
-	it('normalizes league roster positions', async () => {
+	it('normalizes league roster positions without adding absent optional fields', async () => {
 		stubFetch({ [`league/${league.id}`]: leagueJson });
-		expect((await getLeague(league.id)).rosterPositions).toEqual(['QB', 'RB', 'WR', 'FLEX', 'BN']);
+		expect(await getLeague(league.id)).toEqual({ ...league, playoffRounds: 0 });
 	});
+
+	it.each(['2020-09-10', '2024-02-29'])('retains a valid date-only season start: %s', async (date) => {
+		stubFetch({ 'state/nfl': { week: 2, season: '2020', season_type: 'regular', season_start_date: date } });
+		expect((await getNflState()).seasonStartDate).toBe(date);
+	});
+
+	it.each([null, 20260910, 'bad', '2026-02-30', '2026-2-01', '2026-09-10T00:00:00Z'])(
+		'keeps malformed optional season dates unknown: %s',
+		async (date) => {
+			stubFetch({ 'state/nfl': { week: 2, season: '2026', season_type: 'regular', season_start_date: date } });
+			expect((await getNflState()).seasonStartDate).toBeNull();
+		},
+	);
+
+	it('retains finite league scoring rules including zero and negative values', async () => {
+		const scoring = { rec: 0.5, pass_int: -2, bonus: 0 };
+		stubFetch({ [`league/${league.id}`]: { ...leagueJson, scoring_settings: scoring } });
+		expect((await getLeague(league.id)).scoringSettings).toEqual(scoring);
+	});
+
+	it.each([null, [], 'ppr', { rec: '1' }, { rec: Number.NaN }, { rec: Number.POSITIVE_INFINITY }])(
+		'keeps malformed optional scoring rules unknown: %j',
+		async (scoring) => {
+			stubFetch({ [`league/${league.id}`]: { ...leagueJson, scoring_settings: scoring } });
+			expect((await getLeague(league.id)).scoringSettings).toBeNull();
+		},
+	);
 
 	it('rejects multi-week playoff rounds outright', async () => {
 		stubFetch({ [`league/${league.id}`]: { ...leagueJson, settings: { ...leagueJson.settings, playoff_round_type: 1 } } });
@@ -203,6 +232,302 @@ describe('normalization', () => {
 	it('rejects an empty bracket', async () => {
 		stubFetch({ [`league/${league.id}/winners_bracket`]: [] });
 		await expect(getWinnersBracket(league.id)).rejects.toThrow(SleeperDataError);
+	});
+});
+
+describe('player snapshots', () => {
+	it('uses the documented player payload and shares rich cached detail with the legacy reader', async () => {
+		stubFetch({
+			'players/nfl': {
+				3086: {
+					player_id: '3086',
+					first_name: 'Tom',
+					last_name: 'Brady',
+					position: 'QB',
+					fantasy_positions: ['QB'],
+					team: 'NE',
+					gsis_id: '00-0019596',
+				},
+			},
+		});
+		const before = Date.now();
+		expect(await getPlayers(['3086', 'snapshot-missing'])).toEqual([{ id: '3086', name: 'Tom Brady', position: 'QB' }]);
+		const snapshot = await getPlayerSnapshot(['3086', '3086', 'snapshot-missing']);
+		expect(snapshot.players).toEqual([{
+			id: '3086',
+			name: 'Tom Brady',
+			position: 'QB',
+			team: 'NE',
+			fantasyPositions: ['QB'],
+			gsisId: '00-0019596',
+		}]);
+		expect(snapshot.missingIds).toEqual(['snapshot-missing']);
+		expect(snapshot.retrievedAtUtc).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/);
+		expect(Date.parse(snapshot.retrievedAtUtc!)).toBeGreaterThanOrEqual(before);
+		expect(Date.parse(snapshot.retrievedAtUtc!)).toBeLessThanOrEqual(Date.now());
+		expect(await getPlayerSnapshot(['3086', 'snapshot-missing'])).toEqual(snapshot);
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('does not fetch for empty IDs even with a populated cache', async () => {
+		stubFetch({});
+		expect(await getPlayerSnapshot([])).toEqual({ players: [], retrievedAtUtc: null, missingIds: [] });
+		expect(await getPlayers([])).toEqual([]);
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it('preserves missing detail without guessing positions or GSIS IDs and rejects mismatched keys', async () => {
+		stubFetch({
+			'players/nfl': {
+				'detail-absent': { player_id: 'detail-absent', full_name: 'Absent', position: 'WR' },
+				'detail-invalid': {
+					player_id: 'detail-invalid',
+					full_name: 'Invalid',
+					position: 'RB',
+					team: 32,
+					fantasy_positions: ['RB', 1],
+					gsis_id: '123456789',
+				},
+				'detail-null': {
+					player_id: 'detail-null',
+					full_name: 'Null',
+					position: 'TE',
+					team: null,
+					fantasy_positions: null,
+					gsis_id: null,
+				},
+				'detail-mismatch': { player_id: 'another-id', full_name: 'Wrong Identity', position: 'QB' },
+				'detail-broken': { player_id: 'detail-broken', full_name: 'No Position' },
+			},
+		});
+		const snapshot = await getPlayerSnapshot(['detail-absent', 'detail-invalid', 'detail-null', 'detail-mismatch', 'detail-broken']);
+		expect(snapshot.players).toEqual([
+			{ id: 'detail-absent', name: 'Absent', position: 'WR', team: null, fantasyPositions: [], gsisId: null },
+			{ id: 'detail-invalid', name: 'Invalid', position: 'RB', team: null, fantasyPositions: [], gsisId: null },
+			{ id: 'detail-null', name: 'Null', position: 'TE', team: null, fantasyPositions: [], gsisId: null },
+		]);
+		expect(snapshot.missingIds).toEqual(['detail-mismatch', 'detail-broken']);
+		expect(await getPlayers(['detail-absent'])).toEqual([{ id: 'detail-absent', name: 'Absent', position: 'WR' }]);
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('refreshes after 24 hours or when requested IDs are not retained', async () => {
+		const clock = spyOn(Date, 'now').mockReturnValue(2_000_000_000_000);
+		try {
+			stubFetch({ 'players/nfl': {
+				'cache-one': { player_id: 'cache-one', full_name: 'One', position: 'RB', team: 'NE', fantasy_positions: ['RB', 'WR'] },
+				'cache-two': { player_id: 'cache-two', full_name: 'Two', position: 'TE' },
+			} });
+			await getPlayerSnapshot(['cache-one', 'cache-missing']);
+			clock.mockReturnValue(2_000_000_000_000 + 24 * 60 * 60 * 1000 - 1);
+			expect((await getPlayerSnapshot(['cache-one', 'cache-missing'])).players[0]?.fantasyPositions).toEqual(['RB', 'WR']);
+			expect(fetchSpy).toHaveBeenCalledTimes(1);
+			clock.mockReturnValue(2_000_000_000_000 + 24 * 60 * 60 * 1000);
+			await getPlayerSnapshot(['cache-one', 'cache-missing']);
+			expect(fetchSpy).toHaveBeenCalledTimes(2);
+			await getPlayerSnapshot(['cache-two']);
+			expect(fetchSpy).toHaveBeenCalledTimes(3);
+		} finally {
+			clock.mockRestore();
+		}
+	});
+
+	it.each([null, []])('rejects a malformed catalog envelope: %j', async (body) => {
+		stubFetch({ 'players/nfl': body });
+		await expect(getPlayerSnapshot(['catalog-error'])).rejects.toThrow(SleeperDataError);
+	});
+});
+
+const transactionJson = {
+	type: 'free_agent',
+	transaction_id: '434890120798142464',
+	status_updated: 1558048393967,
+	status: 'complete',
+	settings: null,
+	roster_ids: [1],
+	metadata: { notes: 'private free text' },
+	leg: 1,
+	drops: { 1736: 1 },
+	draft_picks: [],
+	creator: '160000000000000000',
+	created: 1558048393967,
+	consenter_ids: [1],
+	adds: { 2315: 1 },
+	waiver_budget: [],
+};
+
+function stubTransactions(rows: unknown) {
+	stubFetch({ [`league/${league.id}/transactions/1`]: rows });
+}
+
+describe('transactions', () => {
+	it('normalizes documented free-agent and trade payloads without exposing free text or creator', async () => {
+		stubTransactions([transactionJson, {
+			type: 'trade',
+			transaction_id: '434852362033561600',
+			status_updated: 1558039402803,
+			status: 'complete',
+			settings: null,
+			roster_ids: [2, 1],
+			metadata: null,
+			leg: 1,
+			drops: null,
+			draft_picks: [
+				{ season: '2019', round: 5, roster_id: 1, previous_owner_id: 1, owner_id: 2 },
+				{ season: '2019', round: 3, roster_id: 2, previous_owner_id: 2, owner_id: 1 },
+			],
+			creator: '160000000000000000',
+			created: 1558039391576,
+			consenter_ids: [2, 1],
+			adds: null,
+			waiver_budget: [{ sender: 2, receiver: 3, amount: 55 }],
+		}]);
+		const result = await getTransactions(league.id, 1);
+		expect(result.malformedCount).toBe(0);
+		expect(result.retrievedAtUtc).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/);
+		expect(result.transactions[0]).toEqual({
+			id: transactionJson.transaction_id,
+			type: 'free_agent',
+			status: 'complete',
+			week: 1,
+			rosterIds: [1],
+			createdAtUtc: new Date(transactionJson.created).toISOString(),
+			statusUpdatedAtUtc: new Date(transactionJson.status_updated).toISOString(),
+			adds: [{ playerId: '2315', rosterId: 1 }],
+			drops: [{ playerId: '1736', rosterId: 1 }],
+			waiverBid: null,
+			draftPicks: [],
+			faabTransfers: [],
+		});
+		expect(result.transactions[1]?.draftPicks).toEqual([
+			{ season: '2019', round: 5, rosterId: 1, previousOwnerId: 1, ownerId: 2 },
+			{ season: '2019', round: 3, rosterId: 2, previousOwnerId: 2, ownerId: 1 },
+		]);
+		expect(result.transactions[1]?.faabTransfers).toEqual([{ sender: 2, receiver: 3, amount: 55 }]);
+		expect(JSON.stringify(result)).not.toContain('160000000000000000');
+		expect(JSON.stringify(result)).not.toContain('private free text');
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('retains complete, pending, and failed statuses without inferring completion', async () => {
+		stubTransactions(['complete', 'pending', 'failed'].map((status, index) => ({
+			...transactionJson,
+			transaction_id: `waiver-${index}`,
+			type: 'waiver',
+			status,
+			settings: { waiver_bid: 44 },
+			created: Date.parse('2026-09-09T19:20:00-04:00'),
+			status_updated: Date.parse('2026-09-10T03:20:00+02:00'),
+		})));
+		const { transactions, malformedCount } = await getTransactions(league.id, 1);
+		expect(malformedCount).toBe(0);
+		expect(transactions.map(t => t.status)).toEqual(['complete', 'pending', 'failed']);
+		for (const t of transactions) {
+			expect(t.waiverBid).toBe(44);
+			expect(t.createdAtUtc).toBe('2026-09-09T23:20:00.000Z');
+			expect(t.statusUpdatedAtUtc).toBe('2026-09-10T01:20:00.000Z');
+		}
+	});
+
+	it.each([null, undefined, '1558048393967', Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5, 8_640_000_000_000_001])(
+		'keeps missing or invalid epoch-ms timestamps unknown: %s',
+		async (timestamp) => {
+			stubTransactions([{ ...transactionJson, created: timestamp, status_updated: timestamp }]);
+			const { transactions, malformedCount } = await getTransactions(league.id, 1);
+			expect(malformedCount).toBe(0);
+			expect(transactions[0]?.createdAtUtc).toBeNull();
+			expect(transactions[0]?.statusUpdatedAtUtc).toBeNull();
+		},
+	);
+
+	it('normalizes absent optional details to empty collections and unknown bid/time, not now', async () => {
+		stubTransactions([{
+			transaction_id: 'minimal',
+			type: 'waiver',
+			status: 'pending',
+			leg: 1,
+			roster_ids: [1],
+		}]);
+		expect((await getTransactions(league.id, 1)).transactions).toEqual([{
+			id: 'minimal',
+			type: 'waiver',
+			status: 'pending',
+			week: 1,
+			rosterIds: [1],
+			createdAtUtc: null,
+			statusUpdatedAtUtc: null,
+			adds: [],
+			drops: [],
+			waiverBid: null,
+			draftPicks: [],
+			faabTransfers: [],
+		}]);
+	});
+
+	it('contains malformed rows while preserving independent valid transactions', async () => {
+		const malformed = [
+			null,
+			'private free text',
+			{},
+			{ ...transactionJson, leg: 2 },
+			{ ...transactionJson, league_id: 'different-league' },
+			{ ...transactionJson, roster_ids: [] },
+			{ ...transactionJson, roster_ids: [1, 1] },
+			{ ...transactionJson, adds: { 2315: 2 } },
+			{ ...transactionJson, drops: { 1736: 2 } },
+			{ ...transactionJson, adds: { 2315: Number.POSITIVE_INFINITY } },
+			{ ...transactionJson, settings: { waiver_bid: Number.NaN } },
+			{ ...transactionJson, draft_picks: [{ season: '2019', round: 0, roster_id: 1, previous_owner_id: 1, owner_id: 2 }] },
+			{ ...transactionJson, waiver_budget: [{ sender: 1, receiver: 2, amount: Number.POSITIVE_INFINITY }] },
+		].map((row, i) => row && typeof row === 'object' ? { ...row, transaction_id: `broken-${i}` } : row);
+		stubTransactions([malformed[0], transactionJson, ...malformed.slice(1)]);
+		const { transactions, malformedCount } = await getTransactions(league.id, 1);
+		expect(transactions.map(t => t.id)).toEqual([transactionJson.transaction_id]);
+		expect(malformedCount).toBe(malformed.length);
+	});
+
+	it('excludes every duplicate ID even when one conflicting row is malformed', async () => {
+		const rows = [
+			{ ...transactionJson, transaction_id: 'conflict' },
+			{ ...transactionJson, transaction_id: 'conflict', adds: { 2315: 2 } },
+			{ ...transactionJson, transaction_id: 'identical' },
+			{ ...transactionJson, transaction_id: 'identical' },
+			transactionJson,
+		];
+		for (const ordered of [rows, [...rows].reverse()]) {
+			stubTransactions(ordered);
+			const result = await getTransactions(league.id, 1);
+			expect(result.transactions.map(t => t.id)).toEqual([transactionJson.transaction_id]);
+			expect(result.malformedCount).toBe(4);
+			fetchSpy?.mockRestore();
+		}
+	});
+
+	it('accepts a successful empty response distinctly from malformed or failed reads', async () => {
+		stubTransactions([]);
+		expect(await getTransactions(league.id, 1)).toEqual({ transactions: [], malformedCount: 0, retrievedAtUtc: expect.any(String) });
+	});
+
+	it.each([null, {}, { transactions: [] }, 'private free text'])('rejects malformed envelopes safely: %j', async (body) => {
+		stubTransactions(body);
+		await expect(getTransactions(league.id, 1)).rejects.toThrow(new SleeperDataError('Sleeper transactions could not be retrieved'));
+	});
+
+	it('rejects HTTP errors safely', async () => {
+		stubFetch({});
+		await expect(getTransactions(league.id, 1)).rejects.toThrow(new SleeperDataError('Sleeper transactions could not be retrieved'));
+	});
+
+	it.each([0, -1, 1.5, Number.POSITIVE_INFINITY, Number.NaN])('rejects invalid rounds without fetching: %s', async (week) => {
+		stubFetch({});
+		await expect(getTransactions(league.id, week)).rejects.toThrow(SleeperDataError);
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it.each(['', 'league/../../other', 'league?week=2', 'league#fragment'])('rejects unsafe league scope without fetching: %s', async (id) => {
+		stubFetch({});
+		await expect(getTransactions(id, 1)).rejects.toThrow(SleeperDataError);
+		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 });
 

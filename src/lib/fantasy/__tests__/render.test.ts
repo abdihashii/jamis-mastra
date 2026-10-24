@@ -1,4 +1,4 @@
-import type { MatchupResult } from '../analysis';
+import type { MatchupResult } from '../week-facts';
 import { describe, expect, it } from 'bun:test';
 import { renderResult } from '../render';
 

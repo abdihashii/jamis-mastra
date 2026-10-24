@@ -1,9 +1,10 @@
 import type { MastraDBMessage } from '@mastra/core/memory';
-import type { WeekFacts } from './analysis';
 import type { FantasyConfig } from './config';
-
 import type { SleeperManager } from './sleeper';
+
+import type { WeekFacts } from './week-facts';
 import { z } from 'zod';
+import { isPriorRecap } from './chat-archive';
 
 /**
  * Bump when the prompt or output contract changes. A generation row is keyed
@@ -56,8 +57,6 @@ export class ShapingValidationError extends Error {}
 
 const CHAT_CONTEXT_MAX_MESSAGES = 200;
 const CHAT_CONTEXT_MAX_CHARS = 20_000;
-const RECAP_AWARD_HEADINGS = ['Manager of the Week', 'Loser of the Week', 'Match of the Week']
-	.map(heading => new RegExp(`(?:^|\\n)[^\\p{L}\\p{N}\\n]*${heading}:`, 'iu'));
 
 /**
  * Maps archived thread messages into callback-eligible context. Manager lookup
@@ -85,7 +84,7 @@ export function toChatContext(
 		const userId = config.managerMap[senderNumber];
 		const sender = userId && displayNameByUserId.get(userId);
 		// Reposted recaps must not become fresh chat evidence or false verbatim matches.
-		if (!sender || RECAP_AWARD_HEADINGS.every(heading => heading.test(text)))
+		if (!sender || isPriorRecap(text))
 			continue;
 		if (out.length >= CHAT_CONTEXT_MAX_MESSAGES || chars + text.length > CHAT_CONTEXT_MAX_CHARS)
 			break;

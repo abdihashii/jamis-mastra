@@ -1,9 +1,9 @@
-import type { WeekFactsInput } from '../analysis';
-
 import type { BracketGame, SleeperLeague, SleeperManager, SleeperPlayer, SleeperScore } from '../sleeper';
+
+import type { WeekFactsInput } from '../week-facts';
 import { describe, expect, it } from 'bun:test';
-import { buildWeekFacts } from '../analysis';
 import { SleeperDataError } from '../sleeper';
+import { buildWeekFacts, buildWeekSnapshot } from '../week-facts';
 
 const managers: SleeperManager[] = [
 	{ rosterId: 1, userId: 'u1', displayName: 'alpha' },
@@ -95,6 +95,16 @@ function input(overrides: Partial<WeekFactsInput> & { week: number }): WeekFacts
 		...overrides,
 	};
 }
+
+describe('buildWeekSnapshot', () => {
+	it('preserves current results when history is unavailable without weakening the legacy full-facts gate', () => {
+		const full = buildWeekFacts(input({ week: 2 }));
+		const partial = input({ week: 2, scoresByWeek: new Map([[2, week2]]) });
+		const { standings: _standings, movement: _movement, upcoming: _upcoming, ...current } = full;
+		expect(buildWeekSnapshot(partial)).toEqual(current);
+		expect(() => buildWeekFacts(partial)).toThrow('No matchup rows supplied for week 1');
+	});
+});
 
 describe('buildWeekFacts — regular season', () => {
 	it('derives results, extremes, closest, blowout', () => {

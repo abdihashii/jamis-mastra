@@ -1,18 +1,14 @@
-import type { WeekFacts } from '../src/lib/fantasy/analysis';
 import type { FantasyConfig } from '../src/lib/fantasy/config';
 import type { ChatContextMessage, RecapGenerator } from '../src/lib/fantasy/generate';
 import type { RecapGenerationRecord } from '../src/lib/fantasy/recaps';
-
 import type { SleeperManager } from '../src/lib/fantasy/sleeper';
+
+import type { WeekFacts } from '../src/lib/fantasy/week-facts';
 import { SQL } from 'bun';
 import { readFile } from 'node:fs/promises';
 import process from 'node:process';
-import { Mastra } from '@mastra/core/mastra';
 import { PostgresStore } from '@mastra/pg';
-import { buildWeekFacts } from '../src/lib/fantasy/analysis';
 import { parseFantasyConfig } from '../src/lib/fantasy/config';
-import { confirmSent, retryWeek } from '../src/lib/fantasy/coordinator';
-import { runDailyRecap } from '../src/lib/fantasy/daily';
 import {
 	buildRecapPrompt,
 	DEFAULT_RECAP_MODEL,
@@ -22,10 +18,8 @@ import {
 	ShapingValidationError,
 	toChatContext,
 } from '../src/lib/fantasy/generate';
-
-import { ensureFantasyRecapsTable, getFantasySql, recordClaimedGeneration } from '../src/lib/fantasy/recaps';
 import { RECAP_MAX_LENGTH, renderResult, renderWeekRecap } from '../src/lib/fantasy/render';
-import { createRunsStore } from '../src/lib/fantasy/runs';
+
 import {
 	championshipWeek,
 	getLeague,
@@ -38,12 +32,13 @@ import {
 	SleeperDataError,
 	withBracketRounds,
 } from '../src/lib/fantasy/sleeper';
-import { createFantasyFootballPundit } from '../src/mastra/agents/fantasy-football-pundit';
-import { openAICodexGateway } from '../src/mastra/gateways/openai-codex-gateway.js';
+import { buildWeekFacts } from '../src/lib/fantasy/week-facts';
 
 const usage = [
 	'bun run fantasy:recap <command>',
 	'  inspect --week <number> [--allow-incomplete]   print deterministic facts only',
+	'  evidence --week <number> --since <UTC instant> --until <UTC instant> [--nfl]   frozen read-only evidence, no model/send',
+	'    --nfl explicitly enables one free catalogue and up to three reads quoted at 5 credits each.',
 	'  preview --week <number> [--chat <file.json>] [--allow-incomplete]   generate, never send',
 	'  run                                            normal daily job: newest completed week only',
 	'  retry --week <number> [--operator-verified-absent]',
@@ -52,7 +47,7 @@ const usage = [
 
 async function main() {
 	const [command, ...flags] = process.argv.slice(2);
-	if (!command || !['inspect', 'preview', 'run', 'retry', 'confirm-sent'].includes(command))
+	if (!command || !['inspect', 'evidence', 'preview', 'run', 'retry', 'confirm-sent'].includes(command))
 		fail(usage, 1);
 
 	const config = parseFantasyConfig();
@@ -65,11 +60,8 @@ async function main() {
 
 	if (command === 'run') {
 		// Same flow the scheduled workflow runs; the local shim only adds gateways/storage.
-		const shim = new Mastra({
-			gateways: { 'openai-codex': openAICodexGateway },
-			agents: { 'fantasy-football-pundit': createFantasyFootballPundit(DEFAULT_RECAP_MODEL) },
-			storage: new PostgresStore({ id: 'fantasy-cli-storage', connectionString: process.env.DATABASE_URL! }),
-		});
+		const { runDailyRecap } = await import('../src/lib/fantasy/daily');
+		const shim = await cliMastra(DEFAULT_RECAP_MODEL, new PostgresStore({ id: 'fantasy-cli-storage', connectionString: process.env.DATABASE_URL! }));
 		const result = await runDailyRecap(config, shim);
 		console.log(`run: ${result.outcome}${result.week != null ? ` (week ${result.week})` : ''}`);
 		if (result.outcome === 'failed' || result.outcome === 'delivery_unknown' || result.outcome === 'error')
@@ -83,6 +75,7 @@ async function main() {
 		fail(usage, 1);
 
 	if (command === 'retry' || command === 'confirm-sent') {
+		const { confirmSent, retryWeek } = await import('../src/lib/fantasy/coordinator');
 		const deps = await coordinatorDeps(config);
 		if (command === 'retry') {
 			const result = await retryWeek(week, flags.includes('--operator-verified-absent'), deps);
@@ -97,6 +90,39 @@ async function main() {
 		if (!confirmed)
 			fail(`week ${week} is not delivery_unknown; nothing to confirm`, 1);
 		console.log(`week ${week}: recorded sent (source: operator, effective time: original send attempt)`);
+		return;
+	}
+
+	if (command === 'evidence') {
+		const since = flags.indexOf('--since');
+		const until = flags.indexOf('--until');
+		if (since < 0 || until < 0 || !flags[since + 1] || !flags[until + 1])
+			fail(usage, 1);
+		const apiKey = flags.includes('--nfl') ? process.env.FIRECRAWL_API_KEY : undefined;
+		if (flags.includes('--nfl') && !apiKey?.trim())
+			fail('FIRECRAWL_API_KEY is required for explicitly requested NFL reads.', 1);
+		const { previewRecapEvidence } = await import('../src/lib/fantasy/evidence-preview');
+		const result = await previewRecapEvidence({
+			config,
+			week,
+			window: { startAtUtc: flags[since + 1], endAtUtc: flags[until + 1] },
+			databaseUrl: process.env.DATABASE_URL ?? '',
+			firecrawlApiKey: apiKey,
+		});
+		console.log(`Evidence preview: ${result.status}${result.reason ? ` (${result.reason})` : ''}`);
+		if (result.packet) {
+			const packet = result.packet;
+			console.log(`${packet.version}, season ${packet.scope.season ?? 'unknown'}, week ${week}`);
+			console.log(`Chat window: ${packet.scope.chatWindow?.startAtUtc} to ${packet.scope.chatWindow?.endAtUtc} (caller-supplied UTC)`);
+			console.log(`Matches: ${packet.facts?.results.length ?? 0}; chat sources: ${packet.chat?.sources.length ?? 0}; completed transactions: ${packet.transactions.completed.length}`);
+			console.log(`NFL reads: ${packet.nfl.length}; gaps: ${packet.gaps.map(gap => `${gap.source}:${gap.code}`).join(', ') || 'none'}`);
+		}
+		const database = result.databaseUnchanged
+			? 'verified unchanged'
+			: result.reason === 'recap_state_changed_during_preview' ? 'changed during preview' : 'not verified';
+		console.log(`Database state: ${database}; model calls: 0; sends: 0.`);
+		if (result.status === 'blocked')
+			process.exitCode = 1;
 		return;
 	}
 
@@ -134,7 +160,7 @@ async function main() {
 		? await loadChatFixture(chatPath, managers)
 		: toChatContext(await readThreadMessages(config.sendblueGroupId), config, managers);
 
-	const shaping = await generateWithRepair(shapingGenerator(model), facts, context);
+	const shaping = await generateWithRepair(await shapingGenerator(model), facts, context);
 	const text = renderWeekRecap(facts, shaping, context);
 	const after = previewSql ? await recapRowCounts(previewSql, config.sleeperLeagueId) : null;
 	if (before && after && (before.generations !== after.generations || before.runs !== after.runs))
@@ -275,12 +301,8 @@ async function factsFor(
 }
 
 /** Structured-output generation for one model id; the one call shape both run and preview share. */
-function shapingGenerator(model: string): RecapGenerator {
-	// A bare Mastra instance only so custom gateways (openai-codex/*) resolve.
-	const mastra = new Mastra({
-		gateways: { 'openai-codex': openAICodexGateway },
-		agents: { 'fantasy-football-pundit': createFantasyFootballPundit(model) },
-	});
+async function shapingGenerator(model: string): Promise<RecapGenerator> {
+	const mastra = await cliMastra(model);
 	return async (facts, context, correction) => {
 		const result = await mastra.getAgent('fantasy-football-pundit').generate(buildRecapPrompt(facts, context, correction), {
 			structuredOutput: { schema: recapShapingSchema },
@@ -292,9 +314,25 @@ function shapingGenerator(model: string): RecapGenerator {
 	};
 }
 
+async function cliMastra(model: string, storage?: PostgresStore) {
+	// Evidence/inspection must not initialize model or operational delivery composition.
+	const [{ Mastra }, { createFantasyFootballPundit }, { openAICodexGateway }] = await Promise.all([
+		import('@mastra/core/mastra'),
+		import('../src/mastra/agents/fantasy-football-pundit'),
+		import('../src/mastra/gateways/openai-codex-gateway.js'),
+	]);
+	return new Mastra({
+		gateways: { 'openai-codex': openAICodexGateway },
+		agents: { 'fantasy-football-pundit': createFantasyFootballPundit(model) },
+		...(storage ? { storage } : {}),
+	});
+}
+
 async function coordinatorDeps(config: FantasyConfig) {
-	// Dynamic import: inspect/preview must never require Sendblue env vars.
+	// Dynamic imports: inspect/evidence/preview must not load operational send/storage owners.
 	const { sendblueSendClient } = await import('../src/lib/fantasy/deliver');
+	const { ensureFantasyRecapsTable, getFantasySql, recordClaimedGeneration } = await import('../src/lib/fantasy/recaps');
+	const { createRunsStore } = await import('../src/lib/fantasy/runs');
 	const sql = getFantasySql();
 	return {
 		runs: createRunsStore(config.sleeperLeagueId, sql),

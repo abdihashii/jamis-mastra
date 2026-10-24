@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, expect, spyOn, test } from 'bun:test';
 
 import { fetchJson } from '../fetch';
 
@@ -54,6 +54,38 @@ test('preserves a caller-provided abort reason', async () => {
 	const reason = new Error('cancelled');
 	controller.abort(reason);
 	await expect(fetchJson(`${base}/ok`, controller.signal)).rejects.toBe(reason);
+});
+
+test('aborts while consuming a response body, preserving the deadline reason', async () => {
+	const stalled = Bun.serve({
+		port: 0,
+		fetch: () => new Response(new ReadableStream({
+			start(controller) { controller.enqueue(new TextEncoder().encode('{')); },
+		})),
+	});
+	const signal = AbortSignal.timeout(30);
+	try {
+		await fetchJson(`http://localhost:${stalled.port}/stalled`, signal);
+		expect.unreachable();
+	} catch (error) {
+		expect(signal.aborted).toBe(true);
+		expect(error).toBe(signal.reason);
+	} finally {
+		await stalled.stop(true);
+	}
+});
+
+test('lets source owners suppress raw connection-error logs', async () => {
+	const closed = Bun.serve({ port: 0, fetch: () => new Response('fixture') });
+	const url = `http://localhost:${closed.port}/closed`;
+	await closed.stop(true);
+	const log = spyOn(console, 'error').mockImplementation(() => {});
+	try {
+		await expect(fetchJson(url, undefined, undefined, false)).rejects.toThrow('Service unreachable.');
+		expect(log).not.toHaveBeenCalled();
+	} finally {
+		log.mockRestore();
+	}
 });
 
 test('wraps connection failures as a class, detail to the server log', async () => {

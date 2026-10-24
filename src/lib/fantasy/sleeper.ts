@@ -11,6 +11,7 @@ export interface SleeperState {
 	week: number;
 	season: string;
 	seasonType: string;
+	seasonStartDate?: string | null;
 }
 
 export interface SleeperLeague {
@@ -23,6 +24,7 @@ export interface SleeperLeague {
 	/** Counted from the winners bracket; V1 supports one-week rounds only. */
 	playoffRounds: number;
 	rosterPositions: string[];
+	scoringSettings?: Record<string, number> | null;
 }
 
 export interface SleeperManager {
@@ -46,6 +48,27 @@ export interface SleeperPlayer {
 	position: string;
 }
 
+export interface SleeperPlayerDetails extends SleeperPlayer {
+	team: string | null;
+	fantasyPositions: string[];
+	gsisId: string | null;
+}
+
+export interface SleeperTransaction {
+	id: string;
+	type: string;
+	status: string;
+	week: number;
+	rosterIds: number[];
+	createdAtUtc: string | null;
+	statusUpdatedAtUtc: string | null;
+	adds: Array<{ playerId: string; rosterId: number }>;
+	drops: Array<{ playerId: string; rosterId: number }>;
+	waiverBid: number | null;
+	draftPicks: Array<{ season: string; round: number; rosterId: number; previousOwnerId: number; ownerId: number }>;
+	faabTransfers: Array<{ sender: number; receiver: number; amount: number }>;
+}
+
 export interface BracketFeeder {
 	source: 'winner' | 'loser';
 	matchupId: number;
@@ -67,6 +90,7 @@ const stateSchema = z.looseObject({
 	week: z.number(),
 	season: z.string(),
 	season_type: z.string(),
+	season_start_date: z.iso.date().nullable().catch(null).optional(),
 });
 
 const leagueSchema = z.looseObject({
@@ -76,6 +100,7 @@ const leagueSchema = z.looseObject({
 	status: z.string(),
 	total_rosters: z.number().int().positive(),
 	roster_positions: z.array(z.string().min(1)),
+	scoring_settings: z.record(z.string(), z.number().finite()).nullable().catch(null).optional(),
 	settings: z.looseObject({
 		playoff_week_start: z.number().int().positive(),
 		playoff_round_type: z.number().int(),
@@ -97,13 +122,49 @@ const scoreSchema = z.looseObject({
 });
 
 const playerSchema = z.looseObject({
-	player_id: z.string(),
-	full_name: z.string().min(1),
+	player_id: z.string().min(1),
+	full_name: z.string().min(1).nullish().catch(null),
+	first_name: z.string().min(1).nullish().catch(null),
+	last_name: z.string().min(1).nullish().catch(null),
 	position: z.string().min(1),
-});
+	team: z.string().min(1).nullable().catch(null).optional(),
+	fantasy_positions: z.array(z.string().min(1)).catch([]).optional(),
+	gsis_id: z.string().regex(/^\d{2}-\d{7}$/).nullable().catch(null).optional(),
+}).refine(p => !!p.full_name || !!(p.first_name && p.last_name));
 
 const PLAYER_CACHE_MS = 24 * 60 * 60 * 1_000;
-let playerCache: { expiresAt: number; byId: Map<string, SleeperPlayer | null> } | null = null;
+let playerCache: {
+	expiresAt: number;
+	retrievedAtUtc: string;
+	byId: Map<string, SleeperPlayerDetails | null>;
+} | null = null;
+
+const transactionRosterId = z.number().int().positive();
+const transactionSchema = z.looseObject({
+	transaction_id: z.string().min(1),
+	type: z.string().min(1),
+	status: z.string().min(1),
+	leg: z.number().int().positive(),
+	league_id: z.string().optional(),
+	roster_ids: z.array(transactionRosterId).min(1).refine(ids => new Set(ids).size === ids.length),
+	created: z.unknown().optional(),
+	status_updated: z.unknown().optional(),
+	adds: z.record(z.string().min(1), transactionRosterId).nullish(),
+	drops: z.record(z.string().min(1), transactionRosterId).nullish(),
+	settings: z.looseObject({ waiver_bid: z.number().finite().nonnegative().nullish() }).nullish(),
+	draft_picks: z.array(z.looseObject({
+		season: z.string().regex(/^\d{4}$/),
+		round: z.number().int().positive(),
+		roster_id: transactionRosterId,
+		previous_owner_id: transactionRosterId,
+		owner_id: transactionRosterId,
+	})).nullish(),
+	waiver_budget: z.array(z.looseObject({
+		sender: transactionRosterId,
+		receiver: transactionRosterId,
+		amount: z.number().finite().nonnegative(),
+	})).nullish(),
+});
 
 const feederSchema = z.object({ w: z.number().int().optional(), l: z.number().int().optional() });
 
@@ -125,7 +186,7 @@ async function getJson<const S extends z.ZodType>(
 	what: string,
 	signal?: AbortSignal,
 ): Promise<z.output<S>> {
-	const { ok, status, json } = await fetchJson(`${BASE}/${path}`, signal);
+	const { ok, status, json } = await fetchJson(`${BASE}/${path}`, signal, undefined, false);
 	if (!ok)
 		throw new SleeperDataError(`Sleeper ${what} responded ${status}`);
 	const parsed = schema.safeParse(json);
@@ -137,7 +198,12 @@ async function getJson<const S extends z.ZodType>(
 
 export async function getNflState(signal?: AbortSignal): Promise<SleeperState> {
 	const s = await getJson('state/nfl', stateSchema, 'NFL state', signal);
-	return { week: s.week, season: s.season, seasonType: s.season_type };
+	return {
+		week: s.week,
+		season: s.season,
+		seasonType: s.season_type,
+		...('season_start_date' in s ? { seasonStartDate: s.season_start_date ?? null } : {}),
+	};
 }
 
 export async function getLeague(leagueId: string, signal?: AbortSignal): Promise<SleeperLeague> {
@@ -154,6 +220,7 @@ export async function getLeague(leagueId: string, signal?: AbortSignal): Promise
 		playoffWeekStart: l.settings.playoff_week_start,
 		playoffRounds: 0, // filled by withBracketRounds once the bracket is known
 		rosterPositions: l.roster_positions,
+		...('scoring_settings' in l ? { scoringSettings: l.scoring_settings ?? null } : {}),
 	};
 }
 
@@ -163,10 +230,10 @@ export function withBracketRounds(league: SleeperLeague, games: BracketGame[]): 
 }
 
 /** Joins rosters and users; a roster without an owner is unusable for recaps. */
-export async function getManagers(leagueId: string): Promise<SleeperManager[]> {
+export async function getManagers(leagueId: string, signal?: AbortSignal): Promise<SleeperManager[]> {
 	const [users, rosters] = await Promise.all([
-		getJson(`league/${leagueId}/users`, z.array(userSchema), 'league users'),
-		getJson(`league/${leagueId}/rosters`, z.array(rosterSchema), 'league rosters'),
+		getJson(`league/${leagueId}/users`, z.array(userSchema), 'league users', signal),
+		getJson(`league/${leagueId}/rosters`, z.array(rosterSchema), 'league rosters', signal),
 	]);
 	const displayNameByUser = new Map(users.map(u => [u.user_id, u.display_name]));
 	return rosters.map((roster) => {
@@ -180,8 +247,8 @@ export async function getManagers(leagueId: string): Promise<SleeperManager[]> {
 	});
 }
 
-export async function getScores(leagueId: string, week: number): Promise<SleeperScore[]> {
-	const entries = await getJson(`league/${leagueId}/matchups/${week}`, z.array(scoreSchema), `week ${week} matchups`);
+export async function getScores(leagueId: string, week: number, signal?: AbortSignal): Promise<SleeperScore[]> {
+	const entries = await getJson(`league/${leagueId}/matchups/${week}`, z.array(scoreSchema), `week ${week} matchups`, signal);
 	if (entries.length === 0) {
 		throw new SleeperDataError(`Sleeper returned no matchups for week ${week}`);
 	}
@@ -200,32 +267,115 @@ export async function getScores(leagueId: string, week: number): Promise<Sleeper
 	}));
 }
 
-/** Fetches the public player catalog but retains only fields needed by recap analysis. */
-export async function getPlayers(playerIds: Iterable<string>): Promise<SleeperPlayer[]> {
+/** Legacy projection deliberately excludes identity detail from recap facts/history. */
+export async function getPlayers(playerIds: Iterable<string>, signal?: AbortSignal): Promise<SleeperPlayer[]> {
+	const { players } = await getPlayerSnapshot(playerIds, signal);
+	return players.map(({ id, name, position }) => ({ id, name, position }));
+}
+
+/** Retains only requested catalog entries, including misses, for 24 hours. */
+export async function getPlayerSnapshot(playerIds: Iterable<string>, signal?: AbortSignal): Promise<{
+	players: SleeperPlayerDetails[];
+	retrievedAtUtc: string | null;
+	missingIds: string[];
+}> {
 	const ids = [...new Set(playerIds)];
 	if (ids.length === 0)
-		return [];
+		return { players: [], retrievedAtUtc: null, missingIds: [] };
 	const now = Date.now();
-	if (playerCache && playerCache.expiresAt > now && ids.every(id => playerCache!.byId.has(id))) {
-		return ids.flatMap(id => playerCache!.byId.get(id) ?? []);
-	}
+	if (!playerCache || playerCache.expiresAt <= now || !ids.every(id => playerCache!.byId.has(id))) {
+		const { ok, status, json } = await fetchJson(`${BASE}/players/nfl`, signal, undefined, false);
+		if (!ok)
+			throw new SleeperDataError(`Sleeper player catalog responded ${status}`);
+		if (!json || typeof json !== 'object' || Array.isArray(json))
+			throw new SleeperDataError('Sleeper player catalog did not match its expected shape');
 
-	const { ok, status, json } = await fetchJson(`${BASE}/players/nfl`);
-	if (!ok)
-		throw new SleeperDataError(`Sleeper player catalog responded ${status}`);
-	if (!json || typeof json !== 'object' || Array.isArray(json))
-		throw new SleeperDataError('Sleeper player catalog did not match its expected shape');
-
-	const catalog = json as Record<string, unknown>;
-	const byId = new Map<string, SleeperPlayer | null>();
-	for (const id of ids) {
-		const parsed = playerSchema.safeParse(catalog[id]);
-		byId.set(id, parsed.success
-			? { id: parsed.data.player_id, name: parsed.data.full_name, position: parsed.data.position }
-			: null);
+		const catalog = json as Record<string, unknown>;
+		const byId = new Map<string, SleeperPlayerDetails | null>();
+		for (const id of ids) {
+			const parsed = playerSchema.safeParse(Object.hasOwn(catalog, id) ? catalog[id] : undefined);
+			const p = parsed.success ? parsed.data : null;
+			byId.set(id, p?.player_id === id
+				? {
+						id: p.player_id,
+						name: p.full_name ?? `${p.first_name} ${p.last_name}`,
+						position: p.position,
+						team: p.team ?? null,
+						fantasyPositions: p.fantasy_positions ?? [],
+						gsisId: p.gsis_id ?? null,
+					}
+				: null);
+		}
+		playerCache = { expiresAt: now + PLAYER_CACHE_MS, retrievedAtUtc: new Date().toISOString(), byId };
 	}
-	playerCache = { expiresAt: now + PLAYER_CACHE_MS, byId };
-	return ids.flatMap(id => byId.get(id) ?? []);
+	return {
+		players: ids.flatMap(id => playerCache!.byId.get(id) ?? []),
+		retrievedAtUtc: playerCache.retrievedAtUtc,
+		missingIds: ids.filter(id => playerCache!.byId.get(id) == null),
+	};
+}
+
+function epochMsToUtc(value: unknown): string | null {
+	if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+		return null;
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+export async function getTransactions(leagueId: string, week: number, signal?: AbortSignal): Promise<{
+	transactions: SleeperTransaction[];
+	malformedCount: number;
+	retrievedAtUtc: string;
+}> {
+	if (typeof leagueId !== 'string' || !/^[\w-]+$/.test(leagueId) || !Number.isSafeInteger(week) || week < 1)
+		throw new SleeperDataError('Sleeper transactions require a league ID and positive integer week');
+	let rows: unknown[];
+	try {
+		rows = await getJson(`league/${leagueId}/transactions/${week}`, z.array(z.unknown()), 'transactions', signal);
+	} catch {
+		throw new SleeperDataError('Sleeper transactions could not be retrieved');
+	}
+	const retrievedAtUtc = new Date().toISOString();
+	const idCounts = new Map<string, number>();
+	for (const row of rows) {
+		if (row && typeof row === 'object' && 'transaction_id' in row && typeof row.transaction_id === 'string') {
+			idCounts.set(row.transaction_id, (idCounts.get(row.transaction_id) ?? 0) + 1);
+		}
+	}
+	const transactions: SleeperTransaction[] = [];
+	let malformedCount = 0;
+	for (const row of rows) {
+		const parsed = transactionSchema.safeParse(row);
+		const t = parsed.success ? parsed.data : null;
+		// Every duplicate row is unusable; never pick a winner from conflicting source IDs.
+		if (!t || idCounts.get(t.transaction_id) !== 1 || t.leg !== week
+			|| (t.league_id !== undefined && t.league_id !== leagueId)
+			|| [...Object.values(t.adds ?? {}), ...Object.values(t.drops ?? {})].some(id => !t.roster_ids.includes(id))) {
+			malformedCount += 1;
+			continue;
+		}
+		transactions.push({
+			id: t.transaction_id,
+			type: t.type,
+			status: t.status,
+			week: t.leg,
+			rosterIds: t.roster_ids,
+			createdAtUtc: epochMsToUtc(t.created),
+			statusUpdatedAtUtc: epochMsToUtc(t.status_updated),
+			adds: Object.entries(t.adds ?? {}).map(([playerId, rosterId]) => ({ playerId, rosterId })),
+			drops: Object.entries(t.drops ?? {}).map(([playerId, rosterId]) => ({ playerId, rosterId })),
+			waiverBid: t.settings?.waiver_bid ?? null,
+			draftPicks: (t.draft_picks ?? []).map(p => ({
+				season: p.season,
+				round: p.round,
+				rosterId: p.roster_id,
+				previousOwnerId: p.previous_owner_id,
+				ownerId: p.owner_id,
+			})),
+			faabTransfers: (t.waiver_budget ?? []).map(({ sender, receiver, amount }) => ({ sender, receiver, amount })),
+		});
+	}
+	return { transactions, malformedCount, retrievedAtUtc };
 }
 
 export async function getWinnersBracket(leagueId: string, signal?: AbortSignal): Promise<BracketGame[]> {

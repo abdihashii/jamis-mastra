@@ -72,7 +72,7 @@ export interface WeekFacts {
 	low: ScoringExtreme | null;
 	closest: MatchupResult | null;
 	blowout: MatchupResult | null;
-	/** Regular season only; null for playoff weeks (standings freeze). */
+	/** Null for playoffs (standings freeze) or an explicitly unavailable history. */
 	standings: StandingRow[] | null;
 	/** Empty when there is no prior completed snapshot to compare with. */
 	movement: StandingMove[];
@@ -95,6 +95,17 @@ export interface WeekFactsInput {
 }
 
 export function buildWeekFacts(input: WeekFactsInput): WeekFacts {
+	return { ...buildWeekSnapshot(input), ...buildWeekHistory(input), upcoming: buildUpcomingMatchups(input) };
+}
+
+export function buildWeekHistory(input: WeekFactsInput): Pick<WeekFacts, 'standings' | 'movement'> {
+	const teams = new Map(input.managers.map(m => [m.rosterId, m]));
+	const standings = input.week >= input.league.playoffWeekStart ? null : buildStandings(input, input.week, teams);
+	return { standings, movement: computeMovement(input, input.week, standings, teams) };
+}
+
+/** Current-week facts do not depend on standings history or future pairings. */
+export function buildWeekSnapshot(input: WeekFactsInput): Omit<WeekFacts, 'standings' | 'movement' | 'upcoming'> {
 	const { league, week } = input;
 	const champWeek = championshipWeek(league);
 	if (week < 1 || week > champWeek) {
@@ -103,7 +114,7 @@ export function buildWeekFacts(input: WeekFactsInput): WeekFacts {
 	const isPlayoffWeek = week >= league.playoffWeekStart;
 	const isChampionshipWeek = week === champWeek;
 
-	const teams = new Map(input.managers.map(m => [m.rosterId, m as TeamRef]));
+	const teams = new Map(input.managers.map(m => [m.rosterId, m]));
 	const results = isPlayoffWeek
 		? playoffResults(input, league, week, teams)
 		: regularResults(input.league, week, currentWeekScores(input, week), teams);
@@ -113,10 +124,6 @@ export function buildWeekFacts(input: WeekFactsInput): WeekFacts {
 	const closest = matchupExtreme(results, (a, b) => a.margin < b.margin);
 	const blowout = matchupExtreme(results, (a, b) => a.margin > b.margin);
 
-	const standings = isPlayoffWeek ? null : buildStandings(input, week, teams);
-	const movement = computeMovement(input, week, standings, teams);
-
-	const upcoming = isChampionshipWeek ? null : computeUpcoming(input, teams);
 	const playerStoryCandidates = buildPlayerStoryCandidates(
 		currentWeekScores(input, week),
 		results,
@@ -136,9 +143,6 @@ export function buildWeekFacts(input: WeekFactsInput): WeekFacts {
 		low,
 		closest,
 		blowout,
-		standings,
-		movement,
-		upcoming,
 		playerStoryCandidates,
 	};
 }
@@ -391,7 +395,10 @@ function computeMovement(
 	return movement;
 }
 
-function computeUpcoming(input: WeekFactsInput, teams: Map<number, TeamRef>): UpcomingMatchup[] {
+export function buildUpcomingMatchups(input: WeekFactsInput): UpcomingMatchup[] | null {
+	if (input.week === championshipWeek(input.league))
+		return null;
+	const teams = new Map(input.managers.map(m => [m.rosterId, m]));
 	const nextWeek = input.week + 1;
 	if (nextWeek < input.league.playoffWeekStart) {
 		const scores = input.nextWeekScores;
