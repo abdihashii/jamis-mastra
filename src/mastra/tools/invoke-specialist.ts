@@ -10,16 +10,19 @@ import { RequestContext } from '@mastra/core/request-context';
 import { createTool, isValidationError } from '@mastra/core/tools';
 import { z } from 'zod';
 
+import { FANTASY_EDITORIAL_LIMITS, FANTASY_EDITORIAL_WORKFLOW_ID } from '../../lib/fantasy/editorial-policy';
 import { specialistHandbackSchema } from '../agents/specialist-handback';
 import { specialistClarificationSchema } from '../specialist-clarification';
 import { linearReplySourceSchema } from '../workflows/linear-reply';
 
 export type SpecialistCaller
 	= | { kind: 'agent'; id: 'jamis' | 'weather-agent' | 'personal-accounts-agent' | 'fantasy-broadcast-agent' }
-		| { kind: 'workflow'; id: 'prepare_linear_reply' };
+		| { kind: 'workflow'; id: 'prepare_linear_reply' | typeof FANTASY_EDITORIAL_WORKFLOW_ID };
 
 const targets = {
 	invoke_fantasy_broadcast: 'fantasy-broadcast-agent',
+	invoke_fantasy_pundit: 'fantasy-football-pundit',
+	invoke_fantasy_editor: 'fantasy-football-editor',
 	invoke_weather: 'weather-agent',
 	invoke_research: 'research-agent',
 	invoke_personal_accounts: 'personal-accounts-agent',
@@ -133,9 +136,15 @@ function callerKey(caller: SpecialistCaller) {
 	return `${caller.kind}:${caller.id}`;
 }
 
+function isFantasyEditorialTarget(target: InvocationId) {
+	return target === 'invoke_fantasy_pundit' || target === 'invoke_fantasy_editor';
+}
+
 function allowedEdge(caller: SpecialistCaller, target: InvocationId) {
+	if (isFantasyEditorialTarget(target))
+		return caller.kind === 'workflow' && caller.id === FANTASY_EDITORIAL_WORKFLOW_ID;
 	return caller.kind === 'workflow'
-		? target === 'invoke_personal_accounts'
+		? caller.id === 'prepare_linear_reply' && target === 'invoke_personal_accounts'
 		: caller.id === 'jamis' || target === 'invoke_research';
 }
 
@@ -182,6 +191,7 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 }) {
 	if (config.agent.id !== targets[config.id] || config.allowedCallers.some(caller => !allowedEdge(caller, config.id)))
 		throw new Error('Unsupported specialist invocation configuration.');
+	const editorial = isFantasyEditorialTarget(config.id);
 	const allowed = new Set(config.allowedCallers.map(callerKey));
 	const handbackSchema = specialistHandbackSchema(config.resultSchema);
 	// Strict providers require an object root; the union remains the native tool result.
@@ -211,11 +221,12 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 					: projected;
 				if (typeof assignment !== 'string')
 					return recordClarification(authority, config.id, '', handbackSchema.parse(assignment));
-				if (!assignment.trim() || assignment.length > 16_000)
+				const assignmentLimit = editorial ? FANTASY_EDITORIAL_LIMITS.assignmentChars : 16_000;
+				if (!assignment.trim() || assignment.length > assignmentLimit)
 					throw new Error('Specialist assignment is invalid.');
 				if (config.id === 'invoke_research' && authority.researchResults.has(assignment))
 					return recordClarification(authority, config.id, assignment, handbackSchema.parse(authority.researchResults.get(assignment)));
-				const requestContext = config.id === 'invoke_research'
+				const requestContext = config.id === 'invoke_research' || editorial
 					? new RequestContext()
 					: createSpecialistContext({ kind: 'agent', id: config.agent.id as 'weather-agent' | 'personal-accounts-agent' | 'fantasy-broadcast-agent' }, authority.pendingOperationId);
 				calleeContext = requestContext;
@@ -231,9 +242,24 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 					requestContext,
 					abortSignal: context.abortSignal,
 					tracingContext: context.tracingContext,
-					maxSteps: 5,
+					maxSteps: editorial ? 1 : 5,
 					toolCallConcurrency: 1,
 					structuredOutput: { schema: envelopeSchema, errorStrategy: 'strict' },
+					...(editorial
+						? {
+								activeTools: [],
+								toolChoice: 'none' as const,
+								modelSettings: {
+									maxRetries: 0,
+									timeout: {
+										totalMs: FANTASY_EDITORIAL_LIMITS.callMs,
+										stepMs: FANTASY_EDITORIAL_LIMITS.callMs,
+									},
+								},
+								providerOptions: { openai: { reasoningEffort: 'xhigh', parallelToolCalls: false } },
+								tracingOptions: { hideInput: true, hideOutput: true },
+							}
+						: {}),
 				});
 				const response = await (config.run ? config.run(generate) : generate());
 				throwIfCanceled(context.abortSignal);

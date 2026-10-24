@@ -54,6 +54,7 @@ export async function previewRecapEvidence(
 		firecrawlApiKey?: string;
 	},
 	fixture: Pick<EvidenceOptions, 'sleeper' | 'now'> & { schemaName?: string } = {},
+	afterCollection?: (packet: RecapEvidencePacket) => Promise<void>,
 ): Promise<EvidencePreviewResult> {
 	const blocked = (reason: string, databaseUnchanged = false): EvidencePreviewResult => ({
 		status: 'blocked',
@@ -109,6 +110,7 @@ export async function previewRecapEvidence(
 		let task: ReturnType<typeof createNflSourceTask> | undefined;
 		const apiKey = request.firecrawlApiKey;
 		let packet: RecapEvidencePacket | null = null;
+		let candidateFailed = false;
 		try {
 			packet = await collectRecapEvidence({ config: request.config, week: request.week, window: window.data }, {
 				memory: {
@@ -124,6 +126,13 @@ export async function previewRecapEvidence(
 					}
 					: undefined,
 			});
+			if (packet.admission.canDraft && afterCollection) {
+				try {
+					await afterCollection(packet);
+				} catch {
+					candidateFailed = true;
+				}
+			}
 		} catch {
 			// Still compare recap state when collection fails; do not expose source/storage errors.
 		}
@@ -134,6 +143,8 @@ export async function previewRecapEvidence(
 			result = blocked('recap_state_changed_during_preview');
 		} else if (!packet) {
 			result = blocked('preview_collection_failed', true);
+		} else if (candidateFailed) {
+			result = blocked('preview_candidate_failed', true);
 		} else {
 			result = {
 				status: packet.status,

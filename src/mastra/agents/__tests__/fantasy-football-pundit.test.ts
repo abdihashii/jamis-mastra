@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test';
+import { Mastra } from '@mastra/core';
+import { FANTASY_EDITORIAL_MODEL, fantasyEditorialDefaults } from '../../../lib/fantasy/editorial-policy';
 import { DEFAULT_RECAP_MODEL, FANTASY_GENERATOR_VERSION } from '../../../lib/fantasy/generate';
 import { FANTASY_VOICE } from '../../../lib/fantasy/voice';
+import { createFantasyFootballEditor } from '../fantasy-football-editor';
 import { createFantasyFootballPundit } from '../fantasy-football-pundit';
 
 test('Pundit uses its identifying name while retaining the model and effect-free configuration', async () => {
@@ -27,4 +30,25 @@ test('extracted recap Agent keeps the existing facts-only instructions and share
 	expect(instructions).toContain('Each sentence entry must contain exactly one complete sentence');
 	expect(instructions).toContain('Four or more consecutive words from any archived message count as copying');
 	expect(instructions).toContain(FANTASY_VOICE);
+});
+
+test('the internal writer and distinct editor pin Astra, limits and private tool-free configuration', async () => {
+	const mastra = new Mastra({ logger: false });
+	const writer = createFantasyFootballPundit({ mastra });
+	const editor = createFantasyFootballEditor(mastra);
+	expect([writer.id, editor.id]).toEqual(['fantasy-football-pundit', 'fantasy-football-editor']);
+	for (const agent of [writer, editor]) {
+		expect(agent.model).toBe(FANTASY_EDITORIAL_MODEL);
+		expect(await agent.getDefaultOptions()).toEqual(fantasyEditorialDefaults());
+		expect(agent.getChannels()).toBeNull();
+		expect(await agent.listTools()).toEqual({});
+		expect(await agent.getMemory()).toBeUndefined();
+	}
+	expect(Object.keys(mastra.listAgents())).toEqual([]);
+	const instructions = await writer.getInstructions();
+	expect(instructions).toContain('No fixed story/word/sentence quota');
+	expect(instructions).toContain('use basis performance');
+	expect(instructions).not.toContain('zero to four editorial stories');
+	expect(await editor.getInstructions()).toContain('Never write replacement prose');
+	expect(await editor.getInstructions()).toContain('same support as digits');
 });
