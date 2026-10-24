@@ -14,7 +14,9 @@ const env: Record<string, string> = { ...process.env, COMPOSE_PROJECT_NAME: id }
 const composeArgs = ['compose', '--env-file', '.env.prod', '-f', 'docker-compose.yml', '-f', 'docker-compose.prod.yml'];
 async function run(args: string[], allowFailure = false, overrides = {}) {
 	const child = Bun.spawn(args, { cwd: root, env: { ...env, ...overrides }, stdout: 'pipe', stderr: 'pipe' });
-	const [exit, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+	const [exit, out, err] = await Promise.all(
+		[child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()],
+	);
 	if (!allowFailure)
 		assert.equal(exit, 0, `${args.slice(0, 3).join(' ')} failed: ${err.slice(-4000)}\n${out.slice(-2000)}`);
 	return { exit, out: out.trim(), err };

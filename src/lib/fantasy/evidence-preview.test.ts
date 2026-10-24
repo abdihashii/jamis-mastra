@@ -117,7 +117,12 @@ test('composition dependency files contain no local model, channel, send, or per
 		'sleeper',
 	]) {
 		const source = await readFile(new URL(`./${name}.ts`, import.meta.url), 'utf8');
-		expect(source).not.toMatch(/(?:from|import\()\s*['"][^'"]*(?:\/channels|\/agents|\/gateways|\.\/deliver|\.\/generate|\.\/recaps|\.\/runs)['"/]/);
+		for (const forbidden of [
+			/(?:from|import\()\s*['"][^'"]*\/(?:channels|agents|gateways)['"/]/,
+			/(?:from|import\()\s*['"][^'"]*\.\/(?:deliver|generate|recaps|runs)['"/]/,
+		]) {
+			expect(source).not.toMatch(forbidden);
+		}
 		expect(source).not.toMatch(/\.(?:send|generate|saveMessages|saveThread)\(/);
 	}
 });
@@ -154,7 +159,12 @@ describe.skipIf(!available)('real read-only PG evidence composition (disposable 
 		root = new SQL(databaseUrl!);
 		await root.unsafe(`CREATE SCHEMA "${schema}"`);
 		sql = new SQL(databaseUrl!, { connection: { search_path: schema } });
-		writer = new PostgresStore({ id: schema, connectionString: databaseUrl!, schemaName: schema, disableInit: true });
+		writer = new PostgresStore({
+			id: schema,
+			connectionString: databaseUrl!,
+			schemaName: schema,
+			disableInit: true,
+		});
 		writer.__setLogger(noopLogger);
 		memory = (await writer.getStore('memory'))!;
 		memory.__setLogger(noopLogger);
@@ -230,7 +240,10 @@ describe.skipIf(!available)('real read-only PG evidence composition (disposable 
 		});
 		expect(result.status).toBe('partial');
 		expect(calls).toEqual(['calendar', 'scores', 'scores']);
-		expect(result.packet?.scope).toMatchObject({ chatWindow: window, calendarProof: reportingWindowFixture(window).source });
+		expect(result.packet?.scope).toMatchObject({
+			chatWindow: window,
+			calendarProof: reportingWindowFixture(window).source,
+		});
 		expect(resolveChatSource(result.packet!, 'exact-source')?.text).toBe(sourceText);
 		expect(result.databaseUnchanged).toBe(true);
 		expect(await snapshot()).toEqual(before);

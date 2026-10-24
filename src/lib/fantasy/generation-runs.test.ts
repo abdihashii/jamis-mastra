@@ -394,7 +394,15 @@ describe.skipIf(!databaseUrl)('generation native PG gates (off live path, no mod
 	});
 
 	test.each([false, true])('unpaid source retry may replace its window/proof while retaining prior proof presence: %s', async (verifiedPrior) => {
-		const old = await claimGenerationAttempt(scope, window, token, null, sql, undefined, verifiedPrior ? proof : undefined);
+		const old = await claimGenerationAttempt(
+			scope,
+			window,
+			token,
+			null,
+			sql,
+			undefined,
+			verifiedPrior ? proof : undefined,
+		);
 		expect(old).not.toBeNull();
 		expect(await blockGenerationAttempt(old!, token, 'source_unavailable', sql, true)).toBe(true);
 		const prior = (await state()).generation.current;
@@ -828,7 +836,12 @@ describe.skipIf(!databaseUrl)('generation native PG gates (off live path, no mod
 		const failed = faultSql(sql, query => query.startsWith('update fantasy_recap_runs'), mode);
 		const capture = createGenerationCapture(ref, token, failed.sql);
 		let nflDispatches = 0;
-		const collected = await collectRecapEvidence({ config: editorialFixtureConfig, week: scope.week, window, calendarProof: proof }, {
+		const collected = await collectRecapEvidence({
+			config: editorialFixtureConfig,
+			week: scope.week,
+			window,
+			calendarProof: proof,
+		}, {
 			now: editorialFixtureNow,
 			sleeper: editorialFixtureSleeper,
 			memory: {

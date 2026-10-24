@@ -41,7 +41,10 @@ describe('Research handback provenance', () => {
 
 	test('compares trimmed discovery titles and uses the source URL for blank titles', () => {
 		for (const title of [` \n${page.title}\t `, ' \n\t ', '', null]) {
-			const result = researchResultSchema.parse({ ...researchResult(), sources: [{ ...page, title: title?.trim() ? title : page.url }] });
+			const result = researchResultSchema.parse({
+				...researchResult(),
+				sources: [{ ...page, title: title?.trim() ? title : page.url }],
+			});
 			const toolResults = [tool('webSearch', { results: [{ title, url: page.url }] }), webReads[1]!];
 			expect(() => validateResearchHandback({ case: 'completed', result }, { toolResults })).not.toThrow();
 		}
@@ -163,7 +166,9 @@ describe('Accounts handback provenance and coverage', () => {
 		const operationId = '33333333-3333-4333-8333-333333333333';
 		const handback = { case: 'needs_help' as const, need: { kind: 'approval' as const, operationId }, progress: null };
 		const toolResults = [tool('linearCreateProposalTool', { status: 'proposed' })];
-		expect(() => validatePersonalAccountsHandback(handback, { toolResults, pendingOperationId: operationId })).not.toThrow();
+		expect(
+			() => validatePersonalAccountsHandback(handback, { toolResults, pendingOperationId: operationId }),
+		).not.toThrow();
 		expect(() => validatePersonalAccountsHandback(handback, { toolResults })).toThrow();
 		expect(() => validatePersonalAccountsHandback(handback, { toolResults: [tool('linearCreateProposalTool', { status: 'unavailable' })], pendingOperationId: operationId })).toThrow();
 		expect(() => validatePersonalAccountsHandback({ case: 'completed', result: accountsResult() }, { toolResults, pendingOperationId: operationId })).toThrow();

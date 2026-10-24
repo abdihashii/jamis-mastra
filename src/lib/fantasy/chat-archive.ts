@@ -11,7 +11,10 @@ const RECAP_AWARD_HEADINGS = ['Manager of the Week', 'Loser of the Week', 'Match
 const MAX_MESSAGES = 1_000;
 const MAX_CHARACTERS = 100_000;
 const instant = z.string().datetime({ offset: true }).transform(value => new Date(value).toISOString());
-export const chatWindowSchema = z.object({ startAtUtc: instant, endAtUtc: instant }).strict().refine(value => value.startAtUtc < value.endAtUtc);
+export const chatWindowSchema = z.object({
+	startAtUtc: instant,
+	endAtUtc: instant,
+}).strict().refine(value => value.startAtUtc < value.endAtUtc);
 export type ChatWindow = z.infer<typeof chatWindowSchema>;
 
 export function isPriorRecap(text: string): boolean {

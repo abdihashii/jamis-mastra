@@ -11,7 +11,9 @@ if (!process.env.RESEARCH_SOURCE_CONTRACT_TEST) {
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
-		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+		const [exit, stdout, stderr] = await Promise.all(
+			[child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()],
+		);
 		expect({ exit, output: exit === 0 ? '' : stdout + stderr }).toEqual({ exit: 0, output: '' });
 	}, 10_000);
 } else {
@@ -51,7 +53,10 @@ if (!process.env.RESEARCH_SOURCE_CONTRACT_TEST) {
 		let multipleItems = false;
 		let timeout = false;
 		let actionUrl = 'https://www.firecrawl.dev/app/alexandria/firecrawl-developer-index';
-		const requests: Array<{ id: string; body: { alexandria: Array<{ provider: string; capability: string; options: Record<string, unknown> }> } }> = [];
+		const requests: Array<{
+			id: string;
+			body: { alexandria: Array<{ provider: string; capability: string; options: Record<string, unknown> }> };
+		}> = [];
 		const telemetry: Array<Record<string, unknown>> = [];
 		const server = Bun.serve({ port: 0, async fetch(request) {
 			const body = await request.json() as typeof requests[number]['body'];
@@ -88,7 +93,18 @@ if (!process.env.RESEARCH_SOURCE_CONTRACT_TEST) {
 		process.env.FIRECRAWL_API_URL = server.url.toString();
 		const { researchSourceDiscover: discoverTool, researchSourceRetrieve: retrieveTool } = await import('../research-sources');
 		function context(requestContext = new RequestContext()): ToolExecutionContext {
-			return { requestContext, observe: noopObserve, tracing: { currentSpan: { update: ({ metadata }: { metadata: Record<string, unknown> }) => telemetry.push(metadata.researchOperation as Record<string, unknown>), error: () => {} } } } as unknown as ToolExecutionContext;
+			return {
+				requestContext,
+				observe: noopObserve,
+				tracing: {
+					currentSpan: {
+						update: ({ metadata }: { metadata: Record<string, unknown> }) => telemetry.push(
+							metadata.researchOperation as Record<string, unknown>,
+						),
+						error: () => {},
+					},
+				},
+			} as unknown as ToolExecutionContext;
 		}
 		const ctx = context();
 		function unwrap(result: Awaited<ReturnType<NonNullable<typeof retrieveTool.execute>>>) {
@@ -251,7 +267,9 @@ if (!process.env.RESEARCH_SOURCE_CONTRACT_TEST) {
 			const retried = await retrieve();
 			expect(retried.status).toBe('success');
 			expect(requests.slice(retryStart)).toHaveLength(3);
-			expect(new Set(requests.slice(retryStart).map(request => request.id))).toEqual(new Set([retried.requestId!]));
+			expect(
+				new Set(requests.slice(retryStart).map(request => request.id)),
+			).toEqual(new Set([retried.requestId!]));
 			expect(new Set(requests.slice(retryStart).map(request => JSON.stringify(request.body))).size).toBe(1);
 
 			timeout = true;

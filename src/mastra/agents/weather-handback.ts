@@ -41,7 +41,9 @@ export const weatherResultSchema = z.object({
 
 export function validateWeatherHandback(
 	handback: SpecialistHandback<z.infer<typeof weatherResultSchema>>,
-	{ toolResults }: { toolResults: Array<{ payload: { toolName: string; result: unknown; args?: unknown; isError?: boolean } }> },
+	{ toolResults }: {
+		toolResults: Array<{ payload: { toolName: string; result: unknown; args?: unknown; isError?: boolean } }>;
+	},
 ) {
 	const result = 'result' in handback ? handback.result : handback.progress;
 	if (!result)
@@ -52,7 +54,9 @@ export function validateWeatherHandback(
 		const requestedDate = z.object({ date: z.string() }).safeParse(payload.args);
 		return payload.toolName === toolName && !payload.isError && payload.result && typeof payload.result === 'object'
 			&& (kind !== 'forecast' || !requestedDate.success || requestedDate.data.date === result.reading.date)
-			&& Object.entries(reading).every(([key, value]) => ((payload.result as Record<string, unknown>)[key] ?? null) === value);
+			&& Object.entries(reading).every(
+				([key, value]) => ((payload.result as Record<string, unknown>)[key] ?? null) === value,
+			);
 	});
 	const opening = `The weather in ${reading.location}`;
 	if (!verified || !result.answer.startsWith(opening) || !/^[\s.,:!?]/.test(result.answer.slice(opening.length)))

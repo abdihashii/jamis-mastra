@@ -45,7 +45,9 @@ export function createGenerationCapture(ref: GenerationAttemptRef, token: string
 		},
 		output: async ({ kind, ordinal, contributionCase, value }) => {
 			const id = calls.get(`${kind}:${ordinal}`);
-			await persist(() => id ? recordGenerationOutput(ref, id, contributionCase, value, sql) : Promise.resolve(false));
+			await persist(
+				() => id ? recordGenerationOutput(ref, id, contributionCase, value, sql) : Promise.resolve(false),
+			);
 		},
 		failure: async ({ kind, ordinal, code }) => {
 			const id = calls.get(`${kind}:${ordinal}`);

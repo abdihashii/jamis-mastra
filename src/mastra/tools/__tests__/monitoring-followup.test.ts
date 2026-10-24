@@ -36,7 +36,13 @@ beforeEach(() => {
 });
 
 function operatorMessage(threadId: string, id: string, text: string): Message {
-	const message = { id, threadId, text, author: { userId: process.env.JAMIS_ALLOWED_NUMBER }, metadata: { dateSent: new Date(now) } } as Message;
+	const message = {
+		id,
+		threadId,
+		text,
+		author: { userId: process.env.JAMIS_ALLOWED_NUMBER },
+		metadata: { dateSent: new Date(now) },
+	} as Message;
 	histories.set(threadId, [...histories.get(threadId) ?? [], message]);
 	return message;
 }
@@ -93,7 +99,8 @@ async function snapshot(
 	const digest = capability && hashSendblueMessageHandle(capability.message.id);
 	return await readDeploymentMonitoring({
 		getStore: async () => ({ listTracesLight: async (args: { filters: { spanType: SpanType } }) => ({
-			spans: (options.replyFailure || options.replyGenerationFailure) && args.filters.spanType === SpanType.GENERIC
+			spans: (options.replyFailure || options.replyGenerationFailure)
+				&& args.filters.spanType === SpanType.GENERIC
 				? [{
 						name: 'sendblue.channel',
 						spanType: SpanType.GENERIC,
@@ -110,7 +117,14 @@ async function snapshot(
 		readFantasyRuns: async () => options.fantasyFailure ? [{ fantasyWeek: 4, status: 'failed', updatedAt: new Date(now), failureStage: 'reply_delivery', failureClassification: 'delivery_failed', lastError: raw }] as never : [],
 		readEvidence: async () => (options.currentEvidence ?? evidence(options.stopped)) as never,
 		currentDigest: digest,
-		onSnapshot: capability ? (summary, findings) => stageDeploymentSnapshot(thread.id, capability.message.id, summary, findings) : undefined,
+		onSnapshot: capability
+			? (summary, findings) => stageDeploymentSnapshot(
+					thread.id,
+					capability.message.id,
+					summary,
+					findings,
+				)
+			: undefined,
 	}, 24, now);
 }
 
@@ -246,7 +260,10 @@ describe('authenticated Deployment Monitoring follow-up', () => {
 				return { spans: [{ name: 'sendblue.channel', spanType: SpanType.GENERIC, traceId: 'failed-snapshot-trace', spanId: 'failed-snapshot-span', startedAt: new Date(now), metadata: { stage: 'reply_delivery', classification: 'failed' } }], pagination: { hasMore: false, total: 1 } };
 			},
 		};
-		const mastra = { observability: { flush: async () => {} }, getStorage: () => ({ getStore: async () => store }) };
+		const mastra = {
+			observability: { flush: async () => {} },
+			getStorage: () => ({ getStore: async () => store }),
+		};
 		expect(await dispatch(conversation.value, operatorMessage('thread-a', 'request-2', 'What happened?'), async context => await followup(context, undefined, mastra))).toMatchObject({ status: 'found', targetKind: 'preceding_request', incident: { component: 'sendblue-channel', stage: 'reply_delivery', traceReference: { traceId: 'failed-snapshot-trace', spanId: 'failed-snapshot-span' } } });
 		await dispatch(conversation.value, operatorMessage('thread-a', 'request-error', 'Status?'), async (context, observed) => {
 			await snapshot(context, observed, { stopped: ['postgres'] });

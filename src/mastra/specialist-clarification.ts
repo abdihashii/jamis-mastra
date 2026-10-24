@@ -12,7 +12,10 @@ export const specialistClarificationSchema = z.object({
 	need: z.object({ kind: z.literal('input'), question: z.string().min(1).max(4000), missing: z.array(z.string().min(1).max(4000)).min(1).max(5) }).strict(),
 	publicAssignment: z.string().min(1).max(16_000).nullable(),
 	originalAccountsRequest: z.string().min(1).max(4000).optional(),
-	researchResults: z.array(z.object({ assignment: z.string().min(1).max(16_000), handback: specialistHandbackSchema(researchResultSchema) }).strict()).max(5),
+	researchResults: z.array(z.object({
+		assignment: z.string().min(1).max(16_000),
+		handback: specialistHandbackSchema(researchResultSchema),
+	}).strict()).max(5),
 }).strict().refine(state => (state.owner === 'invoke_research') === (state.publicAssignment !== null)
 	&& (state.originalAccountsRequest === undefined || state.owner === 'invoke_personal_accounts')
 	&& JSON.stringify(state).length <= 128_000, 'Specialist clarification is outside its bounded contract.');
@@ -40,9 +43,17 @@ export async function takeSpecialistClarification(memory: MemoryStorage, threadI
 	return pending;
 }
 
-export async function saveSpecialistClarification(memory: MemoryStorage, threadId: string, sourceMessageId: string, clarification: SpecialistClarification) {
+export async function saveSpecialistClarification(
+	memory: MemoryStorage,
+	threadId: string,
+	sourceMessageId: string,
+	clarification: SpecialistClarification,
+) {
 	const stored = storedClarificationSchema.parse({ sourceMessageId, clarification });
-	const saved = await memory.updateThreadMetadata({ id: threadId, update: thread => ({ ...thread.metadata, [specialistClarificationKey]: stored }) });
+	const saved = await memory.updateThreadMetadata({
+		id: threadId,
+		update: thread => ({ ...thread.metadata, [specialistClarificationKey]: stored }),
+	});
 	if (!saved)
 		throw new Error('The current specialist clarification could not be retained.');
 }

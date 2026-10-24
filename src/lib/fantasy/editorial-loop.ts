@@ -27,14 +27,23 @@ export type EditorialOutcome
 	= | { status: 'approved'; evidenceId: string; candidate: EditorialCandidate; review: EditorialReview; counts: Counts }
 		| { status: 'blocked'; evidenceId: string; reason: string; candidateId: string | null; counts: Counts; issues: EditorialIssue[] };
 
-const countsSchema = z.object({ drafts: z.number().int().min(0).max(3), reviews: z.number().int().min(0).max(3) }).strict();
+const countsSchema = z.object({
+	drafts: z.number().int().min(0).max(3),
+	reviews: z.number().int().min(0).max(3),
+}).strict();
 export const editorialOutcomeSchema: z.ZodType<EditorialOutcome> = z.discriminatedUnion('status', [
 	z.object({
 		status: z.literal('approved'),
 		evidenceId: z.string(),
 		counts: countsSchema,
 		review: editorialReviewSchema,
-		candidate: z.object({ version: z.literal(EDITORIAL_VERSION), evidenceId: z.string(), id: z.string(), draft: editorialDraftSchema, parts: z.array(z.string().max(EDITORIAL_PART_MAX_LENGTH)).min(1).max(EDITORIAL_MAX_PARTS) }).strict(),
+		candidate: z.object({
+			version: z.literal(EDITORIAL_VERSION),
+			evidenceId: z.string(),
+			id: z.string(),
+			draft: editorialDraftSchema,
+			parts: z.array(z.string().max(EDITORIAL_PART_MAX_LENGTH)).min(1).max(EDITORIAL_MAX_PARTS),
+		}).strict(),
 	}).strict(),
 	z.object({ status: z.literal('blocked'), evidenceId: z.string(), reason: z.string(), candidateId: z.string().nullable(), counts: countsSchema, issues: z.array(z.object({ path: z.string(), code: z.string() }).strict()) }).strict(),
 ]);
@@ -74,7 +83,11 @@ export function editorialProjection(packet: RecapEvidencePacket) {
 	};
 }
 
-function validReview(value: unknown, packet: RecapEvidencePacket, candidate: EditorialCandidate): EditorialReview | null {
+function validReview(
+	value: unknown,
+	packet: RecapEvidencePacket,
+	candidate: EditorialCandidate,
+): EditorialReview | null {
 	const parsed = editorialReviewSchema.safeParse(value);
 	if (!parsed.success)
 		return null;
@@ -89,7 +102,11 @@ function validReview(value: unknown, packet: RecapEvidencePacket, candidate: Edi
 	});
 	candidate.parts.forEach((_, index) => paths.add(`parts.${index}`));
 	const sources = new Set(buildEditorialCatalog(packet).sources.map(source => source.id));
-	return review.issues.every(issue => paths.has(issue.path) && issue.supportIds.every(id => sources.has(id))) ? review : null;
+	return review.issues.every(
+		issue => paths.has(issue.path) && issue.supportIds.every(id => sources.has(id)),
+	)
+		? review
+		: null;
 }
 
 /** One in-attempt budget. Terminal blocks never contain rejected prose or grant permission to retry. */

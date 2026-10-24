@@ -13,15 +13,32 @@ import { specialistHandbackSchema } from './specialist-handback';
 const text = z.string().min(1);
 export const personalAccountsResultSchema = z.object({
 	summary: text,
-	messages: z.array(z.object({ subject: z.string(), from: z.string(), date: z.string().datetime(), snippet: z.string(), body: z.string().max(12_000).nullable(), truncated: z.boolean() }).strict()).max(20),
-	events: z.array(z.object({ calendar: text, title: text, start: text, end: text, operatorLocalStart: text.nullable(), operatorLocalEnd: text.nullable(), location: z.string().nullable() }).strict()).max(50),
+	messages: z.array(z.object({
+		subject: z.string(),
+		from: z.string(),
+		date: z.string().datetime(),
+		snippet: z.string(),
+		body: z.string().max(12_000).nullable(),
+		truncated: z.boolean(),
+	}).strict()).max(20),
+	events: z.array(z.object({
+		calendar: text,
+		title: text,
+		start: text,
+		end: text,
+		operatorLocalStart: text.nullable(),
+		operatorLocalEnd: text.nullable(),
+		location: z.string().nullable(),
+	}).strict()).max(50),
 	issues: z.array(z.object({ identifier: text, url: z.string().url(), status: text }).strict()).max(50),
 	coverage: z.array(z.object({ source: z.enum(['gmail', 'calendar', 'linear']), status: z.enum(['complete', 'empty', 'ambiguous', 'truncated', 'unavailable', 'denied']), gaps: z.array(text).max(10) }).strict()).max(3),
 	research: researchResultSchema.nullable(),
 	replyText: text.nullable(),
 }).strict();
 
-export const personalAccountsModelHandbackSchema = specialistHandbackSchema(personalAccountsResultSchema.omit({ messages: true }).extend({
+export const personalAccountsModelHandbackSchema = specialistHandbackSchema(personalAccountsResultSchema.omit({
+	messages: true,
+}).extend({
 	messageRefs: z.array(z.uuid()).max(20).describe('Exact messageRefs from Gmail tool results in this invocation. Native code supplies the original records. Include every retrieved message for completed results.'),
 }));
 
@@ -41,11 +58,18 @@ export function resolvePersonalAccountsHandback(value: unknown, context: Request
 
 const gmailResultSchema = z.object({
 	estimatedTotal: z.number().nonnegative(),
-	messages: z.array(personalAccountsResultSchema.shape.messages.element.omit({ truncated: true }).extend({ body: z.string().optional() })),
+	messages: z.array(
+		personalAccountsResultSchema.shape.messages.element.omit({ truncated: true }).extend({
+			body: z.string().optional(),
+		}),
+	),
 });
 const calendarResultSchema = z.object({
 	truncated: z.boolean(),
-	unavailableCalendars: z.array(z.object({ calendar: z.string(), status: z.union([z.literal(403), z.literal(404)]) })),
+	unavailableCalendars: z.array(z.object({
+		calendar: z.string(),
+		status: z.union([z.literal(403), z.literal(404)]),
+	})),
 	events: z.array(personalAccountsResultSchema.shape.events.element.extend({
 		operatorLocalStart: z.string().nullish(),
 		operatorLocalEnd: z.string().nullish(),
@@ -56,7 +80,10 @@ const researchHandbackSchema = specialistHandbackSchema(researchResultSchema);
 
 export function validatePersonalAccountsHandback(
 	handback: SpecialistHandback<z.infer<typeof personalAccountsResultSchema>>,
-	{ toolResults, pendingOperationId }: { toolResults: Array<{ payload: { toolName: string; result: unknown; isError?: boolean } }>; pendingOperationId?: string },
+	{ toolResults, pendingOperationId }: {
+		toolResults: Array<{ payload: { toolName: string; result: unknown; isError?: boolean } }>;
+		pendingOperationId?: string;
+	},
 ) {
 	const payloads = toolResults.map(({ payload }) => payload);
 	const proposed = payloads.some(payload => payload.toolName === 'linearCreateProposalTool' && !payload.isError
@@ -137,7 +164,10 @@ export function validatePersonalAccountsHandback(
 			? 'unavailable'
 			: linear.some(read => read.status === 'ambiguous')
 				? 'ambiguous'
-				: linear.some(read => read.partial || read.nextCursor || read.issue?.truncated || read.comments?.some(comment => comment.truncated))
+				: linear.some(
+					read => read.partial || read.nextCursor || read.issue?.truncated
+						|| read.comments?.some(comment => comment.truncated),
+				)
 					? 'truncated'
 					: issues.length || linear.some(read => read.comments?.length || read.attachments?.length) ? 'complete' : 'empty');
 

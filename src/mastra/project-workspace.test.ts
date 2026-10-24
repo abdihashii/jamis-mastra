@@ -142,7 +142,10 @@ test('failed deployment preparations and retries preserve the running workspace'
 	const initial = await prepareProjectView(root);
 	const initialPath = await realpath(initial.path);
 	const pinned = (await pinProjectView(initial.path))!;
-	expect(pinned).toEqual({ basePath: initialPath, view: { generation: initial.generation, preparedAt: initial.preparedAt } });
+	expect(pinned).toEqual({
+		basePath: initialPath,
+		view: { generation: initial.generation, preparedAt: initial.preparedAt },
+	});
 	const running = (await createProjectWorkspace(initial.path))!.filesystem!;
 	await put(join(root, 'src/handler.ts'), 'replacement handler');
 	const failed = await prepareProjectView(root); // Build fails before the app is recreated.

@@ -122,7 +122,12 @@ type DockerEvidence = z.infer<typeof dockerSchema> & ContextEvidence;
 type TunnelEvidence = z.infer<typeof tunnelSchema> & ContextEvidence;
 type TailscaleEvidence = z.infer<typeof tailscaleSchema> & ContextEvidence;
 
-function unavailable(nowMs: number): { host: HostEvidence; docker: DockerEvidence; cloudflareTunnel: TunnelEvidence; tailscale: TailscaleEvidence } {
+function unavailable(nowMs: number): {
+	host: HostEvidence;
+	docker: DockerEvidence;
+	cloudflareTunnel: TunnelEvidence;
+	tailscale: TailscaleEvidence;
+} {
 	const observedAt = utcSeconds(new Date(nowMs));
 	return {
 		host: {

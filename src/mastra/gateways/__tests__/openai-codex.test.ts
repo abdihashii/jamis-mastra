@@ -464,7 +464,10 @@ describe('codexFetch response translation (SDK non-streaming calls)', () => {
 		expect((await sentBody()).stream).toBe(true); // forced on the wire
 		expect(result.ok).toBe(true);
 		expect(result.headers.get('content-type')).toContain('application/json');
-		const body = JSON.parse(await result.text()) as { output: Array<{ content: Array<{ text: string }> }>; usage: unknown };
+		const body = JSON.parse(await result.text()) as {
+			output: Array<{ content: Array<{ text: string }> }>;
+			usage: unknown;
+		};
 		expect(body.output.map(item => item.content[0]!.text)).toEqual(['first', 'second']);
 		expect(body.usage).toEqual({ input_tokens: 1, output_tokens: 1, total_tokens: 2 });
 	});
@@ -888,7 +891,9 @@ test('Codex auth failures export fixed reasons on their exact execution traces',
 			expect(Object.keys(event.metadata ?? {}).sort()).toEqual(['occurredAtUtc', 'reasonCode']);
 			expect(event.metadata?.occurredAtUtc).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
 		}
-		expect(JSON.stringify(events)).not.toMatch(/provider-secret|raw-provider-message|test-access-token|test-refresh-token|test-account-id/);
+		expect(JSON.stringify(events)).not.toMatch(
+			/provider-secret|raw-provider-message|test-access-token|test-refresh-token|test-account-id/,
+		);
 		const broken = instance.startSpan({ name: 'broken-export', type: SpanType.MODEL_STEP });
 		broken.createEventSpan = () => {
 			throw new Error('sink-secret');

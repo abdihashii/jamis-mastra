@@ -26,7 +26,13 @@ const event = { calendar: 'Fixture calendar', title: 'Dentist', start: '2026-10-
 const accountResult = { summary: 'Dentist is scheduled.', messageRefs: [], events: [event], issues: [], coverage: [{ source: 'calendar', status: 'complete', gaps: [] }], research: null, replyText: null };
 
 function fixtureJamis(mastra: Mastra, config: Parameters<typeof createJamisAgent>[0]) {
-	return createJamisAgent({ mastra, tools: {}, workspace: undefined, memory: new Memory({ options: { semanticRecall: false, workingMemory: { enabled: false } } }), ...config });
+	return createJamisAgent({
+		mastra,
+		tools: {},
+		workspace: undefined,
+		memory: new Memory({ options: { semanticRecall: false, workingMemory: { enabled: false } } }),
+		...config,
+	});
 }
 
 function resultCase(value: unknown) {
@@ -87,18 +93,30 @@ export async function runJamisDelegationFixture(mastra: Mastra) {
 				{ handback: { case: 'blocked', reason: 'Weather service is unavailable.', progress: null } },
 				{ handback: need },
 			], options => weatherPrompts.push(options)) },
-			personalAccounts: { tools: { calendarEventsTool: calendar, gmailSearchTool: createTool({ id: gmailSearchTool.id, description: gmailSearchTool.description!, inputSchema: gmailSearchTool.inputSchema!, outputSchema: gmailSearchTool.outputSchema!, execute: async () => {
-				throw new Error('Gmail is unavailable.');
-			} }) }, model: boundaryModel([
-				{ tool: 'calendarEventsTool', input: { daysAhead: 2 } },
-				{ handback: { case: 'completed', result: accountResult } },
-				{ tool: 'gmailSearchTool', input: { query: 'is:unread' } },
-				{ tool: 'calendarEventsTool', input: { daysAhead: 2 } },
-				{ handback: { case: 'completed', result: accountResult } },
-				{ tool: 'gmailSearchTool', input: { query: 'is:unread' } },
-				{ tool: 'calendarEventsTool', input: { daysAhead: 2 } },
-				{ handback: { case: 'partial', result: { ...accountResult, coverage: [...accountResult.coverage, { source: 'gmail', status: 'unavailable', gaps: ['Gmail evidence unavailable.'] }] }, gaps: ['Gmail evidence unavailable.'] } },
-			]) },
+			personalAccounts: {
+				tools: {
+					calendarEventsTool: calendar,
+					gmailSearchTool: createTool({
+						id: gmailSearchTool.id,
+						description: gmailSearchTool.description!,
+						inputSchema: gmailSearchTool.inputSchema!,
+						outputSchema: gmailSearchTool.outputSchema!,
+						execute: async () => {
+							throw new Error('Gmail is unavailable.');
+						},
+					}),
+				},
+				model: boundaryModel([
+					{ tool: 'calendarEventsTool', input: { daysAhead: 2 } },
+					{ handback: { case: 'completed', result: accountResult } },
+					{ tool: 'gmailSearchTool', input: { query: 'is:unread' } },
+					{ tool: 'calendarEventsTool', input: { daysAhead: 2 } },
+					{ handback: { case: 'completed', result: accountResult } },
+					{ tool: 'gmailSearchTool', input: { query: 'is:unread' } },
+					{ tool: 'calendarEventsTool', input: { daysAhead: 2 } },
+					{ handback: { case: 'partial', result: { ...accountResult, coverage: [...accountResult.coverage, { source: 'gmail', status: 'unavailable', gaps: ['Gmail evidence unavailable.'] }] }, gaps: ['Gmail evidence unavailable.'] } },
+				]),
+			},
 			research: { tools: {}, model: boundaryModel([]) },
 		},
 	});
@@ -153,13 +171,27 @@ export async function runJamisDelegationFixture(mastra: Mastra) {
 		observe: noopObserve,
 	}), /not authorized/);
 	assert.equal(forecastCalls, 2);
-	return { locationCheck: true, freshWeatherCompletion: true, calendarWeatherPartial: true, accountFailurePartial: true, unrelatedSupersession: true, internalAgentsHidden: true, directAuthorityRejected: true, forecastCalls, calendarCalls };
+	return {
+		locationCheck: true,
+		freshWeatherCompletion: true,
+		calendarWeatherPartial: true,
+		accountFailurePartial: true,
+		unrelatedSupersession: true,
+		internalAgentsHidden: true,
+		directAuthorityRejected: true,
+		forecastCalls,
+		calendarCalls,
+	};
 }
 
 export async function runJamisResearchFixture(mastra: Mastra) {
 	const observations: unknown[] = [];
 	const source = { title: 'Official fixture alerts', url: 'https://www.weather.gov/fixture-alerts', evidenceKind: 'scraped-webpage', evidence: 'The fixture area has no active alerts.', limitations: [] };
-	const researchResult = { findings: [{ text: source.evidence, sourceNumbers: [1] }], sources: [source], limitations: [] };
+	const researchResult = {
+		findings: [{ text: source.evidence, sourceNumbers: [1] }],
+		sources: [source],
+		limitations: [],
+	};
 	const search = createTool({ id: 'web-search', description: 'Discover a controlled public source.', inputSchema: z.object({ query: z.string() }), outputSchema: z.object({ results: z.array(z.object({ title: z.string(), url: z.string().url() })) }), execute: async (input) => {
 		observations.push(input);
 		return { results: [{ title: source.title, url: source.url }] };
@@ -182,7 +214,15 @@ export async function runJamisResearchFixture(mastra: Mastra) {
 			{ text: answer },
 		]),
 		specialists: {
-			weather: { tools: { forecastTool: createTool({ id: forecastTool.id, description: forecastTool.description!, inputSchema: forecastTool.inputSchema!, outputSchema: forecastTool.outputSchema!, execute: async () => reading }) }, model: boundaryModel([
+			weather: { tools: {
+				forecastTool: createTool({
+					id: forecastTool.id,
+					description: forecastTool.description!,
+					inputSchema: forecastTool.inputSchema!,
+					outputSchema: forecastTool.outputSchema!,
+					execute: async () => reading,
+				}),
+			}, model: boundaryModel([
 				{ tool: 'forecastTool', input: { location: 'Chicago', date: reading.date } },
 				{ handback: { case: 'completed', result: weatherResult } },
 			]) },
@@ -207,7 +247,10 @@ export async function runJamisResearchFixture(mastra: Mastra) {
 	assert.equal(response.text, answer);
 	assert(!JSON.stringify(observations).includes(PRIVATE_ARCHITECTURE_SENTINEL));
 	assert.match(response.text, /^The weather in Chicago, Illinois/);
-	assert.match(response.text, /alerts\.\[1\]\nSources:\n\[1\] Official fixture alerts: https:\/\/www\.weather\.gov\/fixture-alerts$/);
+	assert.match(
+		response.text,
+		/alerts\.\[1\]\nSources:\n\[1\] Official fixture alerts: https:\/\/www\.weather\.gov\/fixture-alerts$/,
+	);
 	assert.equal((await jamis.getDefaultOptions()).toolCallConcurrency, 1);
 	return { simpleReportOwner: 'jamis', citationsPreserved: true, privateContextIsolated: true };
 }
@@ -234,7 +277,17 @@ export async function runJamisChannelFixture(mastra: Mastra, sql: SqlLike) {
 		memory: new Memory({ options: { semanticRecall: false, workingMemory: { enabled: false } } }),
 		channels: {
 			adapters: { sendblue: { adapter, gateway: false, toolDisplay: 'hidden' } },
-			handlers: { onDirectMessage: (thread, message, defaultHandler, context) => handleSendblueDirectMessage(thread, message, defaultHandler, context, sql), onMention: false, onSubscribedMessage: false },
+			handlers: {
+				onDirectMessage: (thread, message, defaultHandler, context) => handleSendblueDirectMessage(
+					thread,
+					message,
+					defaultHandler,
+					context,
+					sql,
+				),
+				onMention: false,
+				onSubscribedMessage: false,
+			},
 		},
 		model: boundaryModel([
 			{ tool: 'invoke_weather', input: { question: 'What is the weather outside tomorrow?' } },
@@ -250,19 +303,30 @@ export async function runJamisChannelFixture(mastra: Mastra, sql: SqlLike) {
 			{ text: 'Your dentist appointment is 14:00 to 15:00 UTC. I could not retrieve the Chicago forecast, so this is a calendar-only plan.' },
 		], options => prompts.push(options)),
 		specialists: {
-			weather: { tools: { forecastTool: createTool({ id: forecastTool.id, description: forecastTool.description!, inputSchema: forecastTool.inputSchema!, outputSchema: forecastTool.outputSchema!, execute: async () => {
-				forecastCalls += 1;
-				if (forecastCalls === 2)
-					throw new Error('Weather service is unavailable.');
-				return reading;
-			} }) }, model: boundaryModel([
-				{ handback: need },
-				{ tool: 'forecastTool', input: { location: 'Chicago', date: reading.date } },
-				{ handback: { case: 'completed', result: weatherResult } },
-				{ handback: need },
-				{ tool: 'forecastTool', input: { location: 'Chicago', date: reading.date } },
-				{ handback: { case: 'blocked', reason: 'Weather service is unavailable.', progress: null } },
-			]) },
+			weather: {
+				tools: {
+					forecastTool: createTool({
+						id: forecastTool.id,
+						description: forecastTool.description!,
+						inputSchema: forecastTool.inputSchema!,
+						outputSchema: forecastTool.outputSchema!,
+						execute: async () => {
+							forecastCalls += 1;
+							if (forecastCalls === 2)
+								throw new Error('Weather service is unavailable.');
+							return reading;
+						},
+					}),
+				},
+				model: boundaryModel([
+					{ handback: need },
+					{ tool: 'forecastTool', input: { location: 'Chicago', date: reading.date } },
+					{ handback: { case: 'completed', result: weatherResult } },
+					{ handback: need },
+					{ tool: 'forecastTool', input: { location: 'Chicago', date: reading.date } },
+					{ handback: { case: 'blocked', reason: 'Weather service is unavailable.', progress: null } },
+				]),
+			},
 			research: { tools: {}, model: boundaryModel([]) },
 			personalAccounts: { tools: { calendarEventsTool: createTool({ id: calendarEventsTool.id, description: calendarEventsTool.description!, inputSchema: calendarEventsTool.inputSchema!, outputSchema: calendarEventsTool.outputSchema!, execute: async () => ({ from: '2026-10-10T00:00:00.000Z', to: '2026-10-11T00:00:00.000Z', truncated: false, unavailableCalendars: [], events: [{ calendar: event.calendar, title: event.title, start: event.start, end: event.end }] }) }) }, model: boundaryModel([
 				{ tool: 'calendarEventsTool', input: { daysAhead: 2 } },
@@ -282,7 +346,14 @@ export async function runJamisChannelFixture(mastra: Mastra, sql: SqlLike) {
 		assert.deepEqual(replies, ['Which city?', weatherResult.answer, 'Which city?', 'Happy birthday. Have a good one.', 'What would you like to know about Chicago?', 'Your dentist appointment is 14:00 to 15:00 UTC. I could not retrieve the Chicago forecast, so this is a calendar-only plan.']);
 		assert.equal(forecastCalls, 2);
 		assert(JSON.stringify(prompts[2]).includes('Which city?'), 'The next DM receives the native session context.');
-		return { nativeDmTurns: replies.length, controlledReplyAcceptances: replies.length, forecastCalls, clarificationAndSupersession: true, calendarWeatherPartial: true, externalMessages: 0 };
+		return {
+			nativeDmTurns: replies.length,
+			controlledReplyAcceptances: replies.length,
+			forecastCalls,
+			clarificationAndSupersession: true,
+			calendarWeatherPartial: true,
+			externalMessages: 0,
+		};
 	} finally { await channels.sdk!.shutdown(); }
 }
 
@@ -301,12 +372,18 @@ export async function runJamisNestedResearchFixture(mastra: Mastra) {
 	const receiptRefs: string[] = [];
 	const refusal = 'Evidence status: insufficient. I could not verify the requested factual answer.';
 	const researchNeed = { case: 'needs_help', need: { kind: 'input', question: 'Which public policy date?', missing: ['policy date'] }, progress: null };
-	const gmail = createTool({ id: gmailSearchTool.id, description: gmailSearchTool.description!, inputSchema: gmailSearchTool.inputSchema!, outputSchema: gmailSearchTool.outputSchema!, execute: async (_, context) => {
-		const result = recordAccountsGmailRead(context.requestContext, { estimatedTotal: 1, messages: [message] });
-		progress.messageRefs.splice(0, progress.messageRefs.length, ...result.messageRefs!);
-		receiptRefs.push(...result.messageRefs!);
-		return result;
-	} });
+	const gmail = createTool({
+		id: gmailSearchTool.id,
+		description: gmailSearchTool.description!,
+		inputSchema: gmailSearchTool.inputSchema!,
+		outputSchema: gmailSearchTool.outputSchema!,
+		execute: async (_, context) => {
+			const result = recordAccountsGmailRead(context.requestContext, { estimatedTotal: 1, messages: [message] });
+			progress.messageRefs.splice(0, progress.messageRefs.length, ...result.messageRefs!);
+			receiptRefs.push(...result.messageRefs!);
+			return result;
+		},
+	});
 	const scrape = createTool({ id: 'web-scrape', description: 'Read a controlled public policy.', inputSchema: z.object({ url: z.string().url() }), outputSchema: z.object({ markdown: z.string() }), execute: async (input, context) => {
 		sourceCalls += 1;
 		observations.push(input, [...context.requestContext.entries()]);
@@ -345,7 +422,15 @@ export async function runJamisNestedResearchFixture(mastra: Mastra) {
 				{ handback: researchNeed },
 				{ handback: { case: 'blocked', reason: refusal, progress: null } },
 			], options => observations.push(options)) },
-			weather: { tools: { forecastTool: createTool({ id: forecastTool.id, description: forecastTool.description!, inputSchema: forecastTool.inputSchema!, outputSchema: forecastTool.outputSchema!, execute: async () => reading }) }, model: boundaryModel([
+			weather: { tools: {
+				forecastTool: createTool({
+					id: forecastTool.id,
+					description: forecastTool.description!,
+					inputSchema: forecastTool.inputSchema!,
+					outputSchema: forecastTool.outputSchema!,
+					execute: async () => reading,
+				}),
+			}, model: boundaryModel([
 				{ tool: 'forecastTool', input: { location: 'Chicago', date: reading.date } },
 				{ handback: { case: 'completed', result: weatherResult } },
 			]) },
@@ -370,7 +455,14 @@ export async function runJamisNestedResearchFixture(mastra: Mastra) {
 	assert(JSON.stringify(ownerPrompts).includes(source.evidence));
 	assert(JSON.stringify(ownerPrompts).includes(researchNeed.need.question));
 	assert(JSON.stringify(ownerPrompts).includes(refusal));
-	return { mixedAccountsResearchWeather: true, nestedOwnerHandback: true, nestedNeedAndRefusal: true, privateContextIsolated: true, unsupportedProjectionDenied: true, sourceCalls };
+	return {
+		mixedAccountsResearchWeather: true,
+		nestedOwnerHandback: true,
+		nestedNeedAndRefusal: true,
+		privateContextIsolated: true,
+		unsupportedProjectionDenied: true,
+		sourceCalls,
+	};
 }
 
 export async function runJamisWeatherValidationFixture(mastra: Mastra) {
@@ -384,7 +476,15 @@ export async function runJamisWeatherValidationFixture(mastra: Mastra) {
 		const jamis = fixtureJamis(mastra, {
 			model: boundaryModel([{ tool: 'invoke_weather', input: { question: 'Forecast for Chicago on 2026-10-10.' } }, { text: 'I could not verify the forecast.' }]),
 			specialists: {
-				weather: { tools: { forecastTool: createTool({ id: forecastTool.id, description: forecastTool.description!, inputSchema: forecastTool.inputSchema!, outputSchema: forecastTool.outputSchema!, execute: async () => reading }) }, model: boundaryModel([
+				weather: { tools: {
+					forecastTool: createTool({
+						id: forecastTool.id,
+						description: forecastTool.description!,
+						inputSchema: forecastTool.inputSchema!,
+						outputSchema: forecastTool.outputSchema!,
+						execute: async () => reading,
+					}),
+				}, model: boundaryModel([
 					{ tool: 'forecastTool', input: { location: 'Chicago', date: reading.date } },
 					{ handback: { case: 'completed', result: { answer: `The weather in ${'location' in invalid ? invalid.location : 'Chicago, Illinois'} will be clear.`, reading: { kind: 'forecast', ...invalid } } } },
 				]) },

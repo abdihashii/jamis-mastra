@@ -133,7 +133,11 @@ const fantasyMonitoringOutputSchema = z.union([
 		reason: fantasyUnavailableReasonSchema,
 	}).strict(),
 ]);
-const monitoringOutputSchema = z.union([applicationMonitoringOutputSchema, fantasyMonitoringOutputSchema, deploymentMonitoringOutputSchema]);
+const monitoringOutputSchema = z.union([
+	applicationMonitoringOutputSchema,
+	fantasyMonitoringOutputSchema,
+	deploymentMonitoringOutputSchema,
+]);
 
 export type MonitoringStore = Pick<ObservabilityStorage, 'getMetricAggregate' | 'listLogs'>;
 export type MonitoringSummary = z.infer<typeof applicationMonitoringOutputSchema>;
@@ -173,7 +177,16 @@ export async function readMonitoring(
 	}
 
 	const timestamp = { start, end };
-	const [completedResult, failedResult, averageResult, inputResult, inputCountResult, outputResult, outputCountResult, logsResult] = await Promise.allSettled([
+	const [
+		completedResult,
+		failedResult,
+		averageResult,
+		inputResult,
+		inputCountResult,
+		outputResult,
+		outputCountResult,
+		logsResult,
+	] = await Promise.allSettled([
 		store.getMetricAggregate({
 			name: [durationMetric],
 			aggregation: 'count',
@@ -351,10 +364,17 @@ export async function readFantasyMonitoring(
 		return unavailable('storage');
 	}
 	const summaries = runs
-		.filter(run => Number.isInteger(run.fantasyWeek) && run.fantasyWeek >= 1 && run.fantasyWeek <= 22 && (week === undefined || run.fantasyWeek === week))
+		.filter(
+			run => Number.isInteger(
+				run.fantasyWeek,
+			) && run.fantasyWeek >= 1 && run.fantasyWeek <= 22 && (week === undefined || run.fantasyWeek === week),
+		)
 		.map((run) => {
 			const generationSummary = fantasyGenerationSummarySchema.safeParse(run.generationSummary);
-			return { ...fantasyRunSummary(run, nowMs), ...(generationSummary.success ? { generationSummary: generationSummary.data } : {}) };
+			return {
+				...fantasyRunSummary(run, nowMs),
+				...(generationSummary.success ? { generationSummary: generationSummary.data } : {}),
+			};
 		});
 	if (week !== undefined) {
 		const run = summaries[0] ?? null;
@@ -388,10 +408,26 @@ export const checkMonitoringTool = createTool({
 			return await readDeploymentMonitoring({
 				getStore,
 				readWorkflowRuns: (start, end) => listRecentWorkflowRuns(getFantasySql(), start, end),
-				readFantasyRuns: async () => leagueId ? await listFantasyMonitoringRuns(leagueId, undefined, getFantasySql()) : null,
-				readEvidence: (hours, nowMs) => readFullDeploymentEvidence(getStore, getFantasySql, leagueId, undefined, nowMs, hours),
+				readFantasyRuns: async () => leagueId
+					? await listFantasyMonitoringRuns(leagueId, undefined, getFantasySql())
+					: null,
+				readEvidence: (hours, nowMs) => readFullDeploymentEvidence(
+					getStore,
+					getFantasySql,
+					leagueId,
+					undefined,
+					nowMs,
+					hours,
+				),
 				currentDigest: capability ? hashSendblueMessageHandle(capability.message.id) : undefined,
-				onSnapshot: capability ? (summary, findings) => stageDeploymentSnapshot(capability.thread.id, capability.message.id, summary, findings) : undefined,
+				onSnapshot: capability
+					? (summary, findings) => stageDeploymentSnapshot(
+							capability.thread.id,
+							capability.message.id,
+							summary,
+							findings,
+						)
+					: undefined,
 			}, input.hours);
 		}
 		if (input.scope === 'fantasy') {
@@ -402,7 +438,9 @@ export const checkMonitoringTool = createTool({
 				Date.now(),
 				async (leagueId, week) => {
 					const timeoutSignal = AbortSignal.timeout(5_000);
-					const signal = context.abortSignal ? AbortSignal.any([context.abortSignal, timeoutSignal]) : timeoutSignal;
+					const signal = context.abortSignal
+						? AbortSignal.any([context.abortSignal, timeoutSignal])
+						: timeoutSignal;
 					try {
 						const [state, rawLeague, bracket] = await Promise.all([
 							getNflState(signal),

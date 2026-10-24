@@ -184,13 +184,24 @@ export async function recordApprovedReport(value: SavedReport, claimToken: strin
 	}
 }
 
-async function recordApprovedReportLocked(report: SavedReport, claimToken: string, sql: SqlLike, before: GenerationState | null, after: GenerationState | null): Promise<boolean> {
+async function recordApprovedReportLocked(
+	report: SavedReport,
+	claimToken: string,
+	sql: SqlLike,
+	before: GenerationState | null,
+	after: GenerationState | null,
+): Promise<boolean> {
 	const { scope } = report;
 	const text = report.parts.join('\n\n');
 	const history = { version: report.version, report };
 	// Previously saved reports remain reconcilable; a new approval must still be inside both budgets.
 	const deadline = before && before.current.phase !== 'approved'
-		? new Date(Math.min(Date.parse(before.current.workDeadlineAtUtc), Date.parse(before.current.editorialDeadlineAtUtc!))).toISOString()
+		? new Date(
+				Math.min(
+					Date.parse(before.current.workDeadlineAtUtc),
+					Date.parse(before.current.editorialDeadlineAtUtc!),
+				),
+			).toISOString()
 		: null;
 	try {
 		const rows = await sql`

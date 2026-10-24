@@ -92,7 +92,14 @@ export interface RecapEvidencePacket {
 	version: 'fantasy-evidence-v1';
 	collectionStartedAtUtc: string;
 	frozenAtUtc: string;
-	scope: { leagueId: string; groupId: string; season: string | null; week: number; chatWindow: ChatWindow | null; calendarProof?: NflCalendarProof };
+	scope: {
+		leagueId: string;
+		groupId: string;
+		season: string | null;
+		week: number;
+		chatWindow: ChatWindow | null;
+		calendarProof?: NflCalendarProof;
+	};
 	status: 'ready' | 'partial' | 'blocked';
 	/** Evidence admission only, never publication authority or editorial/privacy approval. */
 	admission: { canDraft: boolean; blockers: string[] };
@@ -238,7 +245,9 @@ function acquisitionsFor(packet: RecapEvidencePacket, scores: SleeperScore[]): A
 			leaguePoints: score?.playerPoints[add.playerId] ?? null,
 			statusUpdatedAtUtc: completed,
 			kickoffAtUtc: lineup?.kickoffAtUtc ?? null,
-			knownCompleteBeforeKickoff: validTime && lineup?.kickoffAtUtc && completed! < lineup.kickoffAtUtc ? true : null,
+			knownCompleteBeforeKickoff: validTime && lineup?.kickoffAtUtc && completed! < lineup.kickoffAtUtc
+				? true
+				: null,
 			decisionQuality: 'not-established' as const,
 		};
 	}));
@@ -258,7 +267,13 @@ export async function collectRecapEvidence(
 		version: 'fantasy-evidence-v1',
 		collectionStartedAtUtc: startedAt,
 		frozenAtUtc: startedAt,
-		scope: { leagueId: config.sleeperLeagueId, groupId: config.sendblueGroupId, season: null, week, chatWindow: null },
+		scope: {
+			leagueId: config.sleeperLeagueId,
+			groupId: config.sendblueGroupId,
+			season: null,
+			week,
+			chatWindow: null,
+		},
 		status: 'blocked',
 		admission: { canDraft: false, blockers: [] },
 		league: null,
@@ -318,7 +333,9 @@ export async function collectRecapEvidence(
 	if (request.calendarProof && !admitCalendar(request.calendarProof))
 		return finish(packet);
 	const source = options.sleeper ?? sleeperReads;
-	const deadline = () => AbortSignal.any([AbortSignal.timeout(20_000), ...(options.abortSignal ? [options.abortSignal] : [])]);
+	const deadline = () => AbortSignal.any(
+		[AbortSignal.timeout(20_000), ...(options.abortSignal ? [options.abortSignal] : [])],
+	);
 	async function read<T>(name: string, operation: () => Promise<T>): Promise<T | null> {
 		options.abortSignal?.throwIfAborted();
 		try {
@@ -379,7 +396,9 @@ export async function collectRecapEvidence(
 		gap('calendar', 'invalid_reporting_calendar', true);
 		return finish(packet);
 	}
-	const historyWeeks = week < league.playoffWeekStart ? Array.from({ length: week }, (_, index) => index + 1) : [week];
+	const historyWeeks = week < league.playoffWeekStart
+		? Array.from({ length: week }, (_, index) => index + 1)
+		: [week];
 	const scoresByWeek = new Map<number, SleeperScore[]>();
 	await Promise.all(historyWeeks.map(async (w) => {
 		const rows = await read(`scores-${w}`, () => source.getScores(league.id, w, deadline()));
@@ -415,7 +434,11 @@ export async function collectRecapEvidence(
 		packet.transactions.retrievedAtUtc = transactions.retrievedAtUtc;
 		packet.transactions.excludedNonComplete = transactions.transactions.filter(t => t.status !== 'complete').length;
 		const candidates = transactions.transactions.filter(t => t.status === 'complete' && t.week === week
-			&& [...t.rosterIds, ...t.draftPicks.flatMap(pick => [pick.rosterId, pick.previousOwnerId, pick.ownerId]), ...t.faabTransfers.flatMap(transfer => [transfer.sender, transfer.receiver])].every(id => knownRosters.has(id)));
+			&& [
+				...t.rosterIds,
+				...t.draftPicks.flatMap(pick => [pick.rosterId, pick.previousOwnerId, pick.ownerId]),
+				...t.faabTransfers.flatMap(transfer => [transfer.sender, transfer.receiver]),
+			].every(id => knownRosters.has(id)));
 		if (transactions.malformedCount
 			|| candidates.length + packet.transactions.excludedNonComplete !== transactions.transactions.length) {
 			gap('transactions', 'partial_transaction_history');
@@ -468,7 +491,12 @@ export async function collectRecapEvidence(
 	};
 	try {
 		const snapshot = buildWeekSnapshot(input);
-		packet.facts = { ...snapshot, standings: null, movement: [], upcoming: snapshot.isChampionshipWeek ? null : [] };
+		packet.facts = {
+			...snapshot,
+			standings: null,
+			movement: [],
+			upcoming: snapshot.isChampionshipWeek ? null : [],
+		};
 	} catch {
 		gap('league', 'current_results_invalid', true);
 		return finish(packet);
@@ -481,8 +509,11 @@ export async function collectRecapEvidence(
 	if (week < league.playoffWeekStart) {
 		const completeHistory = historyWeeks.every((w) => {
 			const rows = scoresByWeek.get(w);
-			return rows && rows.length === managers.length && new Set(rows.map(row => row.rosterId)).size === rows.length
-				&& rows.every(row => knownRosters.has(row.rosterId) && row.points !== null && Number.isFinite(row.points));
+			return rows && rows.length === managers.length
+				&& new Set(rows.map(row => row.rosterId)).size === rows.length
+				&& rows.every(
+					row => knownRosters.has(row.rosterId) && row.points !== null && Number.isFinite(row.points),
+				);
 		});
 		if (completeHistory) {
 			try {

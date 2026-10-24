@@ -101,11 +101,13 @@ describe.skipIf(!databaseUrl)('daily native entrypoint with queried reporting wi
 				});
 				return createFantasyEditorialProcedure(fixture.runtime)(collected, signal, observer);
 			},
-			publish: async (ref, token, signal) => ({ receipt: await dispatchSavedReport(ref, token, sql, async (group, text) => {
-				expect(group).toBe(config.sendblueGroupId);
-				sends.push(text);
-				return { kind: 'sent', handle: 'fixture-handle' };
-			}, signal) }),
+			publish: async (ref, token, signal) => ({
+				receipt: await dispatchSavedReport(ref, token, sql, async (group, text) => {
+					expect(group).toBe(config.sendblueGroupId);
+					sends.push(text);
+					return { kind: 'sent', handle: 'fixture-handle' };
+				}, signal),
+			}),
 		};
 	});
 	afterEach(() => {
@@ -177,7 +179,13 @@ describe.skipIf(!databaseUrl)('daily native entrypoint with queried reporting wi
 			...editorialFixtureSleeper,
 			getNflState: async () => ({ season: '2025', week: 19, seasonType: 'regular' }),
 			getLeague: async () => ({ ...await editorialFixtureSleeper.getLeague(config.sleeperLeagueId), season: '2025', status: 'complete', playoffWeekStart: 18 }),
-			getWinnersBracket: async () => (await editorialFixtureSleeper.getWinnersBracket(config.sleeperLeagueId)).map(game => ({ ...game, winner: 1, loser: 2 })),
+			getWinnersBracket: async () => (await editorialFixtureSleeper.getWinnersBracket(
+				config.sleeperLeagueId,
+			)).map(game => ({
+				...game,
+				winner: 1,
+				loser: 2,
+			})),
 			getNflSchedule: async (season, phase) => {
 				phases.push(phase);
 				return structuredClone(captured.sleeper);
@@ -191,7 +199,10 @@ describe.skipIf(!databaseUrl)('daily native entrypoint with queried reporting wi
 		};
 		expect(await runDailyRecap(config, {} as Mastra, options)).toMatchObject({ outcome: 'failed', reason: 'editorial_blocked', week: 18 });
 		expect(phases).toEqual(['regular']);
-		expect(observed).toEqual({ startAtUtc: new Date(captured.current.startDate).toISOString(), endAtUtc: new Date(captured.next.startDate).toISOString() });
+		expect(observed).toEqual({
+			startAtUtc: new Date(captured.current.startDate).toISOString(),
+			endAtUtc: new Date(captured.next.startDate).toISOString(),
+		});
 		expect(sends).toEqual([]);
 	});
 

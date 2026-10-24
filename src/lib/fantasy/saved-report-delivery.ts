@@ -21,7 +21,11 @@ export interface SavedReportReceipt {
 }
 
 /** Contribution text is never a delivery receipt. Only this existing-row state is authoritative. */
-export async function readSavedReportReceipt(reference: SavedReportReference, sql: SqlLike, reason?: string): Promise<SavedReportReceipt> {
+export async function readSavedReportReceipt(
+	reference: SavedReportReference,
+	sql: SqlLike,
+	reason?: string,
+): Promise<SavedReportReceipt> {
 	try {
 		const state = await getSavedReportState(reference, sql);
 		if (state) {

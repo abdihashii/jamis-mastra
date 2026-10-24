@@ -14,7 +14,12 @@ export interface CandidatePreviewResult {
 
 async function prepareCandidate(packet: RecapEvidencePacket, signal?: AbortSignal): Promise<EditorialOutcome> {
 	// No app entrypoint, scheduler, registered roots or writable storage in this runtime.
-	const [{ Mastra }, { noopLogger }, { openAICodexGateway }, { createFantasyEditorialProcedure }] = await Promise.all([
+	const [
+		{ Mastra },
+		{ noopLogger },
+		{ openAICodexGateway },
+		{ createFantasyEditorialProcedure },
+	] = await Promise.all([
 		import('@mastra/core'),
 		import('@mastra/core/logger'),
 		import('../../mastra/gateways/openai-codex-gateway'),

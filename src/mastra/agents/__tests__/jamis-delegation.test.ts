@@ -29,7 +29,9 @@ if (!process.env.JAMIS_DELEGATION_TEST) {
 			stderr: 'pipe',
 			timeout: 30_000,
 		});
-		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+		const [exit, stdout, stderr] = await Promise.all(
+			[child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()],
+		);
 		expect({ exit, output: exit ? stdout + stderr : '' }).toEqual({ exit: 0, output: '' });
 	}, 35_000);
 } else {
@@ -69,7 +71,9 @@ if (!process.env.JAMIS_DELEGATION_TEST) {
 			expect(exported).toContain('research-agent');
 			expect(exported).toContain('weather-agent');
 			expect(signals.some((value) => {
-				const usage = (value as { attributes?: { usage?: { inputTokens?: number; outputTokens?: number } } }).attributes?.usage;
+				const usage = (value as {
+					attributes?: { usage?: { inputTokens?: number; outputTokens?: number } };
+				}).attributes?.usage;
 				return typeof usage?.inputTokens === 'number' && typeof usage.outputTokens === 'number';
 			})).toBe(true);
 		} finally { await observability.getInstance('fixture')!.shutdown(); }

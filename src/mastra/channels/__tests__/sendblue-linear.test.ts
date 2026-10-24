@@ -51,7 +51,9 @@ if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
-		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+		const [exit, stdout, stderr] = await Promise.all(
+			[child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()],
+		);
 		expect({ exit, output: exit === 0 ? '' : stdout + stderr }).toEqual({ exit: 0, output: '' });
 	}, 120000);
 } else {
@@ -94,7 +96,9 @@ if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
 		expect(posts[0]).toContain(`Status: ${op.stateName}`);
 		await receiveLinearMessage(dm, 'next', sql);
 		expect(await postLinearCreateProposal(operation(), dm, 'session', 'source', async () => {}, sql)).toBe(false);
-		expect(JSON.stringify((await readLinearProposal(dm, sql))!.operation)).not.toMatch(/secret|token|thread|capability/);
+		expect(
+			JSON.stringify((await readLinearProposal(dm, sql))!.operation),
+		).not.toMatch(/secret|token|thread|capability/);
 	});
 
 	test('duplicate receipt, concurrent confirms, session mismatch, intervening turn, and restart never reclaim', async () => {
@@ -196,7 +200,10 @@ if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
 			const pending = (await readLinearProposal(dm, restart))!;
 			expect(pending.state).toBe('pending');
 			await receiveLinearMessage(dm, 'confirm', restart);
-			const lostAck = ((strings: TemplateStringsArray, ...values: unknown[]) => restart(strings, ...values)) as SqlLike;
+			const lostAck = ((
+				strings: TemplateStringsArray,
+				...values: unknown[]
+			) => restart(strings, ...values)) as SqlLike;
 			lostAck.begin = async (work) => {
 				await restart.begin(tx => work(tx));
 				throw new Error('claim acknowledgement lost');
@@ -204,7 +211,11 @@ if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
 			await expect(claimLinearCreate(pending, 'session', 'confirm', true, lostAck)).rejects.toThrow('claim acknowledgement lost');
 			expect(await claimLinearCreate(pending, 'session', 'confirm', true, restart)).toBe(false);
 			const posts: string[] = [];
-			await notifyLinearOutcome((await readLinearProposal(dm, restart))!, async text => posts.push(text), restart);
+			await notifyLinearOutcome(
+				(await readLinearProposal(dm, restart))!,
+				async text => posts.push(text),
+				restart,
+			);
 			expect(posts[0]).toContain('uncertain');
 		} finally { await restart.close(); }
 	});
@@ -353,7 +364,10 @@ if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
 					}),
 					memory: new Memory({ options: { semanticRecall: false, workingMemory: { enabled: false } } }),
 					channels: channelsConfig,
-					specialists: { personalAccounts: { tools: { linearCreateProposalTool, ...(options.linked ? { gmailSearchTool: gmailFixture } : {}) }, model: boundaryModel([
+					specialists: { personalAccounts: { tools: {
+						linearCreateProposalTool,
+						...(options.linked ? { gmailSearchTool: gmailFixture } : {}),
+					}, model: boundaryModel([
 						...(options.clarify ? [{ handback: { case: 'needs_help', need: { kind: 'input', question: 'Which email?', missing: ['selected email'] }, progress: null } }] : []),
 						...(options.linked && options.sourceMode !== 'missing' ? [{ tool: 'gmailSearchTool', input: {} }] : []),
 						...(options.accountsHandbackFailure ? [] : [{ tool: 'linearCreateProposalTool', input: proposalInput }]),
@@ -474,8 +488,13 @@ if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
 			const first = await f.send(original);
 			expect(f.posts).toEqual(['Which email?']);
 			const memory = (await store.getStore('memory'))!;
-			const sessions = await memory.listThreads({ filter: { metadata: { channel_externalThreadId: first.threadId } }, perPage: 1 });
-			expect(sessions.threads[0]?.metadata?.[specialistClarificationKey]).toMatchObject({ clarification: { originalAccountsRequest: original } });
+			const sessions = await memory.listThreads({
+				filter: { metadata: { channel_externalThreadId: first.threadId } },
+				perPage: 1,
+			});
+			expect(sessions.threads[0]?.metadata?.[specialistClarificationKey]).toMatchObject({
+				clarification: { originalAccountsRequest: original },
+			});
 			const selection = await f.send('The selected email, and keep the reply formal.', randomUUID(), true, '2026-10-01T00:00:01.000Z');
 			const proposal = (await readLinearProposal(selection.threadId, sql))!;
 			expect(proposal).not.toBeNull();
@@ -495,9 +514,15 @@ if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
 		try {
 			const first = await f.send('Create an email issue and draft a linked reply.');
 			const memory = (await store.getStore('memory'))!;
-			const { threads } = await memory.listThreads({ filter: { metadata: { channel_externalThreadId: first.threadId } }, perPage: 1 });
+			const { threads } = await memory.listThreads({
+				filter: { metadata: { channel_externalThreadId: first.threadId } },
+				perPage: 1,
+			});
 			await memory.updateThreadMetadata({ id: threads[0].id, update: (thread) => {
-				const stored = thread.metadata![specialistClarificationKey] as { sourceMessageId: string; clarification: Record<string, unknown> };
+				const stored = thread.metadata![specialistClarificationKey] as {
+					sourceMessageId: string;
+					clarification: Record<string, unknown>;
+				};
 				const { originalAccountsRequest: _request, ...clarification } = stored.clarification;
 				return { ...thread.metadata, [specialistClarificationKey]: { ...stored, clarification } };
 			} });
@@ -700,7 +725,9 @@ if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
 				expect(await sql`SELECT id FROM linear_create_proposals WHERE dm_id = ${source.threadId} AND continuation IS NOT NULL`).toHaveLength(0);
 				expect(f.mutations).toHaveLength(0);
 				expect(f.draftPrompts).toHaveLength(0);
-				expect(f.posts).toEqual([reply === JSON.stringify({ otherAnswers: [] }) ? EMPTY_REPLY_CHANNEL_ERROR : honest]);
+				expect(f.posts).toEqual(
+					[reply === JSON.stringify({ otherAnswers: [] }) ? EMPTY_REPLY_CHANNEL_ERROR : honest],
+				);
 				if (reply === JSON.stringify({ otherAnswers: [] })) {
 					expect(f.spans).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'sendblue.channel', metadata: expect.objectContaining({ stage: 'reply_generation', classification: 'failed' }) })]));
 				}
@@ -877,8 +904,11 @@ if (!process.env.LINEAR_CREATE_CONTRACT_TEST) {
 					expect(f.posts.join(' ')).toContain('Created JAM-999');
 				expect(await readLinearProposal(source.threadId, sql)).toBeNull();
 				await f.close();
-				for (const value of [f.posts, f.spans, f.prompts])
-					expect(JSON.stringify(value)).not.toMatch(/linear-create-fixture-secret|linear-create-fixture-access|sendblue-create-fixture-secret/);
+				for (const value of [f.posts, f.spans, f.prompts]) {
+					expect(JSON.stringify(value)).not.toMatch(
+						/linear-create-fixture-secret|linear-create-fixture-access|sendblue-create-fixture-secret/,
+					);
+				}
 			} finally { await f.close(); }
 		}
 	}, 30000);

@@ -96,7 +96,11 @@ export async function runSpecialistBoundaryFixture(mastra: Mastra) {
 
 	const researchObservations: unknown[] = [];
 	const source = { title: 'Synthetic published fare policy', url: 'https://example.com/public-policy', evidenceKind: 'developer-passage' as const, evidence: 'The synthetic fare permits one small personal item.', limitations: ['Synthetic evidence for integration testing.'] };
-	const researchResult = { findings: [{ text: source.evidence, sourceNumbers: [1] }], sources: [source], limitations: [] };
+	const researchResult = {
+		findings: [{ text: source.evidence, sourceNumbers: [1] }],
+		sources: [source],
+		limitations: [],
+	};
 	let providerCalls = 0;
 	const retrieve = createTool({
 		id: 'read_architecture_public_source',
@@ -128,10 +132,14 @@ export async function runSpecialistBoundaryFixture(mastra: Mastra) {
 		},
 	});
 	const accountResult = { summary: 'The permitted public contribution was retrieved.', messages: [], events: [], issues: [], coverage: [], research: researchResult, replyText: null };
-	const accounts = createPersonalAccountsAgent({ mastra, tools: { invoke_research: invokeResearch }, model: boundaryModel([
-		{ tool: 'invoke_research', input: { kind: 'carry_on_allowance', subjectId: 'united-basic-economy' } },
-		{ handback: { case: 'completed', result: accountResult } },
-	]) });
+	const accounts = createPersonalAccountsAgent({
+		mastra,
+		tools: { invoke_research: invokeResearch },
+		model: boundaryModel([
+			{ tool: 'invoke_research', input: { kind: 'carry_on_allowance', subjectId: 'united-basic-economy' } },
+			{ handback: { case: 'completed', result: accountResult } },
+		]),
+	});
 	const invokeAccounts = createSpecialistInvocation({
 		id: 'invoke_personal_accounts',
 		agent: accounts,

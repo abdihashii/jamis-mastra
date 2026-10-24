@@ -25,7 +25,14 @@ const config = {
 const quoteText = '  PRIVATE_CHAT_SENTINEL\n\nWatch this. 🏈 e\u0301 **exact**  ';
 
 function score(rosterId: number, points: number, starter: string, bench: string): SleeperScore {
-	return { rosterId, points, matchupId: 10, starters: [starter], players: [starter, bench], playerPoints: { [starter]: rosterId === 1 ? 30 : 4, [bench]: rosterId === 1 ? 20 : 30 } };
+	return {
+		rosterId,
+		points,
+		matchupId: 10,
+		starters: [starter],
+		players: [starter, bench],
+		playerPoints: { [starter]: rosterId === 1 ? 30 : 4, [bench]: rosterId === 1 ? 20 : 30 },
+	};
 }
 function transaction(): SleeperTransaction {
 	return {
@@ -136,7 +143,17 @@ function fixture() {
 		{ id: 'b1', name: 'Bench One', position: 'RB', team: 'KC', fantasyPositions: ['RB'], gsisId: null },
 		{ id: 'b2', name: 'Bench Two', position: 'RB', team: 'BUF', fantasyPositions: ['RB'], gsisId: null },
 	];
-	const bracket: BracketGame[] = [{ matchupId: 1, round: 1, placement: 1, team1: 1, team2: 2, winner: null, loser: null, team1From: null, team2From: null }];
+	const bracket: BracketGame[] = [{
+		matchupId: 1,
+		round: 1,
+		placement: 1,
+		team1: 1,
+		team2: 2,
+		winner: null,
+		loser: null,
+		team1From: null,
+		team2From: null,
+	}];
 	const weeks = new Map([[1, [score(1, 100, 'p1', 'b1'), score(2, 90, 'p2', 'b2')]], [2, [score(1, 120, 'p1', 'b1'), score(2, 100, 'p2', 'b2')]]]);
 	const transactions = [transaction(), { ...transaction(), id: 'pending', status: 'pending', waiverBid: 999 }];
 	const messages: MastraDBMessage[] = [{
@@ -284,7 +301,13 @@ describe('frozen recap evidence', () => {
 				throw new Error('PRIVATE_ARCHIVE_ERROR');
 			};
 		} else {
-			f.options.memory!.listMessages = async () => ({ messages: [], total: 0, page: 0, perPage: 1_000, hasMore: true });
+			f.options.memory!.listMessages = async () => ({
+				messages: [],
+				total: 0,
+				page: 0,
+				perPage: 1_000,
+				hasMore: true,
+			});
 		}
 		const packet = await collectRecapEvidence(request, f.options);
 		expect(packet.status).toBe('blocked');
@@ -506,7 +529,12 @@ describe('frozen recap evidence', () => {
 		f.weeks.set(3, f.weeks.get(2)!);
 		const packet = await collectRecapEvidence({ ...request, week: 3 }, f.options);
 		expect(packet.admission.canDraft).toBe(true);
-		expect(packet.facts).toMatchObject({ isPlayoffWeek: true, isChampionshipWeek: true, standings: null, upcoming: null });
+		expect(packet.facts).toMatchObject({
+			isPlayoffWeek: true,
+			isChampionshipWeek: true,
+			standings: null,
+			upcoming: null,
+		});
 		expect(f.sourceCalls).toEqual(['scores-3']);
 	});
 

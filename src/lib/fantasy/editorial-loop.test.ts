@@ -21,7 +21,11 @@ describe('bounded same-evidence editorial loop', () => {
 			write: async (assignment, signal) => {
 				writes++;
 				expect(signal).toBeInstanceOf(AbortSignal);
-				expect(JSON.parse(assignment)).toMatchObject({ evidence: { evidenceId: packet.id }, revision: 0, feedback: null });
+				expect(JSON.parse(assignment)).toMatchObject({
+					evidence: { evidenceId: packet.id },
+					revision: 0,
+					feedback: null,
+				});
 				return validEditorialDraft(packet);
 			},
 			review: async (assignment, signal) => {

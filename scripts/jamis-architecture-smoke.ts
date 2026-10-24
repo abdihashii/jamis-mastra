@@ -45,7 +45,13 @@ try {
 	await storage.init();
 	console.log(JSON.stringify({ typed: await runSpecialistBoundaryFixture(mastra) }));
 	console.log(JSON.stringify({ durable: await runLinearReplyFixture(mastra, sql) }));
-	console.log(JSON.stringify({ migrated: await runJamisDelegationFixture(mastra), composition: await runJamisResearchFixture(mastra), nested: await runJamisNestedResearchFixture(mastra), invalidWeather: await runJamisWeatherValidationFixture(mastra), channel: await runJamisChannelFixture(mastra, sql) }));
+	console.log(JSON.stringify({
+		migrated: await runJamisDelegationFixture(mastra),
+		composition: await runJamisResearchFixture(mastra),
+		nested: await runJamisNestedResearchFixture(mastra),
+		invalidWeather: await runJamisWeatherValidationFixture(mastra),
+		channel: await runJamisChannelFixture(mastra, sql),
+	}));
 	console.log(JSON.stringify({ clarification: await runSpecialistClarificationFixture(mastra, sql) }));
 	if (process.argv.includes('--live'))
 		console.log(JSON.stringify({ live: await runArchitectureLiveModelFixture(mastra) }));

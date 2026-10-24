@@ -353,7 +353,9 @@ async function factsFor(
 	}
 	// Upcoming regular-season pairings come from the next week's matchup rows;
 	// playoff pairings come from the resolved winners bracket instead.
-	const nextWeekScores = week + 1 < league.playoffWeekStart ? await getScores(config.sleeperLeagueId, week + 1) : undefined;
+	const nextWeekScores = week + 1 < league.playoffWeekStart
+		? await getScores(config.sleeperLeagueId, week + 1)
+		: undefined;
 	let players: Awaited<ReturnType<typeof getPlayers>> = [];
 	try {
 		const scores = scoresByWeek.get(week) ?? [];
@@ -372,7 +374,13 @@ async function coordinatorDeps(config: FantasyConfig) {
 	const sql = getFantasySql();
 	return {
 		runs: createRunsStore(config.sleeperLeagueId, sql),
-		recaps: { ensureSchema: () => ensureFantasyRecapsTable(sql), record: (record: RecapGenerationRecord, claimToken: string) => recordClaimedGeneration(record, claimToken, sql) },
+		recaps: {
+			ensureSchema: () => ensureFantasyRecapsTable(sql),
+			record: (
+				record: RecapGenerationRecord,
+				claimToken: string,
+			) => recordClaimedGeneration(record, claimToken, sql),
+		},
 		groupId: config.sendblueGroupId,
 		leagueId: config.sleeperLeagueId,
 		// Legacy recovery sends only saved bytes; it never reads chat or regenerates.

@@ -611,7 +611,11 @@ export async function listActionableRuns(
 type TransactionalSql = SqlLike & { begin: <T>(action: (sql: SqlLike) => Promise<T>) => Promise<T> };
 
 /** Lock before the eligibility statement, so concurrent cross-week inserts are visible. */
-export async function withFantasyLeagueLock<T>(leagueId: string, sql: SqlLike, action: (sql: SqlLike) => Promise<T>): Promise<T> {
+export async function withFantasyLeagueLock<T>(
+	leagueId: string,
+	sql: SqlLike,
+	action: (sql: SqlLike) => Promise<T>,
+): Promise<T> {
 	if (!('begin' in sql) || typeof sql.begin !== 'function')
 		throw new Error('transactional_recap_store_required');
 	return (sql as TransactionalSql).begin(async (transaction) => {
@@ -632,7 +636,11 @@ export async function claimRun(
 	traceId: string | null,
 	sql: SqlLike,
 ): Promise<ClaimResult> {
-	return withFantasyLeagueLock(leagueId, sql, transaction => claimRunUnlocked(leagueId, week, claimToken, leaseExpiresAt, traceId, transaction));
+	return withFantasyLeagueLock(
+		leagueId,
+		sql,
+		transaction => claimRunUnlocked(leagueId, week, claimToken, leaseExpiresAt, traceId, transaction),
+	);
 }
 
 const partAttemptSchema = z.object({
@@ -710,14 +718,19 @@ export async function findSavedReportReference(
 	if (!row || (row.saved_report == null && row.part_delivery == null))
 		return null;
 	const report = parseSavedReport(row.saved_report);
-	if (report.id !== reportId || report.scope.leagueId !== leagueId || report.scope.week !== week || report.scope.groupId !== groupId)
+	if (report.id !== reportId || report.scope.leagueId !== leagueId || report.scope.week !== week
+		|| report.scope.groupId !== groupId) {
 		return null;
+	}
 	const reference = { ...report.scope, reportId: report.id };
 	return await getSavedReportState(reference, sql) ? reference : null;
 }
 
 /** Private state only; models receive a bounded receipt, never this artifact or target. */
-export async function getSavedReportState(reference: SavedReportReference, sql: SqlLike): Promise<SavedReportState | null> {
+export async function getSavedReportState(
+	reference: SavedReportReference,
+	sql: SqlLike,
+): Promise<SavedReportState | null> {
 	const [row] = await sql`
 		SELECT
 			*,
@@ -735,7 +748,8 @@ export async function getSavedReportState(reference: SavedReportReference, sql: 
 	if (row.editorial_attempt != null) {
 		const attempt = parseGenerationState(row.editorial_attempt).current;
 		if (attempt.phase !== 'approved' || !sameSavedReportScope(report, attempt.scope)
-			|| attempt.reportId !== report.id || attempt.evidenceId !== report.evidenceId || attempt.candidateId !== report.candidateId
+			|| attempt.reportId !== report.id || attempt.evidenceId !== report.evidenceId
+			|| attempt.candidateId !== report.candidateId
 			|| attempt.counts.drafts !== report.counts.drafts || attempt.counts.reviews !== report.counts.reviews) {
 			throw new Error('invalid_saved_report_state');
 		}
@@ -745,7 +759,8 @@ export async function getSavedReportState(reference: SavedReportReference, sql: 
 	const next = statuses.findIndex(status => status !== 'accepted');
 	const ids = progress.parts.flat().map(attempt => attempt.id);
 	if (!['started', 'failed', 'delivery_unknown', 'sent'].includes(row.status)
-		|| !sameSavedReportScope(report, reference) || report.id !== reference.reportId || progress.reportId !== report.id
+		|| !sameSavedReportScope(report, reference) || report.id !== reference.reportId
+		|| progress.reportId !== report.id
 		|| progress.parts.length !== report.parts.length || new Set(ids).size !== ids.length
 		|| (next >= 0 && statuses.slice(next + 1).some(status => status !== 'pending'))
 		|| (row.status === 'sent') !== (next === -1)
@@ -865,7 +880,11 @@ export async function recoverSavedReport(reference: SavedReportReference, sql: S
 }
 
 /** One reservation per claim, including across recreated tool/procedure instances. */
-export async function reserveSavedReportDelivery(reference: SavedReportReference, token: string, sql: SqlLike): Promise<string | null> {
+export async function reserveSavedReportDelivery(
+	reference: SavedReportReference,
+	token: string,
+	sql: SqlLike,
+): Promise<string | null> {
 	return withFantasyLeagueLock(reference.leagueId, sql, async (transaction) => {
 		const before = await getSavedReportState(reference, transaction);
 		if (!before || before.status !== 'started' || before.claimToken !== token || !before.leaseCurrent
@@ -874,11 +893,18 @@ export async function reserveSavedReportDelivery(reference: SavedReportReference
 		}
 		const after = structuredClone(before);
 		after.progress.operationId = randomUUID();
-		return await replaceSavedReportState(before, after, transaction, true, true) ? after.progress.operationId : null;
+		return await replaceSavedReportState(before, after, transaction, true, true)
+			? after.progress.operationId
+			: null;
 	});
 }
 
-export async function beginSavedReportPart(reference: SavedReportReference, token: string, operationId: string, sql: SqlLike) {
+export async function beginSavedReportPart(
+	reference: SavedReportReference,
+	token: string,
+	operationId: string,
+	sql: SqlLike,
+) {
 	return withFantasyLeagueLock(reference.leagueId, sql, async (transaction) => {
 		const before = await getSavedReportState(reference, transaction);
 		if (!before || before.status !== 'started' || before.claimToken !== token || !before.leaseCurrent
@@ -961,7 +987,12 @@ export async function recordSavedReportPart(
 }
 
 /** A confirmation never invokes transport or clears the hold on a pending tail. */
-export async function confirmSavedReportPart(reference: SavedReportReference, part: number, attemptId: string, sql: SqlLike): Promise<boolean> {
+export async function confirmSavedReportPart(
+	reference: SavedReportReference,
+	part: number,
+	attemptId: string,
+	sql: SqlLike,
+): Promise<boolean> {
 	const before = await getSavedReportState(reference, sql);
 	if (!before || before.status !== 'delivery_unknown' || !Number.isInteger(part))
 		return false;
@@ -1024,7 +1055,10 @@ export async function claimSavedReportRetry(
 }
 
 /** Claim one bounded recovery notification on the existing delivery row, never a send grant. */
-export async function markSavedReportNotified(reference: SavedReportReference, sql: SqlLike): Promise<SavedReportState | null> {
+export async function markSavedReportNotified(
+	reference: SavedReportReference,
+	sql: SqlLike,
+): Promise<SavedReportState | null> {
 	return withFantasyLeagueLock(reference.leagueId, sql, async (transaction) => {
 		const before = await getSavedReportState(reference, transaction);
 		if (!before || before.status === 'sent' || before.progress.recoveryNotifiedAtUtc
@@ -1037,7 +1071,12 @@ export async function markSavedReportNotified(reference: SavedReportReference, s
 	});
 }
 
-export async function pauseSavedReportDelivery(reference: SavedReportReference, token: string, operationId: string | null, sql: SqlLike): Promise<void> {
+export async function pauseSavedReportDelivery(
+	reference: SavedReportReference,
+	token: string,
+	operationId: string | null,
+	sql: SqlLike,
+): Promise<void> {
 	const before = await getSavedReportState(reference, sql);
 	if (!before || !['started', 'failed'].includes(before.status) || before.claimToken !== token || before.progress.operationId !== operationId
 		|| before.progress.parts.some(attempts => ['sending', 'unknown'].includes(savedPartStatus(attempts)))) {

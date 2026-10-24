@@ -38,7 +38,9 @@ if (!process.env.JAM79_PROJECT_CHILD) {
 				stderr: process.env.JAM79_LIVE_MODEL ? 'inherit' : 'pipe',
 				timeout: handlerSmoke ? 150_000 : process.env.JAM79_LIVE_MODEL ? 300_000 : 15_000,
 			});
-			const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+			const [exit, stdout, stderr] = await Promise.all(
+				[child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()],
+			);
 			if (process.env.JAM79_LIVE_MODEL)
 				console.warn(stdout);
 			expect({ exit, output: exit === 0 ? '' : stdout + stderr }).toEqual({ exit: 0, output: '' });
@@ -78,23 +80,36 @@ if (!process.env.JAM79_PROJECT_CHILD) {
 			expect(Object.keys(await jamis.listAgents())).toEqual([]);
 			const calls: Array<{ name: string; input: unknown }> = [];
 			// Preserve tool schemas/descriptions, replace every non-file execution with a fixture.
-			const tools = { ...Object.fromEntries(Object.entries(originalTools).map(([name, tool]) => [name, createTool({
-				id: name,
-				description: tool.description ?? name,
-				inputSchema: tool.inputSchema!,
-				execute: async (input) => {
-					calls.push({ name, input });
-					return { status: 'unavailable', reason: 'Synthetic Monitoring fixture: no runtime evidence.' };
-				},
-			})])), projectRg: originalTools.projectRg, projectJq: originalTools.projectJq };
-			const agents = Object.fromEntries(Object.entries(await jamis.listAgents()).map(([name, agent]) => [name, new Agent({
-				id: agent.id,
-				name: agent.name ?? name,
-				description: agent.getDescription() ?? name,
-				instructions: 'Return unavailable. This is a synthetic fixture.',
-				model: new MastraLanguageModelV2Mock({}),
-			})]));
-			const scenarios: Array<{ prompt: string; tool: string; input: Record<string, unknown>; evidence: string; answer: RegExp; exhaustBudget?: boolean }> = available
+			const tools = {
+				...Object.fromEntries(Object.entries(originalTools).map(([name, tool]) => [name, createTool({
+					id: name,
+					description: tool.description ?? name,
+					inputSchema: tool.inputSchema!,
+					execute: async (input) => {
+						calls.push({ name, input });
+						return { status: 'unavailable', reason: 'Synthetic Monitoring fixture: no runtime evidence.' };
+					},
+				})])),
+				projectRg: originalTools.projectRg,
+				projectJq: originalTools.projectJq,
+			};
+			const agents = Object.fromEntries(
+				Object.entries(await jamis.listAgents()).map(([name, agent]) => [name, new Agent({
+					id: agent.id,
+					name: agent.name ?? name,
+					description: agent.getDescription() ?? name,
+					instructions: 'Return unavailable. This is a synthetic fixture.',
+					model: new MastraLanguageModelV2Mock({}),
+				})]),
+			);
+			const scenarios: Array<{
+				prompt: string;
+				tool: string;
+				input: Record<string, unknown>;
+				evidence: string;
+				answer: RegExp;
+				exhaustBudget?: boolean;
+			}> = available
 				? [
 						{ prompt: 'List the approved source files.', tool: 'mastra_workspace_list_files', input: { path: 'src' }, evidence: 'handler.ts', answer: /handler\.ts/ },
 						{ prompt: 'Search the project for incomingMessage.', tool: 'mastra_workspace_grep', input: { path: 'src', pattern: 'incomingMessage' }, evidence: 'skipped: read error', answer: /partial|skip|could not|couldn.t|unreadable/i },
@@ -174,7 +189,11 @@ if (!process.env.JAM79_PROJECT_CHILD) {
 					? await (await createWorkspaceTools(workspace!)).mastra_workspace_grep.execute({ path: 'src/mastra/agents', pattern: 'onDirectMessage' }, {})
 					: '';
 				const started = performance.now();
-				const progress = (event: string, details = {}) => console.warn(JSON.stringify({ event, elapsedMs: Math.round(performance.now() - started), ...details }));
+				const progress = (event: string, details = {}) => console.warn(JSON.stringify({
+					event,
+					elapsedMs: Math.round(performance.now() - started),
+					...details,
+				}));
 				let firstChunk = true;
 				if (handlerSmoke)
 					progress('request-start');

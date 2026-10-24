@@ -267,8 +267,23 @@ describe('evidence CLI isolation', () => {
 	it('keeps operational and model composition out of static entrypoint imports and removes legacy writer entrypoints', async () => {
 		const source = await readFile(script, 'utf8');
 		const imports = source.match(/^import(?!\s+type\b)[^;]+;/gm)?.join('\n') ?? '';
-		expect(imports).not.toMatch(/core\/mastra|mastra\/agents|mastra\/gateways|fantasy\/(?:daily|coordinator|recaps|runs|deliver)/);
-		expect(source).not.toMatch(/cliMastra|shapingGenerator|loadChatFixture|recapRowCounts|PostgresStore|DEFAULT_RECAP_MODEL|FANTASY_GENERATOR_VERSION|buildRecapPrompt|generateWithRepair|renderWeekRecap/);
+		expect(imports).not.toMatch(
+			/core\/mastra|mastra\/agents|mastra\/gateways|fantasy\/(?:daily|coordinator|recaps|runs|deliver)/,
+		);
+		for (const forbidden of [
+			'cliMastra',
+			'shapingGenerator',
+			'loadChatFixture',
+			'recapRowCounts',
+			'PostgresStore',
+			'DEFAULT_RECAP_MODEL',
+			'FANTASY_GENERATOR_VERSION',
+			'buildRecapPrompt',
+			'generateWithRepair',
+			'renderWeekRecap',
+		]) {
+			expect(source).not.toContain(forbidden);
+		}
 		expect(source).not.toMatch(/mastra\/index|fantasy-weekly-recap|addAgent|addWorkflow/);
 	});
 });

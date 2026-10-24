@@ -19,7 +19,9 @@ if (!contractProvider) {
 			else
 				env.PERPLEXITY_API_KEY = 'pplx-local-test';
 			const child = Bun.spawn([process.execPath, '--no-env-file', 'test', import.meta.path], { env, stdout: 'pipe', stderr: 'pipe' });
-			const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+			const [exit, stdout, stderr] = await Promise.all(
+				[child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()],
+			);
 			expect({ exit, output: exit === 0 ? '' : stdout + stderr }).toEqual({ exit: 0, output: '' });
 		}, 10_000);
 	}
@@ -47,7 +49,9 @@ if (!contractProvider) {
 				env.PERPLEXITY_API_KEY = 'pplx-local-test';
 			const source = `try { await import(${JSON.stringify(new URL('../web.ts', import.meta.url).pathname)}); console.log('ready'); } catch (error) { console.log(error.message); process.exit(1); }`;
 			const child = Bun.spawn([process.execPath, '--no-env-file', '--eval', source], { env, stdout: 'pipe', stderr: 'pipe' });
-			const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+			const [exit, stdout, stderr] = await Promise.all(
+				[child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()],
+			);
 			expect({ exit, stdout: stdout.trim(), stderr }).toEqual({ exit: config.error ? 1 : 0, stdout: config.error ?? 'ready', stderr: '' });
 		}
 	}, 10_000);

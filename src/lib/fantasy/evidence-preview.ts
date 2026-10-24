@@ -89,7 +89,11 @@ export async function previewRecapEvidence(
 		let packet: RecapEvidencePacket | null = null;
 		let candidateFailed = false;
 		try {
-			packet = await collectRecapEvidence({ config: request.config, week: request.week, window: window.success ? window.data : undefined }, {
+			packet = await collectRecapEvidence({
+				config: request.config,
+				week: request.week,
+				window: window.success ? window.data : undefined,
+			}, {
 				memory: {
 					getThreadById: input => memory.getThreadById(input),
 					listMessages: input => memory.listMessages(input),

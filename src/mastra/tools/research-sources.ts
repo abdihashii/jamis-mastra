@@ -86,7 +86,9 @@ const outputSchema = z.object({
 	adminActionUrl: httpUrl.nullable(),
 	operations: z.array(z.object({ operation: operationSchema, maximumCredits: creditsSchema })).max(3),
 	evidence: z.array(sourceSchema).max(10),
-	candidates: z.array(z.object({ originalId: text, url: httpUrl, title: text, requiresScrape: z.literal(true) })).max(10),
+	candidates: z
+		.array(z.object({ originalId: text, url: httpUrl, title: text, requiresScrape: z.literal(true) }))
+		.max(10),
 	gaps: z.array(z.enum(['contract_unavailable', 'pricing_or_contract_unsupported', 'empty_results', 'malformed_record', 'unsupported_provenance', 'missing_content', 'partial_results', 'webpage_requires_scrape', 'record_failure', 'context_required', 'invalid_input'])),
 });
 type Output = z.infer<typeof outputSchema>;
@@ -107,11 +109,20 @@ function maximumCredits(operation: Operation, contract: Contract) {
 		if (options.length !== 1 || options[0]!.type !== type)
 			return null;
 		const option = options[0]!;
-		if (value !== undefined && (option.min === undefined || option.max === undefined || value < option.min || value > option.max))
+		if (
+			value !== undefined && (
+				option.min === undefined || option.max === undefined || value < option.min || value > option.max)
+		) {
 			return null;
+		}
 	}
-	if (contract.options.some(option => option.required && !Object.hasOwn(expected, option.name)) || contract.response.key !== route.key)
+	if (
+		contract.options.some(
+			option => option.required && !Object.hasOwn(expected, option.name),
+		) || contract.response.key !== route.key
+	) {
 		return null;
+	}
 	const contentField = operation === 'paper-search' ? 'abstract' : operation === 'paper-read' ? 'text' : 'passages';
 	if (!contract.response.fields.some(field => field.name === contentField && field.type === (operation === 'developer-search' ? 'object[]' : 'string')))
 		return null;
@@ -128,7 +139,13 @@ function adminUrl(value: unknown) {
 	return url.origin === 'https://www.firecrawl.dev' && ((url.pathname === '/app/settings' && url.search === '?tab=data-sources') || (/^\/app\/alexandria\/firecrawl-(?:developer|research)-index$/.test(url.pathname) && !url.search)) && !url.hash ? url.href : null;
 }
 function failure(error: unknown, output: Output) {
-	const parsed = z.object({ code: z.string().optional(), status: z.number().optional(), requiresAction: z.object({ url: z.unknown() }).optional() }).safeParse(error);
+	const parsed = z
+		.object({
+			code: z.string().optional(),
+			status: z.number().optional(),
+			requiresAction: z.object({ url: z.unknown() }).optional(),
+		})
+		.safeParse(error);
 	if (parsed.success && parsed.data.code === 'THIRD_PARTY_DATA_TERMS_REQUIRED') {
 		output.status = 'terms_required';
 		output.adminActionUrl = adminUrl(parsed.data.requiresAction?.url);
@@ -144,7 +161,10 @@ async function executeCall(operation: Operation | 'discovery', options: Record<s
 	output.requestId = crypto.randomUUID();
 	retain(context, taskState(context)?.contracts ?? {}, output.requestId, operation);
 	try {
-		const response = await firecrawl.scrape({ alexandria: { provider: route.provider, capability: route.capability, options }, requestId: output.requestId });
+		const response = await firecrawl.scrape({
+			alexandria: { provider: route.provider, capability: route.capability, options },
+			requestId: output.requestId,
+		});
 		output.credits = response.creditsCost;
 		const item = z.object({
 			provider: z.literal(route.provider).optional(),
@@ -237,7 +257,12 @@ function developerProvenance(id?: string, url?: string) {
 	return null;
 }
 
-const passageSchema = z.object({ text, citation_url: httpUrl.optional(), success: z.literal(true).optional(), error: z.never().optional() });
+const passageSchema = z.object({
+	text,
+	citation_url: httpUrl.optional(),
+	success: z.literal(true).optional(),
+	error: z.never().optional(),
+});
 
 const recordSchema = provenanceSchema.extend({
 	title: text.nullish(),
@@ -272,7 +297,14 @@ function normalize(operation: Operation, data: unknown, output: Output, requeste
 		failure(data, output);
 		return;
 	}
-	const envelope = z.object({ success: z.literal(true), partial: z.boolean().optional(), results: z.array(z.unknown()).optional(), paper: z.unknown().optional(), paperId: text.optional(), passages: z.array(passageSchema).max(3).optional() }).parse(data);
+	const envelope = z.object({
+		success: z.literal(true),
+		partial: z.boolean().optional(),
+		results: z.array(z.unknown()).optional(),
+		paper: z.unknown().optional(),
+		paperId: text.optional(),
+		passages: z.array(passageSchema).max(3).optional(),
+	}).parse(data);
 	const records = operation === 'paper-read' ? [envelope.paper] : z.array(z.unknown()).max(routes[operation].k).parse(envelope.results);
 	if (envelope.partial)
 		output.gaps.push('partial_results');
@@ -366,7 +398,12 @@ export const researchSourceDiscover = createTool({
 			const contracts: TaskState['contracts'] = {};
 			for (const operation of operations) {
 				const route = routes[operation];
-				const matching = catalogue.items.filter(item => z.object({ provider: z.literal(route.provider), capability: z.literal(route.capability) }).safeParse(item).success);
+				const matching = catalogue
+					.items
+					.filter(item => z.object({
+						provider: z.literal(route.provider),
+						capability: z.literal(route.capability),
+					}).safeParse(item).success);
 				const contract = matching.length === 1 ? contractSchema.safeParse(matching[0]) : null;
 				const maximum = contract?.success ? maximumCredits(operation, contract.data) : null;
 				if (maximum === null || !contract?.success) {
@@ -385,7 +422,11 @@ export const researchSourceDiscover = createTool({
 	}),
 });
 
-const retrievalInput = z.object({ operation: operationSchema, query: text.max(2000), paperId: text.max(128).nullable().default(null) }).strict();
+const retrievalInput = z.object({
+	operation: operationSchema,
+	query: text.max(2000),
+	paperId: text.max(128).nullable().default(null),
+}).strict();
 export const researchSourceRetrieve = createTool({
 	id: 'research-source-retrieve',
 	description: 'Retrieve up to ten paper abstracts, three relevant paper passages, or three developer records with three passages each. Requires task-local source discovery. Webpage candidates still require scraping.',

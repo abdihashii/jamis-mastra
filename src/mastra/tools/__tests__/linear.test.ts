@@ -31,7 +31,9 @@ if (!process.env.LINEAR_AGENT_CONTRACT_TEST) {
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
-		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+		const [exit, stdout, stderr] = await Promise.all(
+			[child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()],
+		);
 		expect({ exit, output: exit === 0 ? '' : stdout + stderr }).toEqual({ exit: 0, output: '' });
 	}, 10_000);
 } else {

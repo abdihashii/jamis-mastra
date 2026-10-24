@@ -135,7 +135,13 @@ export function buildEditorialCatalog(packet: RecapEvidencePacket): EditorialCat
 		});
 	});
 	packet.facts?.standings?.forEach((row, index) => {
-		const numbers = { rank: row.rank, wins: row.wins, losses: row.losses, ties: row.ties, pointsFor: row.pointsFor };
+		const numbers = {
+			rank: row.rank,
+			wins: row.wins,
+			losses: row.losses,
+			ties: row.ties,
+			pointsFor: row.pointsFor,
+		};
 		add({
 			id: `standing:${row.team.rosterId}`,
 			kind: 'standing',
@@ -197,7 +203,9 @@ export function buildEditorialCatalog(packet: RecapEvidencePacket): EditorialCat
 	}));
 	packet.nfl.forEach((source, i) => source.findings.forEach((finding, j) => {
 		const record = finding.record;
-		const subjects = packet.scores.find(snapshot => snapshot.week === packet.scope.week)?.rows.filter(row => finding.playerId !== null && row.players.includes(finding.playerId)).map(row => row.rosterId) ?? [];
+		const subjects = packet.scores.find(snapshot => snapshot.week === packet.scope.week)?.rows.filter(
+			row => finding.playerId !== null && row.players.includes(finding.playerId),
+		).map(row => row.rosterId) ?? [];
 		const numbers = record.kind === 'weekly-result'
 			? {
 					projectedPoints: record.projectedPoints,

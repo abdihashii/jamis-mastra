@@ -77,7 +77,11 @@ export function createSpecialistTools(mastra: AgentConfig['mastra'], config: Spe
 			validate: (handback, { toolResults }) => {
 				const result = handback.case === 'completed' || handback.case === 'partial' ? handback.result : handback.progress;
 				if (result && !toolResults.some(({ payload }) => {
-					const saved = z.object({ ok: z.literal(true), draftId: z.string(), text: z.string() }).safeParse(payload.result);
+					const saved = z.object({
+						ok: z.literal(true),
+						draftId: z.string(),
+						text: z.string(),
+					}).safeParse(payload.result);
 					return payload.toolName === 'draft_group_message' && saved.success && saved.data.draftId === result.draftId && saved.data.text === result.text;
 				})) {
 					throw new Error('Fantasy handback does not match a saved reviewed draft.');

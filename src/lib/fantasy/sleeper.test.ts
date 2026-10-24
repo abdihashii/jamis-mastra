@@ -38,8 +38,28 @@ const league: SleeperLeague = {
 };
 
 const bracket: BracketGame[] = [
-	{ matchupId: 1, round: 1, placement: null, team1: 1, team2: 4, winner: null, loser: null, team1From: null, team2From: null },
-	{ matchupId: 2, round: 1, placement: null, team1: 2, team2: 3, winner: null, loser: null, team1From: null, team2From: null },
+	{
+		matchupId: 1,
+		round: 1,
+		placement: null,
+		team1: 1,
+		team2: 4,
+		winner: null,
+		loser: null,
+		team1From: null,
+		team2From: null,
+	},
+	{
+		matchupId: 2,
+		round: 1,
+		placement: null,
+		team1: 2,
+		team2: 3,
+		winner: null,
+		loser: null,
+		team1From: null,
+		team2From: null,
+	},
 	{
 		matchupId: 3,
 		round: 2,
@@ -510,7 +530,11 @@ describe('transactions', () => {
 
 	it('accepts a successful empty response distinctly from malformed or failed reads', async () => {
 		stubTransactions([]);
-		expect(await getTransactions(league.id, 1)).toEqual({ transactions: [], malformedCount: 0, retrievedAtUtc: expect.any(String) });
+		expect(await getTransactions(league.id, 1)).toEqual({
+			transactions: [],
+			malformedCount: 0,
+			retrievedAtUtc: expect.any(String),
+		});
 	});
 
 	it.each([null, {}, { transactions: [] }, 'private free text'])('rejects malformed envelopes safely: %j', async (body) => {
@@ -548,8 +572,28 @@ describe('bracket structure', () => {
 	it('handles a bye-seeded semifinal: direct team on one side, winner feeder on the other', () => {
 		// The live league's real shape: later rounds mix direct t1/t2 with feeders.
 		const withByeSemis: BracketGame[] = [
-			{ matchupId: 1, round: 1, placement: null, team1: 1, team2: 4, winner: null, loser: null, team1From: null, team2From: null },
-			{ matchupId: 2, round: 1, placement: null, team1: 2, team2: 3, winner: null, loser: null, team1From: null, team2From: null },
+			{
+				matchupId: 1,
+				round: 1,
+				placement: null,
+				team1: 1,
+				team2: 4,
+				winner: null,
+				loser: null,
+				team1From: null,
+				team2From: null,
+			},
+			{
+				matchupId: 2,
+				round: 1,
+				placement: null,
+				team1: 2,
+				team2: 3,
+				winner: null,
+				loser: null,
+				team1From: null,
+				team2From: null,
+			},
 			{ matchupId: 3, round: 2, placement: null, team1: 5, team2: null, winner: null, loser: null, team1From: null, team2From: { source: 'winner', matchupId: 1 } },
 			{ matchupId: 4, round: 2, placement: null, team1: 6, team2: null, winner: null, loser: null, team1From: null, team2From: { source: 'winner', matchupId: 2 } },
 			{

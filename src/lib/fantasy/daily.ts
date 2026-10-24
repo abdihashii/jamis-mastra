@@ -39,7 +39,11 @@ export interface DailyOverrides {
 }
 
 /** The single production entrypoint. Private preparation/publication are composed only after durable eligibility. */
-export async function runDailyRecap(config: FantasyConfig | null, mastra: Mastra, overrides: DailyOverrides = {}): Promise<DailyOutcome> {
+export async function runDailyRecap(
+	config: FantasyConfig | null,
+	mastra: Mastra,
+	overrides: DailyOverrides = {},
+): Promise<DailyOutcome> {
 	if (!config)
 		return { outcome: 'skipped-unconfigured', week: null };
 	let archive: ReturnType<typeof openRecapArchive> | undefined;
@@ -48,7 +52,9 @@ export async function runDailyRecap(config: FantasyConfig | null, mastra: Mastra
 		overrides.abortSignal?.throwIfAborted();
 		send = overrides.send ?? (await import('./deliver')).sendblueSendClient;
 		const source = overrides.sleeper ?? { getNflState, getLeague, getWinnersBracket, getNflSchedule };
-		const deadline = () => AbortSignal.any([AbortSignal.timeout(20_000), ...(overrides.abortSignal ? [overrides.abortSignal] : [])]);
+		const deadline = () => AbortSignal.any(
+			[AbortSignal.timeout(20_000), ...(overrides.abortSignal ? [overrides.abortSignal] : [])],
+		);
 		const [state, rawLeague, bracket] = await Promise.all([
 			source.getNflState(deadline()),
 			source.getLeague(config.sleeperLeagueId, deadline()),
@@ -64,7 +70,13 @@ export async function runDailyRecap(config: FantasyConfig | null, mastra: Mastra
 			return { outcome: 'failed', week: overrides.restart.week, reason: 'restart_not_latest_completed_week' };
 		const sql = overrides.sql ?? getFantasySql();
 		const now = overrides.now ?? (() => new Date());
-		const window = () => (overrides.readWindow ?? readReportingWindow)(league.season, week!, now(), overrides.abortSignal, source.getNflSchedule);
+		const window = () => (overrides.readWindow ?? readReportingWindow)(
+			league.season,
+			week!,
+			now(),
+			overrides.abortSignal,
+			source.getNflSchedule,
+		);
 		const memory = overrides.memory ?? {
 			getThreadById: async (input: Parameters<MemoryStorage['getThreadById']>[0]) => {
 				archive ??= openRecapArchive(overrides.databaseUrl ?? process.env.DATABASE_URL ?? '');
@@ -79,14 +91,24 @@ export async function runDailyRecap(config: FantasyConfig | null, mastra: Mastra
 		const apiKey = process.env.FIRECRAWL_API_KEY;
 		const legacy: CoordinatorDeps = {
 			runs: createRunsStore(config.sleeperLeagueId, sql),
-			recaps: { ensureSchema: () => ensureFantasyRecapsTable(sql), record: (record, token) => recordClaimedGeneration(record, token, sql) },
+			recaps: {
+				ensureSchema: () => ensureFantasyRecapsTable(sql),
+				record: (record, token) => recordClaimedGeneration(record, token, sql),
+			},
 			groupId: config.sendblueGroupId,
 			leagueId: config.sleeperLeagueId,
 			readThreadMessages: async () => { throw new Error('saved_retry_cannot_read_archive'); },
 			send,
 			now,
 		};
-		return await runRecapPipeline({ config, season: Number(league.season), week, window, traceId: overrides.traceId, restartAttemptId: overrides.restart?.attemptId }, {
+		return await runRecapPipeline({
+			config,
+			season: Number(league.season),
+			week,
+			window,
+			traceId: overrides.traceId,
+			restartAttemptId: overrides.restart?.attemptId,
+		}, {
 			sql,
 			memory,
 			sleeper: overrides.sleeper,
@@ -111,7 +133,12 @@ export async function runDailyRecap(config: FantasyConfig | null, mastra: Mastra
 				if (!send?.sendExactToGroup)
 					throw new Error('exact_transport_unavailable');
 				const { createFantasyPublicationProcedure } = await import('../../mastra/workflows/publish-fantasy-recap');
-				return createFantasyPublicationProcedure(mastra, { leagueId: config.sleeperLeagueId, groupId: config.sendblueGroupId, sql, sendExact: (group, text) => send!.sendExactToGroup!(group, text) })(reference, token, signal);
+				return createFantasyPublicationProcedure(mastra, {
+					leagueId: config.sleeperLeagueId,
+					groupId: config.sendblueGroupId,
+					sql,
+					sendExact: (group, text) => send!.sendExactToGroup!(group, text),
+				})(reference, token, signal);
 			}),
 		});
 	} catch {

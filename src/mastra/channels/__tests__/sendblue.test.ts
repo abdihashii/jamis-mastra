@@ -338,7 +338,13 @@ describe('Sendblue request correlation', () => {
 		const observability = captureObservability(spans);
 		const replies: string[] = [];
 		const incoming = makeMessage('private smoke request');
-		await handleSendblueDirectMessage(makeThread(replies), incoming, async () => {}, makeHandlerContext(observability), fixture.sql);
+		await handleSendblueDirectMessage(
+			makeThread(replies),
+			incoming,
+			async () => {},
+			makeHandlerContext(observability),
+			fixture.sql,
+		);
 		await observability.flush();
 		expect(replies).toEqual([EMPTY_REPLY_CHANNEL_ERROR]);
 		const channel = spans.find(span => span.name === SENDBLUE_CHANNEL_SPAN_NAME)!;
@@ -358,7 +364,9 @@ describe('Sendblue request correlation', () => {
 		await observability.flush();
 		expect(failedReplies).toEqual([EMPTY_REPLY_CHANNEL_ERROR]);
 		expect(getSendblueChannelCapability(failedContext.requestContext)).toBeUndefined();
-		const failedSpan = spans.find(span => span.metadata?.[SENDBLUE_CORRELATION_KEY] === hashSendblueMessageHandle(failed.id))!;
+		const failedSpan = spans.find(
+			span => span.metadata?.[SENDBLUE_CORRELATION_KEY] === hashSendblueMessageHandle(failed.id),
+		)!;
 		expect(failedSpan.metadata).toMatchObject({ stage: 'reply_delivery', classification: 'failed' });
 		expect(JSON.stringify(failedSpan)).not.toMatch(/private provider diagnostic|another private smoke/);
 		await observability.shutdown();
@@ -488,9 +496,17 @@ describe('Sendblue request correlation', () => {
 				classification: 'failed',
 			},
 		]);
-		expect(JSON.stringify(channelSpans)).not.toMatch(
-			/raw-provider-handle|private operator text|private reply text|another private text|reply that fails|raw provider failure body|15555550101/,
-		);
+		for (const privateText of [
+			'raw-provider-handle',
+			'private operator text',
+			'private reply text',
+			'another private text',
+			'reply that fails',
+			'raw provider failure body',
+			'15555550101',
+		]) {
+			expect(JSON.stringify(channelSpans)).not.toContain(privateText);
+		}
 		await observability.shutdown();
 	});
 
@@ -668,7 +684,13 @@ describe('Jamis new session command', () => {
 		const timeZone = memorySql();
 		await seedProposal(timeZone, 'Asia/Tokyo', 'applied-proposal');
 		const confirmation = makeMessage('yes', operatorNumber, 'applied-confirmation');
-		await consumePendingOperatorTimeZoneChange(directThreadId, confirmation.id, confirmation.metadata.dateSent, true, timeZone.sql);
+		await consumePendingOperatorTimeZoneChange(
+			directThreadId,
+			confirmation.id,
+			confirmation.metadata.dateSent,
+			true,
+			timeZone.sql,
+		);
 		expect(timeZone.notification()).toBeDefined();
 		const replies: string[] = [];
 		const command = makeMessage('/new', operatorNumber, 'new-after-applied-setting');
@@ -740,7 +762,11 @@ describe('Jamis new session command', () => {
 				throw new Error('private error reply failure');
 			}), makeMessage('/new', operatorNumber, 'new-with-failed-error-reply'), async () => {}, sessions.context(), timeZone.sql)).rejects.toThrow('private error reply failure');
 			await observability.flush();
-			expect(spans.filter(span => span.name === SENDBLUE_CHANNEL_SPAN_NAME).map(span => [span.metadata?.stage, span.metadata?.classification])).toEqual([
+			expect(
+				spans.filter(span => span.name === SENDBLUE_CHANNEL_SPAN_NAME).map(
+					span => [span.metadata?.stage, span.metadata?.classification],
+				),
+			).toEqual([
 				['channel_intake', 'failed'],
 				['channel_intake', 'failed'],
 				['reply_delivery', 'delivered'],
@@ -771,7 +797,13 @@ describe('Jamis new session command', () => {
 			expect(spans.find(span => span.name === SENDBLUE_CHANNEL_SPAN_NAME)?.metadata).toMatchObject({ stage: 'reply_delivery', classification: 'failed' });
 			expect(errors.mock.calls).toEqual([['[jamis-dm-session] Session started; confirmation acceptance failed.']]);
 			expect((await sessions.memory.listThreads({})).total).toBe(1);
-			await handleSendblueDirectMessage(makeThread(replies), command, async () => {}, sessions.context(), timeZone.sql);
+			await handleSendblueDirectMessage(
+				makeThread(replies),
+				command,
+				async () => {},
+				sessions.context(),
+				timeZone.sql,
+			);
 			expect(replies).toEqual([NEW_SESSION_SUCCESS, NEW_SESSION_SUCCESS]);
 			expect((await sessions.memory.listThreads({})).total).toBe(1);
 		} finally {
@@ -1115,7 +1147,13 @@ describe('operator time zone change routing', () => {
 		const messages: string[] = [];
 		let replayDefaultCalls = 0;
 		const confirmation = makeMessage('yes', operatorNumber, 'confirm-1');
-		await handleSendblueDirectMessage(makeThread(messages), confirmation, async () => {}, makeHandlerContext(), fixture.sql);
+		await handleSendblueDirectMessage(
+			makeThread(messages),
+			confirmation,
+			async () => {},
+			makeHandlerContext(),
+			fixture.sql,
+		);
 		await handleSendblueDirectMessage(
 			makeThread(messages),
 			confirmation,
@@ -1395,7 +1433,9 @@ describe('OpenAI login flow', () => {
 
 		releaseUrlPost();
 		await login;
-		expect(loginContext.requestContext.getRaw(SENDBLUE_CORRELATION_KEY)).toBe(hashSendblueMessageHandle(loginMessage.id));
+		expect(
+			loginContext.requestContext.getRaw(SENDBLUE_CORRELATION_KEY),
+		).toBe(hashSendblueMessageHandle(loginMessage.id));
 		expect(getSendblueChannelCapability(loginContext.requestContext)).toBeUndefined();
 		expect(fetchCalls.some(url => url.includes('/deviceauth/token'))).toBe(false);
 
@@ -1436,9 +1476,16 @@ describe('OpenAI login flow', () => {
 			accountId: 'test-account-secret',
 		});
 		expect((await stat(credentialPath)).mode & 0o777).toBe(0o600);
-		expect([...messages, ...errors].join('\n')).not.toMatch(
-			/test-access-secret|test-refresh-secret|test-account-secret|test-device-auth-secret|test-authorization-code-secret|test-code-verifier-secret/,
-		);
+		for (const secret of [
+			'test-access-secret',
+			'test-refresh-secret',
+			'test-account-secret',
+			'test-device-auth-secret',
+			'test-authorization-code-secret',
+			'test-code-verifier-secret',
+		]) {
+			expect([...messages, ...errors].join('\n')).not.toContain(secret);
+		}
 	});
 
 	test('reports timeout without polling or persisting partial state', async () => {

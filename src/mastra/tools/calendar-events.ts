@@ -1,7 +1,7 @@
-import type { SqlLike } from '../../lib/operator-time-zone.js';
-
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+
+import type { SqlLike } from '../../lib/operator-time-zone.js';
 
 import { fetchJson } from '../../lib/fetch.js';
 import {
@@ -167,7 +167,9 @@ export async function listCalendarEvents(
 				continue;
 			const startMs = ev.start?.dateTime ? dateTimeInstant(ev.start.dateTime, ev.start.timeZone) : undefined;
 			const endMs = ev.end?.dateTime ? dateTimeInstant(ev.end.dateTime, ev.end.timeZone) : undefined;
-			if ((startMs !== undefined && !Number.isFinite(startMs)) || (endMs !== undefined && !Number.isFinite(endMs)))
+			if (
+				(startMs !== undefined && !Number.isFinite(startMs)) || (endMs !== undefined && !Number.isFinite(endMs))
+			)
 				throw unusableData('events.list');
 			events.push({
 				title: ev.summary || '(Private event)',

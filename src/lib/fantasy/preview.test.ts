@@ -146,7 +146,12 @@ describe.skipIf(!available)('candidate preview on disposable read-only PG', () =
 		root = new SQL(databaseUrl!);
 		await root.unsafe(`CREATE SCHEMA "${schema}"`);
 		sql = new SQL(databaseUrl!, { connection: { search_path: schema } });
-		writer = new PostgresStore({ id: schema, connectionString: databaseUrl!, schemaName: schema, disableInit: true });
+		writer = new PostgresStore({
+			id: schema,
+			connectionString: databaseUrl!,
+			schemaName: schema,
+			disableInit: true,
+		});
 		writer.__setLogger(noopLogger);
 		memory = (await writer.getStore('memory'))!;
 		memory.__setLogger(noopLogger);
@@ -174,7 +179,12 @@ describe.skipIf(!available)('candidate preview on disposable read-only PG', () =
 			content: { format: 2, parts: [{ type: 'text', text: editorialFixtureQuote }], metadata: { channel: 'sendblue', groupId: config.sendblueGroupId, senderNumber: '+15550000001', sentAt: '2026-09-02T01:00:00Z' } },
 		}] });
 		// This is the only storage attached to the model runtime, never the fixture writer.
-		storage = new PostgresStore({ id: runtimeSchema, connectionString: readonlyUrl(databaseUrl!), schemaName: schema, disableInit: true });
+		storage = new PostgresStore({
+			id: runtimeSchema,
+			connectionString: readonlyUrl(databaseUrl!),
+			schemaName: schema,
+			disableInit: true,
+		});
 		storage.__setLogger(noopLogger);
 		for (const domain of Object.values(storage.stores)) domain?.__setLogger(noopLogger);
 		expect((await storage.db.one('SHOW default_transaction_read_only')).default_transaction_read_only).toBe('on');
@@ -186,7 +196,9 @@ describe.skipIf(!available)('candidate preview on disposable read-only PG', () =
 
 	afterEach(async () => {
 		try {
-			expect(snapshotGuards.flatMap(guard => guard.mock.calls.map((args: Array<{ workflowName?: string } | undefined>) => ({
+			expect(snapshotGuards.flatMap(guard => guard.mock.calls.map((args: Array<{
+				workflowName?: string;
+			} | undefined>) => ({
 				method: guard.getMockName(),
 				workflowName: args[0]?.workflowName,
 			})))).toEqual([]);
@@ -248,7 +260,12 @@ describe.skipIf(!available)('candidate preview on disposable read-only PG', () =
 		}, multipart);
 		expect(fixture.runtime.getStorage()?.id).toBe(runtimeSchema);
 		const result = await preview(request(), { ...options(), prepare: fixture.prepare });
-		expect({ status: result.status, reason: result.reason, counts: result.counts, databaseUnchanged: result.databaseUnchanged })
+		expect({
+			status: result.status,
+			reason: result.reason,
+			counts: result.counts,
+			databaseUnchanged: result.databaseUnchanged,
+		})
 			.toEqual({ status: 'approved', reason: null, counts: { drafts: 1, reviews: 1 }, databaseUnchanged: true });
 		expect(fixture.calls.map(call => call.role)).toEqual(['writer', 'reviewer']);
 		expect(fixture.resolved.length).toBeGreaterThan(0);
@@ -291,7 +308,10 @@ describe.skipIf(!available)('candidate preview on disposable read-only PG', () =
 		});
 		expect(queries).toBe(1);
 		expect(result).toMatchObject({ status: 'approved', counts: { drafts: 1, reviews: 1 }, databaseUnchanged: true });
-		expect(result.packet?.scope).toMatchObject({ chatWindow: window, calendarProof: reportingWindowFixture(window).source });
+		expect(result.packet?.scope).toMatchObject({
+			chatWindow: window,
+			calendarProof: reportingWindowFixture(window).source,
+		});
 		expect(fixture.calls.map(call => call.role)).toEqual(['writer', 'reviewer']);
 		expect(await snapshot()).toEqual(before);
 	});
@@ -342,7 +362,9 @@ describe.skipIf(!available)('candidate preview on disposable read-only PG', () =
 		const after = await snapshot();
 		expect(after.rows[table][0].count).toBe(before.rows[table][0].count);
 		expect(after.rows[table][0].hash).not.toBe(before.rows[table][0].hash);
-		for (const other of Object.keys(before.rows).filter(name => name !== table)) expect(after.rows[other]).toEqual(before.rows[other]);
+		for (const other of Object.keys(before.rows).filter(
+			name => name !== table,
+		)) expect(after.rows[other]).toEqual(before.rows[other]);
 		expect(after.relations).toEqual(before.relations);
 	});
 
@@ -406,7 +428,10 @@ describe.skipIf(!available)('candidate preview on disposable read-only PG', () =
 		const fixture = nativeFixture();
 		const unavailableUrl = new URL(databaseUrl!);
 		unavailableUrl.port = '1';
-		const result = await preview({ ...request(), databaseUrl: unavailableUrl.toString() }, { ...options(), prepare: fixture.prepare });
+		const result = await preview({
+			...request(),
+			databaseUrl: unavailableUrl.toString(),
+		}, { ...options(), prepare: fixture.prepare });
 		expect(result).toEqual({ status: 'blocked', reason: 'preview_database_unavailable', packet: null, outcome: null, counts: { drafts: 0, reviews: 0 }, databaseUnchanged: false });
 		expect(fixture.calls).toHaveLength(0);
 		expect(fixture.resolved).toHaveLength(0);

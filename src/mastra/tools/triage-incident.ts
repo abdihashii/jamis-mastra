@@ -410,7 +410,12 @@ interface IncidentReaderContext {
 	getStore: () => Promise<IncidentStore | undefined>;
 	requestContext?: RequestContext;
 	fantasyLeagueId?: string;
-	readFantasyRuns?: (leagueId: string, week: number | undefined, start: Date, end: Date) => Promise<FantasyMonitoringRun[]>;
+	readFantasyRuns?: (
+		leagueId: string,
+		week: number | undefined,
+		start: Date,
+		end: Date,
+	) => Promise<FantasyMonitoringRun[]>;
 	readDeploymentEvidence?: () => Promise<Awaited<ReturnType<typeof readFullDeploymentEvidence>>>;
 }
 
@@ -494,10 +499,16 @@ function deepestFailedSpan(structure: GetStructureResponse, anchorSpanId: string
 		}
 		return result;
 	};
-	return failed.reduce<TraceRow | undefined>((deepest, span) => !deepest || depth(span) > depth(deepest) ? span : deepest, undefined);
+	return failed.reduce<TraceRow | undefined>(
+		(deepest, span) => !deepest || depth(span) > depth(deepest) ? span : deepest,
+		undefined,
+	);
 }
 
-function codexAuthFailure(structure: GetStructureResponse, anchorSpanId: string): { reason: CodexAuthFailureReason; occurredAtUtc: string } | undefined {
+function codexAuthFailure(
+	structure: GetStructureResponse,
+	anchorSpanId: string,
+): { reason: CodexAuthFailureReason; occurredAtUtc: string } | undefined {
 	for (const span of extractBranchSpans(structure.spans, anchorSpanId) as TraceRow[]) {
 		if (span.name !== CODEX_AUTH_FAILURE_EVENT)
 			continue;
@@ -512,7 +523,14 @@ async function inspectCandidate(
 	store: IncidentStore,
 	row: TraceRow,
 	expectedComponent?: IncidentComponent,
-): Promise<{ anchorFailed: boolean; candidate: IncidentCandidate; codexAuthReason?: CodexAuthFailureReason; codexAuthOccurredAtUtc?: string; failed: boolean; gaps: IncidentEvidenceGap[] }> {
+): Promise<{
+	anchorFailed: boolean;
+	candidate: IncidentCandidate;
+	codexAuthReason?: CodexAuthFailureReason;
+	codexAuthOccurredAtUtc?: string;
+	failed: boolean;
+	gaps: IncidentEvidenceGap[];
+}> {
 	const channel = channelFailure(row);
 	if (channel) {
 		return {
@@ -540,13 +558,22 @@ async function inspectCandidate(
 			occurrenceTimeUtc: row.startedAt.toISOString(),
 			stage,
 		},
-		...(authFailure ? { codexAuthReason: authFailure.reason, codexAuthOccurredAtUtc: authFailure.occurredAtUtc } : {}),
+		...(authFailure
+			? {
+					codexAuthReason: authFailure.reason,
+					codexAuthOccurredAtUtc: authFailure.occurredAtUtc,
+				}
+			: {}),
 		failed: !!failure || anchorFailed,
 		gaps,
 	};
 }
 
-function unavailable(target: IncidentTarget, gap: IncidentEvidenceGap, gaps: IncidentEvidenceGap[] = []): IncidentResult {
+function unavailable(
+	target: IncidentTarget,
+	gap: IncidentEvidenceGap,
+	gaps: IncidentEvidenceGap[] = [],
+): IncidentResult {
 	return {
 		status: 'unavailable',
 		targetKind: target.kind,
@@ -564,7 +591,11 @@ function notFound(target: IncidentTarget, gaps: IncidentEvidenceGap[] = []): Inc
 	};
 }
 
-function ambiguous(target: IncidentTarget, candidates: IncidentCandidate[], gaps: IncidentEvidenceGap[] = []): IncidentResult {
+function ambiguous(
+	target: IncidentTarget,
+	candidates: IncidentCandidate[],
+	gaps: IncidentEvidenceGap[] = [],
+): IncidentResult {
 	return {
 		status: 'ambiguous',
 		targetKind: target.kind,
@@ -680,8 +711,12 @@ async function readDeploymentIncident(
 	if (current.freshness !== 'fresh')
 		return unavailable(target, 'stale_evidence');
 	const observedAtMs = Date.parse(current.observedAt);
-	if (target.explicitWindow && (observedAtMs < target.window.start.getTime() || observedAtMs > target.window.end.getTime()))
+	if (
+		target.explicitWindow
+		&& (observedAtMs < target.window.start.getTime() || observedAtMs > target.window.end.getTime())
+	) {
 		return unavailable(target, 'invalid_window');
+	}
 	const sourceGaps: IncidentEvidenceGap[] = current.gaps;
 
 	const finding = (stage: IncidentFailureStage, classification: DeploymentFinding['classification'], impact: DeploymentFinding['impact']): DeploymentFinding => ({
@@ -690,7 +725,10 @@ async function readDeploymentIncident(
 		impact,
 	});
 	if (target.component === 'docker') {
-		const containers = evidence.docker.containers.filter(container => !target.container || container.component === target.container);
+		const containers = evidence
+			.docker
+			.containers
+			.filter(container => !target.container || container.component === target.container);
 		const findings = containers
 			.filter(container => container.state !== 'running' && container.state !== 'unknown')
 			.map(container => finding(dockerStages[container.component], 'component_not_running', 'component_unavailable'));
@@ -769,8 +807,12 @@ async function readMonitoringFinding(
 		return unavailable(target, 'missing_channel_capability');
 	let precedingMessageId: string | undefined;
 	try {
-		const { messages } = await capability.thread.adapter.fetchMessages(capability.thread.id, { limit: HISTORY_LIMIT });
-		const operatorMessages = messages.filter(message => message.threadId === capability.thread.id && isOperator(message));
+		const { messages } = await capability
+			.thread
+			.adapter
+			.fetchMessages(capability.thread.id, { limit: HISTORY_LIMIT });
+		const operatorMessages = messages
+			.filter(message => message.threadId === capability.thread.id && isOperator(message));
 		const currentIndex = operatorMessages.findIndex(message => message.id === capability.message.id);
 		precedingMessageId = currentIndex > 0 ? operatorMessages[currentIndex - 1]?.id : undefined;
 	} catch {
@@ -786,7 +828,9 @@ async function readMonitoringFinding(
 	const clues = Object.entries(target.finding ?? {})
 		.filter(([, value]) => value != null)
 		.map(([key, value]) => [key, key === 'at' ? new Date(value as string).toISOString() : value] as const);
-	const matches = snapshot.findings.filter(({ item }) => clues.every(([key, value]) => item[key as keyof typeof item] === value));
+	const matches = snapshot
+		.findings
+		.filter(({ item }) => clues.every(([key, value]) => item[key as keyof typeof item] === value));
 	if (matches.length === 0)
 		return notFound(target, ['monitoring_finding_not_found']);
 	if (matches.length > 1) {
@@ -821,7 +865,9 @@ async function readMonitoringFinding(
 						? 'execution_degraded'
 						: item.fact === 'tunnel_local_error' ? 'component_degraded' : 'component_unavailable';
 	const gaps: IncidentEvidenceGap[] = snapshot.summary.unknowns
-		.filter(unknown => unknown.subject === item.subject && (!unknown.container || unknown.container === item.container))
+		.filter(
+			unknown => unknown.subject === item.subject && (!unknown.container || unknown.container === item.container),
+		)
 		.map(unknown => unknown.gap);
 	if ('observedAtUtc' in candidate)
 		gaps.push('occurrence_time_unknown');
@@ -865,8 +911,12 @@ async function resolvePrecedingDigest(requestContext: RequestContext | undefined
 		return { gap: 'missing_channel_capability' };
 
 	try {
-		const { messages } = await capability.thread.adapter.fetchMessages(capability.thread.id, { limit: HISTORY_LIMIT });
-		const operatorMessages = messages.filter(message => message.threadId === capability.thread.id && isOperator(message));
+		const { messages } = await capability
+			.thread
+			.adapter
+			.fetchMessages(capability.thread.id, { limit: HISTORY_LIMIT });
+		const operatorMessages = messages
+			.filter(message => message.threadId === capability.thread.id && isOperator(message));
 		const currentIndex = operatorMessages.findIndex(message => message.id === capability.message.id);
 		const preceding = currentIndex > 0 ? operatorMessages[currentIndex - 1] : undefined;
 		return preceding?.id.trim()
@@ -893,7 +943,9 @@ async function readPrecedingIncident(
 
 	if (jamisRows.length > 1 || channelRows.length > 1 || hasMore(response, rows.length)) {
 		const conflicting = jamisRows.length > 1 ? jamisRows : [...jamisRows, ...channelRows];
-		const inspected = await Promise.all(conflicting.slice(0, RESULT_LIMIT).map(row => inspectCandidate(store, row)));
+		const inspected = await Promise.all(
+			conflicting.slice(0, RESULT_LIMIT).map(row => inspectCandidate(store, row)),
+		);
 		return ambiguous(target, inspected.map(result => result.candidate));
 	}
 
@@ -925,7 +977,9 @@ async function readApplicationIncident(
 			pagination: { page: 0, perPage: traceLimit },
 			orderBy: { field: 'startedAt', direction: 'ASC' },
 		});
-		rows = (response.spans as TraceRow[]).filter(row => row.name === SENDBLUE_CHANNEL_SPAN_NAME && !!channelFailure(row));
+		rows = (response.spans as TraceRow[]).filter(
+			row => row.name === SENDBLUE_CHANNEL_SPAN_NAME && !!channelFailure(row),
+		);
 		more = hasMore(response, response.spans.length);
 	} else if (target.component) {
 		const response = await store.listBranches({
@@ -1047,7 +1101,10 @@ async function foundFantasyIncident(
 					const span = structure?.traceId === run.latestAttemptTraceId
 						? (structure.spans as TraceRow[]).find(candidate =>
 								candidate.entityId === 'fantasy-weekly-recap'
-								&& (candidate.spanType === SpanType.WORKFLOW_RUN || candidate.spanType === SpanType.WORKFLOW_STEP))
+								&& (candidate.spanType === SpanType.WORKFLOW_RUN
+									|| candidate.spanType === SpanType.WORKFLOW_STEP
+								),
+							)
 						: undefined;
 					if (span)
 						traceReference = { traceId: run.latestAttemptTraceId, spanId: span.spanId };
@@ -1093,13 +1150,16 @@ async function readFantasyIncident(
 
 	let runs: FantasyMonitoringRun[];
 	try {
-		runs = await (context.readFantasyRuns ?? readFantasyIncidentRuns)(leagueId, week, target.window.start, target.window.end);
+		runs = await (
+			context.readFantasyRuns ?? readFantasyIncidentRuns)(leagueId, week, target.window.start, target.window.end);
 	} catch {
 		return unavailable(target, 'fantasy_storage_unavailable');
 	}
 	const actionable = runs
 		.filter(run => run.status === 'failed' || run.status === 'delivery_unknown')
-		.filter(run => week !== undefined || (run.updatedAt >= target.window.start && run.updatedAt <= target.window.end))
+		.filter(
+			run => week !== undefined || (run.updatedAt >= target.window.start && run.updatedAt <= target.window.end),
+		)
 		.sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime());
 	if (actionable.length === 0)
 		return notFound(target);
@@ -1108,7 +1168,12 @@ async function readFantasyIncident(
 	return foundFantasyIncident(target, actionable[0]!, context, week !== undefined);
 }
 
-async function readFantasyIncidentRuns(leagueId: string, week: number | undefined, start: Date, end: Date): Promise<FantasyMonitoringRun[]> {
+async function readFantasyIncidentRuns(
+	leagueId: string,
+	week: number | undefined,
+	start: Date,
+	end: Date,
+): Promise<FantasyMonitoringRun[]> {
 	return (await listFantasyMonitoringRuns(leagueId, week, getFantasySql()))
 		.filter(run => run.status === 'failed' || run.status === 'delivery_unknown')
 		.filter(run => week !== undefined || (run.updatedAt >= start && run.updatedAt <= end))
@@ -1139,7 +1204,8 @@ export async function readIncident(target: IncidentTarget, context: IncidentRead
 			const leagueId = context.fantasyLeagueId ?? getFantasyConfig()?.sleeperLeagueId;
 			if (leagueId) {
 				try {
-					fantasyRuns = (await context.readFantasyRuns(leagueId, undefined, target.window.start, target.window.end))
+					fantasyRuns = (
+						await context.readFantasyRuns(leagueId, undefined, target.window.start, target.window.end))
 						.filter(run => run.status === 'failed' || run.status === 'delivery_unknown')
 						.sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime());
 				} catch {

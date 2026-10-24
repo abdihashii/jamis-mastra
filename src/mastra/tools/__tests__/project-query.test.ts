@@ -60,7 +60,11 @@ async function fixture() {
 			} else if (op.pattern === '[' || op.pattern === 'overflow') {
 				result = { ok: false, error: op.pattern === '[' ? 'invalid' : 'limit' };
 			} else {
-				const matching = Object.entries(source).filter(([, contents]) => (op.ignoreCase ? contents.toLowerCase() : contents).includes(op.ignoreCase ? op.pattern.toLowerCase() : op.pattern)).map(([path]) => path).sort();
+				const matching = Object.entries(source).filter(
+					([, contents]) => (op.ignoreCase ? contents.toLowerCase() : contents).includes(
+						op.ignoreCase ? op.pattern.toLowerCase() : op.pattern,
+					),
+				).map(([path]) => path).sort();
 				result = { ok: true, operation: op.operation, path: op.path, view, output: op.operation === 'count' ? matching.length : op.operation === 'files' ? matching : `src/a.ts:2:${untrusted}\n` };
 			}
 			socket.end(`${JSON.stringify(result)}\n`);
@@ -136,7 +140,12 @@ test('actual agent/tool/model/channel exports and storage omit raw evidence whil
 		spanFilter: filterProjectTrace,
 		exporters: [protectProjectSignals(new MastraStorageExporter()), protectProjectSignals({
 			name: 'capture',
-			onTracingEvent: (event) => { events.push({ type: event.type, span: structuredClone(event.exportedSpan) }); },
+			onTracingEvent: (event) => {
+				events.push({
+					type: event.type,
+					span: structuredClone(event.exportedSpan),
+				});
+			},
 			onLogEvent: (event) => { logs.push(structuredClone(event.log)); },
 			onMetricEvent: (event) => { metrics.push(structuredClone(event.metric)); },
 			exportTracingEvent: async () => {},
@@ -238,7 +247,9 @@ test('actual agent/tool/model/channel exports and storage omit raw evidence whil
 		expect(/SYNTHETIC_|SYSTEM OVERRIDE|__mastra_chat_channel_render/.test(serialized)).toBe(false);
 		for (const type of [SpanType.AGENT_RUN, SpanType.TOOL_CALL, SpanType.MODEL_GENERATION])
 			expect(events.some(e => e.span.type === type)).toBe(true);
-		expect(events.some(e => e.type === TracingEventType.SPAN_STARTED && e.span.type === SpanType.AGENT_RUN)).toBe(true);
+		expect(
+			events.some(e => e.type === TracingEventType.SPAN_STARTED && e.span.type === SpanType.AGENT_RUN),
+		).toBe(true);
 		expect(events.find(e => e.type === TracingEventType.SPAN_ENDED && e.span.name === 'project.query')?.span.metadata).toMatchObject({ operation: 'search', status: 'ok', view });
 		expect(new Set(events.filter(e => e.type === TracingEventType.SPAN_ENDED && e.span.name === 'project.query').map(e => e.span.metadata?.status))).toEqual(new Set(['ok', 'invalid', 'limit', 'denied', 'missing', 'unavailable', 'busy']));
 		expect(events.some(e => JSON.stringify(e.span.attributes).includes('inputTokens'))).toBe(true);
@@ -254,7 +265,14 @@ test('actual agent/tool/model/channel exports and storage omit raw evidence whil
 		expect(metrics.length).toBeGreaterThan(0);
 		expect(errors.length).toBeGreaterThan(0);
 		expect(warnings.length).toBeGreaterThanOrEqual(3);
-		expect(/SYNTHETIC_|SYSTEM OVERRIDE/.test(JSON.stringify({ logs, warnings, errors, metrics, persistedLogs, persistedMetrics }))).toBe(false);
+		expect(/SYNTHETIC_|SYSTEM OVERRIDE/.test(JSON.stringify({
+			logs,
+			warnings,
+			errors,
+			metrics,
+			persistedLogs,
+			persistedMetrics,
+		}))).toBe(false);
 		const applicationRuns = await store!.getMetricAggregate({ name: ['mastra_agent_duration_ms'], aggregation: 'count', filters: { entityName: 'Jamis', labels: { status: 'ok' } } });
 		expect(applicationRuns.value).toBeGreaterThan(0);
 		const tokens = await store!.getMetricAggregate({ name: ['mastra_model_total_input_tokens'], aggregation: 'sum', filters: { rootEntityName: 'Jamis' } });

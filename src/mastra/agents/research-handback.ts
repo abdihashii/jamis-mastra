@@ -4,7 +4,10 @@ import type { SpecialistHandback } from './specialist-handback';
 
 const text = z.string().trim().min(1);
 export const researchResultSchema = z.object({
-	findings: z.array(z.object({ text, sourceNumbers: z.array(z.number().int().min(1).max(3)).min(1).max(3) }).strict()).min(1).max(10),
+	findings: z.array(z.object({
+		text,
+		sourceNumbers: z.array(z.number().int().min(1).max(3)).min(1).max(3),
+	}).strict()).min(1).max(10),
 	sources: z.array(z.object({
 		title: text.describe('Exact returned discovery or retrieval title, trimmed. Use the source URL only when no nonblank title was returned; never substitute a page heading.'),
 		url: z.string().url().describe('Exact URL from the successful read input or returned provenance. Do not canonicalize or rewrite it.'),
@@ -34,7 +37,9 @@ const retrievedSchema = z.object({
 
 export function validateResearchHandback(
 	handback: SpecialistHandback<z.infer<typeof researchResultSchema>>,
-	{ toolResults }: { toolResults: Array<{ payload: { toolName: string; result: unknown; args?: unknown; isError?: boolean } }> },
+	{ toolResults }: {
+		toolResults: Array<{ payload: { toolName: string; result: unknown; args?: unknown; isError?: boolean } }>;
+	},
 ) {
 	const payloads = toolResults.map(({ payload }) => payload);
 	const retrieved = payloads.filter(payload => !payload.isError && ['researchSourceDiscover', 'researchSourceRetrieve'].includes(payload.toolName))
@@ -62,20 +67,31 @@ export function validateResearchHandback(
 		return;
 	}
 	const scrapes = payloads.filter(payload => payload.toolName === 'webScrape' && !payload.isError).flatMap((payload) => {
-		const parsed = z.object({ args: z.object({ url: z.string().url() }), result: z.object({ markdown: text }) }).safeParse(payload);
+		const parsed = z.object({
+			args: z.object({ url: z.string().url() }),
+			result: z.object({ markdown: text }),
+		}).safeParse(payload);
 		return parsed.success ? [parsed.data] : [];
 	});
 	const candidates = retrieved.flatMap(result => result.candidates);
 	for (const payload of payloads.filter(payload => payload.toolName === 'webSearch' && !payload.isError)) {
-		const parsed = z.object({ results: z.array(z.object({ title: z.string().nullable(), url: z.string().url() })) }).safeParse(payload.result);
-		if (parsed.success)
-			candidates.push(...parsed.data.results.map(candidate => ({ ...candidate, title: candidate.title?.trim() || candidate.url })));
+		const parsed = z.object({
+			results: z.array(z.object({ title: z.string().nullable(), url: z.string().url() })),
+		}).safeParse(payload.result);
+		if (parsed.success) {
+			candidates.push(...parsed.data.results.map(candidate => ({
+				...candidate,
+				title: candidate.title?.trim() || candidate.url,
+			})));
+		}
 	}
 	const evidence = retrieved.filter(result => result.toolName === 'researchSourceRetrieve' && ['success', 'partial'].includes(result.status)).flatMap(result => result.evidence);
 	for (const source of handback.result.sources) {
 		if (source.evidenceKind === 'scraped-webpage') {
 			const reads = scrapes.filter(scrape => scrape.args.url === source.url);
-			const titles = candidates.filter(candidate => candidate.url === source.url).map(candidate => candidate.title);
+			const titles = candidates.filter(
+				candidate => candidate.url === source.url,
+			).map(candidate => candidate.title);
 			if (!reads.length)
 				throw new Error('Research source was not read at its cited URL.');
 			if (!reads.some(read => read.result.markdown.includes(source.evidence)))
@@ -84,7 +100,10 @@ export function validateResearchHandback(
 				throw new Error('Research title does not match the returned source title.');
 			continue;
 		}
-		const read = evidence.find(read => read.url === source.url && read.title === source.title && read.evidenceKind === source.evidenceKind && read.content.includes(source.evidence));
+		const read = evidence.find(
+			read => read.url === source.url && read.title === source.title && read.evidenceKind === source.evidenceKind
+				&& read.content.includes(source.evidence),
+		);
 		if (!read)
 			throw new Error('Research source does not match retrieved evidence.');
 		if (source.evidenceKind === 'abstract-only' && !source.limitations.some(limit => limit.includes('abstract-only')))

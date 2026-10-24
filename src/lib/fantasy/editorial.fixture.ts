@@ -21,13 +21,27 @@ export const editorialFixtureSleeper: NonNullable<EvidenceOptions['sleeper']> = 
 	getNflState: async () => ({ season: '2026', week: 2, seasonType: 'regular' }),
 	getLeague: async () => ({ id: editorialFixtureConfig.sleeperLeagueId, name: 'League', season: '2026', status: 'in_season', totalRosters: 2, playoffWeekStart: 15, playoffRounds: 1, rosterPositions: ['QB', 'BN'], scoringSettings: { rec: 0.5 } }),
 	getManagers: async () => [{ rosterId: 1, userId: 'u1', displayName: 'Alpha' }, { rosterId: 2, userId: 'u2', displayName: 'Bravo' }],
-	getWinnersBracket: async () => [{ matchupId: 1, round: 1, placement: 1, team1: 1, team2: 2, winner: null, loser: null, team1From: null, team2From: null }],
+	getWinnersBracket: async () => [{
+		matchupId: 1,
+		round: 1,
+		placement: 1,
+		team1: 1,
+		team2: 2,
+		winner: null,
+		loser: null,
+		team1From: null,
+		team2From: null,
+	}],
 	getScores: async (): Promise<SleeperScore[]> => [
 		{ rosterId: 1, matchupId: 1, points: 20, players: ['p1'], starters: ['p1'], playerPoints: { p1: 20 } },
 		{ rosterId: 2, matchupId: 1, points: 10, players: ['p2'], starters: ['p2'], playerPoints: { p2: 10 } },
 	],
 	getPlayerSnapshot: async () => ({ retrievedAtUtc: editorialFixtureNow().toISOString(), missingIds: [], players: ['p1', 'p2'].map(id => ({ id, name: id, position: 'QB', team: 'NE', fantasyPositions: ['QB'], gsisId: null })) }),
-	getTransactions: async () => ({ transactions: [], malformedCount: 0, retrievedAtUtc: editorialFixtureNow().toISOString() }),
+	getTransactions: async () => ({
+		transactions: [],
+		malformedCount: 0,
+		retrievedAtUtc: editorialFixtureNow().toISOString(),
+	}),
 };
 export async function frozenEditorialFixture() {
 	const threadId = `fantasy-group-${editorialFixtureConfig.sendblueGroupId}`;
@@ -43,7 +57,12 @@ export async function frozenEditorialFixture() {
 			content: { format: 2, parts: [{ type: 'text', text: editorialFixtureQuote }], metadata: { channel: 'sendblue', groupId: editorialFixtureConfig.sendblueGroupId, senderNumber: '+15550000001', sentAt: '2026-09-02T01:00:00Z' } },
 		}] }),
 	};
-	return collectRecapEvidence({ config: editorialFixtureConfig, week: 1, window: editorialFixtureWindow, calendarProof: reportingWindowFixture(editorialFixtureWindow).source }, { memory, sleeper: editorialFixtureSleeper, now: editorialFixtureNow });
+	return collectRecapEvidence({
+		config: editorialFixtureConfig,
+		week: 1,
+		window: editorialFixtureWindow,
+		calendarProof: reportingWindowFixture(editorialFixtureWindow).source,
+	}, { memory, sleeper: editorialFixtureSleeper, now: editorialFixtureNow });
 }
 export function validEditorialDraft(packet: RecapEvidencePacket): EditorialDraft {
 	const match = buildEditorialCatalog(packet).sources.find(source => source.kind === 'matchup')!.id;

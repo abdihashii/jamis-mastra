@@ -72,7 +72,12 @@ async function withSocket<T>(response: string | null, read: (path: string) => Pr
 	}
 }
 
-const socketResponse = (response: string | null, timeoutMs = 200) => withSocket(response, path => readDeploymentEvidence(path, timeoutMs, now));
+function socketResponse(response: string | null, timeoutMs = 200) {
+	return withSocket(
+		response,
+		path => readDeploymentEvidence(path, timeoutMs, now),
+	);
+}
 
 describe('deployment evidence boundary', () => {
 	test('returns fixed current evidence and classifies stale time', () => {

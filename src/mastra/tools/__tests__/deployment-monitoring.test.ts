@@ -116,7 +116,13 @@ describe('Deployment monitoring Stage 1', () => {
 		});
 		const result = await readDeploymentMonitoring(fixture as never, 24, now);
 		expect(result.serviceOutcomes[0]).toMatchObject({ currentRequest: 'intake_accepted_reply_pending', historicalActivity: 'requests_observed', completedHistoricalRequests: 3, replyAccepted: 1, replyFailed: 2, intakeFailed: 1, topLevelExecutionFailed: 1, topLevelExecutionSucceeded: 0 });
-		expect(result.serviceOutcomes[1].counts).toEqual({ sent: 1, failed: 1, deliveryUnknown: 1, active: 0, expiredActive: 1 });
+		expect(result.serviceOutcomes[1].counts).toEqual({
+			sent: 1,
+			failed: 1,
+			deliveryUnknown: 1,
+			active: 0,
+			expiredActive: 1,
+		});
 		expect(result.needsAttention.map(item => item.fact)).toEqual(['reply_acceptance_failed', 'reply_not_generated', 'intake_failed', 'top_level_execution_failed', 'recap_failed', 'recap_delivery_unknown', 'recap_expired_active']);
 		expect(result.recentRecoveredEvents).toEqual([]);
 		expect(JSON.stringify(result)).not.toMatch(/secret|15551234567|injected|inputPreview|finalText|lastError/);
@@ -147,7 +153,9 @@ describe('Deployment monitoring Stage 1', () => {
 				snapshot: { status: 'success', result: { status: 'success', output: { outcome: 'error', error: raw } } },
 			}];
 		};
-		const result = await readDeploymentMonitoring(sources({ readWorkflowRuns: (from: Date, to: Date) => listRecentWorkflowRuns(sql, from, to) }) as never, 1, now);
+		const result = await readDeploymentMonitoring(sources({
+			readWorkflowRuns: (from: Date, to: Date) => listRecentWorkflowRuns(sql, from, to),
+		}) as never, 1, now);
 		expect(calls[0]?.text).toContain('"updatedAt" >= ? AND "updatedAt" <= ?');
 		expect(calls[0]?.text).toContain('ORDER BY "updatedAt" DESC LIMIT 11');
 		expect(calls[0]?.text).not.toContain('"createdAt"');
@@ -184,7 +192,11 @@ describe('Deployment monitoring Stage 1', () => {
 	});
 
 	test('a stalled Fantasy reader leaves current component evidence visible', async () => {
-		const result = await readDeploymentMonitoring(sources({ readFantasyRuns: () => new Promise(() => {}) }) as never, 24, now);
+		const result = await readDeploymentMonitoring(
+			sources({ readFantasyRuns: () => new Promise(() => {}) }) as never,
+			24,
+			now,
+		);
 		expect(result.operatingNormally.some(item => item.subject === 'app')).toBe(true);
 		expect(result.unknowns).toContainEqual({ subject: 'fantasy_recaps', gap: 'fantasy_runs_unavailable', boundary: 'configured_fantasy_season' });
 	});

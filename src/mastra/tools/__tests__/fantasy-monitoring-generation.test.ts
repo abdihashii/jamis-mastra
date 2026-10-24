@@ -120,8 +120,11 @@ describe('Fantasy generation monitoring boundary', () => {
 				readWorkflowRuns: async () => [{ updatedAt: new Date(now), snapshot: { status: 'success', result: { status: 'success', output: { outcome, week: 22, ...outputRefs, debug: privateText, packetJson: privateText, scope: privateText, rejected: privateText } } } }],
 			}, 24, now);
 			expect(result.unknowns.some(item => item.gap === 'fantasy_execution_unverified')).toBe(false);
-			if (['error', 'failed', 'sent', 'delivery_unknown', 'blocked-delivery-unknown', 'noop-already-sent', 'noop-no-completed-week'].includes(outcome))
-				expect([...result.needsAttention, ...result.operatingNormally]).toContainEqual(expect.objectContaining({ week: 22, outputRefs }));
+			if (['error', 'failed', 'sent', 'delivery_unknown', 'blocked-delivery-unknown', 'noop-already-sent', 'noop-no-completed-week'].includes(outcome)) {
+				expect(
+					[...result.needsAttention, ...result.operatingNormally],
+				).toContainEqual(expect.objectContaining({ week: 22, outputRefs }));
+			}
 			expect(JSON.stringify(result)).not.toContain(privateText);
 		}
 		for (const reason of [privateText, 'x'.repeat(101)]) {
@@ -143,7 +146,11 @@ describe('Fantasy generation monitoring boundary', () => {
 		expect(monitoring.safeParse({ scope: 'fantasy', week: 23 }).success).toBe(false);
 		expect(incident.safeParse({ kind: 'application', component: 'fantasy-weekly-recap', humanDomainReference: 'week 22' }).success).toBe(true);
 		expect(incident.safeParse({ kind: 'application', component: 'fantasy-weekly-recap', humanDomainReference: 'week 23' }).success).toBe(false);
-		for (const extra of [{ generationSummary }, { outputRefs: { attemptId: generationSummary.attemptId } }, { attemptId: generationSummary.attemptId }, { reportId: generationSummary.reportId }, { scope: privateText }, { debug: privateText }]) {
+		for (const extra of [{ generationSummary }, {
+			outputRefs: { attemptId: generationSummary.attemptId },
+		}, {
+			attemptId: generationSummary.attemptId,
+		}, { reportId: generationSummary.reportId }, { scope: privateText }, { debug: privateText }]) {
 			expect(monitoring.safeParse({ scope: 'fantasy', week: 22, ...extra }).success).toBe(false);
 			expect(incident.safeParse({ kind: 'monitoring_finding', finding: { week: 22, ...extra } }).success).toBe(false);
 		}
@@ -175,7 +182,10 @@ const disposableDatabase = databaseUrl && new URL(databaseUrl).port === '15458' 
 	DROP
 `;
 			const { attemptId, ...current } = generationSummary;
-			const state = { current: { ...current, id: attemptId, scope: privateText, window: privateText, calls: [privateText] }, debug: { packetJson: privateText, outputs: [privateText] } };
+			const state = {
+				current: { ...current, id: attemptId, scope: privateText, window: privateText, calls: [privateText] },
+				debug: { packetJson: privateText, outputs: [privateText] },
+			};
 			await tx`
 	INSERT INTO
 		fantasy_recap_runs (
@@ -213,7 +223,9 @@ const disposableDatabase = databaseUrl && new URL(databaseUrl).port === '15458' 
 			expect(runs[1]).not.toHaveProperty('generationSummary');
 			expect(await listFantasyMonitoringRuns('fixture-league', 22, scoped)).toEqual([runs[0]!]);
 			expect(await listFantasyMonitoringRuns('other-fixture', undefined, scoped)).toEqual([]);
-			expect(JSON.stringify(nativeRows)).not.toMatch(/PRIVATE_REASON_SENTINEL|editorial_attempt|scope|window|calls|packetJson|debug|outputs/);
+			expect(JSON.stringify(nativeRows)).not.toMatch(
+				/PRIVATE_REASON_SENTINEL|editorial_attempt|scope|window|calls|packetJson|debug|outputs/,
+			);
 		});
 	} finally {
 		await db.close();

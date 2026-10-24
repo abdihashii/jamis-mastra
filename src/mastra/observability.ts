@@ -123,7 +123,14 @@ function isProjectSpan(span?: AnySpan): boolean {
 function isProjectDiagnostic(value: unknown): boolean {
 	if (!value || typeof value !== 'object')
 		return false;
-	const data = value as { agent?: string; agentId?: string; workflowId?: string; tool?: string; tracing?: { currentSpan?: AnySpan }; tracingContext?: { currentSpan?: AnySpan } };
+	const data = value as {
+		agent?: string;
+		agentId?: string;
+		workflowId?: string;
+		tool?: string;
+		tracing?: { currentSpan?: AnySpan };
+		tracingContext?: { currentSpan?: AnySpan };
+	};
 	return data.agent === 'Jamis' || [data.agentId, data.workflowId, data.tool].some(id => protectedRootEntityIds.includes(id ?? '')) || isProjectSpan(data.tracing?.currentSpan ?? data.tracingContext?.currentSpan);
 }
 
@@ -244,4 +251,9 @@ export const redactChannelRenderContext: SpanOutputProcessor = {
 	shutdown: async () => {},
 };
 
-export const spanOutputProcessors = [redactChannelRenderContext, allowlistCodexAuthFailure, markProjectTrace, new SensitiveDataFilter()];
+export const spanOutputProcessors = [
+	redactChannelRenderContext,
+	allowlistCodexAuthFailure,
+	markProjectTrace,
+	new SensitiveDataFilter(),
+];

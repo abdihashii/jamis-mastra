@@ -26,8 +26,16 @@ import { readSavedReportReceipt } from './saved-report-delivery';
 export interface PipelineDeps {
 	sql: SqlLike;
 	memory: Pick<MemoryStorage, 'getThreadById' | 'listMessages'> | null;
-	prepare: (packet: RecapEvidencePacket, signal: AbortSignal, observer: FantasyEditorialObserver) => Promise<EditorialOutcome>;
-	publish: (ref: SavedReportReference, token: string, signal?: AbortSignal) => Promise<{ receipt: SavedReportReceipt }>;
+	prepare: (
+		packet: RecapEvidencePacket,
+		signal: AbortSignal,
+		observer: FantasyEditorialObserver,
+	) => Promise<EditorialOutcome>;
+	publish: (
+		ref: SavedReportReference,
+		token: string,
+		signal?: AbortSignal,
+	) => Promise<{ receipt: SavedReportReceipt }>;
 	readNfl?: EvidenceOptions['readNfl'];
 	sleeper?: EvidenceOptions['sleeper'];
 	now?: () => Date;
@@ -47,7 +55,11 @@ export type PipelineResult = CoordinatorResult & {
 
 function calendarIdentity(proof: NflCalendarProof): string {
 	// Provider ordering and a later verification time do not change the frozen reporting period.
-	return JSON.stringify({ ...proof, retrievedAtUtc: undefined, games: [...proof.games].sort((a, b) => a.id.localeCompare(b.id)) });
+	return JSON.stringify({
+		...proof,
+		retrievedAtUtc: undefined,
+		games: [...proof.games].sort((a, b) => a.id.localeCompare(b.id)),
+	});
 }
 
 /** One production composition shared by schedule and the trusted local CLI. */
@@ -113,8 +125,11 @@ export async function runRecapPipeline(request: {
 			if (request.restartAttemptId)
 				return safe('failed', 'restart_has_publication');
 			const report = parseSavedReport(row.saved_report);
-			if (report.scope.leagueId !== scope.leagueId || report.scope.groupId !== scope.groupId || report.scope.season !== scope.season || report.scope.week !== week)
+			if (report.scope.leagueId !== scope.leagueId || report.scope.groupId !== scope.groupId
+				|| report.scope.season !== scope.season
+				|| report.scope.week !== week) {
 				return safe('failed', 'saved_report_scope_mismatch');
+			}
 			const ref = { ...scope, reportId: report.id };
 			await recoverSavedReport(ref, sql);
 			const saved = await getSavedReportState(ref, sql);
@@ -173,14 +188,25 @@ export async function runRecapPipeline(request: {
 			calendarProof = retained;
 		}
 		token = randomUUID();
-		reference = await claimGenerationAttempt(scope, window, token, request.traceId ?? null, sql, request.restartAttemptId, calendarProof);
+		reference = await claimGenerationAttempt(
+			scope,
+			window,
+			token,
+			request.traceId ?? null,
+			sql,
+			request.restartAttemptId,
+			calendarProof,
+		);
 		if (!reference)
 			return safe('blocked-active-claim', 'generation_claim_unavailable');
 		const owned = await getGenerationRun(scope, sql);
 		if (!owned || owned.claimToken !== token || owned.generation.current.id !== reference.attemptId)
 			return safe('blocked-active-claim', 'generation_claim_unobservable');
 		// Conservative monotonic budget includes claim/acknowledgement time. DB guards remain authoritative.
-		const remaining = Math.min(GENERATION_LIMITS.workMs, Date.parse(owned.generation.current.workDeadlineAtUtc) - Date.parse(owned.nowUtc)) - Math.ceil(performance.now() - enteredAt);
+		const remaining = Math.min(
+			GENERATION_LIMITS.workMs,
+			Date.parse(owned.generation.current.workDeadlineAtUtc) - Date.parse(owned.nowUtc),
+		) - Math.ceil(performance.now() - enteredAt);
 		if (remaining <= 0)
 			throw new Error('generation_work_deadline');
 		const signal = AbortSignal.any([AbortSignal.timeout(remaining), ...(deps.signal ? [deps.signal] : [])]);

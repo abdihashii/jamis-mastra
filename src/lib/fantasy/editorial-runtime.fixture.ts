@@ -49,7 +49,11 @@ export function editorialFixtureRuntime(
 			return Promise.resolve(model);
 		}
 	}
-	return { runtime: new Mastra({ ...config, logger: false, gateways: { fixture: new FixtureGateway() } }), calls, resolved };
+	return {
+		runtime: new Mastra({ ...config, logger: false, gateways: { fixture: new FixtureGateway() } }),
+		calls,
+		resolved,
+	};
 }
 export function passingEditorialReview(data: Record<string, any>) {
 	return { case: 'completed', result: { evidenceId: data.evidence.evidenceId, candidateId: data.candidate.id, verdict: 'pass', issues: [] } };

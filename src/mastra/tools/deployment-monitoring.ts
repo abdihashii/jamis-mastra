@@ -81,7 +81,13 @@ const item = z.object({
 	container: z.enum(['app', 'postgres', 'clickhouse', 'cloudflared']).optional(),
 }).strict();
 const unknown = z.object({ subject, gap: deploymentMonitoringGapSchema, boundary, container: z.enum(['app', 'postgres', 'clickhouse', 'cloudflared']).optional() }).strict();
-export const deploymentFindingSelectorSchema = item.pick({ subject: true, fact: true, at: true, week: true, container: true }).partial().strict();
+export const deploymentFindingSelectorSchema = item.pick({
+	subject: true,
+	fact: true,
+	at: true,
+	week: true,
+	container: true,
+}).partial().strict();
 const counts = z.object({
 	sent: z.number().int().min(0).max(22),
 	failed: z.number().int().min(0).max(22),
@@ -149,14 +155,33 @@ interface DeploymentSnapshot {
 // ponytail: process-local follow-ups expire on restart; add shared storage only if multi-process routing is needed.
 const deploymentSnapshots = new Map<string, DeploymentSnapshot>();
 
-export function stageDeploymentSnapshot(threadId: string, messageId: string, summary: DeploymentMonitoringSummary, findings: DeploymentSnapshotFinding[]): void {
-	deploymentSnapshots.set(threadId, { summary, findings: findings.slice(0, 250), precedingMessageId: messageId, pendingMessageId: messageId, clarificationUsed: false, failedReply: false });
+export function stageDeploymentSnapshot(
+	threadId: string,
+	messageId: string,
+	summary: DeploymentMonitoringSummary,
+	findings: DeploymentSnapshotFinding[],
+): void {
+	deploymentSnapshots.set(
+		threadId,
+		{
+			summary,
+			findings: findings.slice(0, 250),
+			precedingMessageId: messageId,
+			pendingMessageId: messageId,
+			clarificationUsed: false,
+			failedReply: false,
+		},
+	);
 }
 
 export function settleDeploymentSnapshotReply(threadId: string, messageId: string, accepted: boolean): void {
 	const snapshot = deploymentSnapshots.get(threadId);
-	if (!snapshot || (snapshot.pendingMessageId !== messageId && (accepted || snapshot.precedingMessageId !== messageId)))
+	if (
+		!snapshot
+		|| (snapshot.pendingMessageId !== messageId && (accepted || snapshot.precedingMessageId !== messageId))
+	) {
 		return;
+	}
 	snapshot.precedingMessageId = messageId;
 	snapshot.pendingMessageId = null;
 	if (!accepted) {
@@ -167,7 +192,14 @@ export function settleDeploymentSnapshotReply(threadId: string, messageId: strin
 
 export function getDeploymentSnapshot(threadId: string, precedingMessageId: string): DeploymentSnapshot | undefined {
 	const snapshot = deploymentSnapshots.get(threadId);
-	return snapshot && !snapshot.failedReply && snapshot.pendingMessageId === null && snapshot.precedingMessageId === precedingMessageId ? snapshot : undefined;
+	return (
+		snapshot
+		&& !snapshot.failedReply
+		&& snapshot.pendingMessageId === null
+		&& snapshot.precedingMessageId === precedingMessageId
+			? snapshot
+			: undefined
+	);
 }
 
 export function consumeFailedDeploymentSnapshotReply(threadId: string, precedingMessageId: string): boolean {
@@ -178,7 +210,11 @@ export function consumeFailedDeploymentSnapshotReply(threadId: string, preceding
 	return true;
 }
 
-export function awaitDeploymentClarification(threadId: string, precedingMessageId: string, currentMessageId: string): void {
+export function awaitDeploymentClarification(
+	threadId: string,
+	precedingMessageId: string,
+	currentMessageId: string,
+): void {
 	const snapshot = getDeploymentSnapshot(threadId, precedingMessageId);
 	if (snapshot?.clarificationUsed) {
 		deploymentSnapshots.delete(threadId);
@@ -247,7 +283,11 @@ function limited<T>(read: () => Promise<T>): Promise<T> {
 	});
 }
 
-export async function readDeploymentMonitoring(sources: DeploymentMonitoringSources, hours = 24, nowMs = Date.now()): Promise<DeploymentMonitoringSummary> {
+export async function readDeploymentMonitoring(
+	sources: DeploymentMonitoringSources,
+	hours = 24,
+	nowMs = Date.now(),
+): Promise<DeploymentMonitoringSummary> {
 	const start = new Date(nowMs - hours * 3_600_000);
 	const end = new Date(nowMs);
 	const needsAttention: Item[] = [];
@@ -258,14 +298,31 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 		const timestamp = at instanceof Date ? at : at ? new Date(at) : undefined;
 		const generationSummary = fantasyGenerationSummarySchema.safeParse(metadata.generationSummary);
 		const outputRefs = fantasyWorkflowOutputRefsSchema.safeParse(metadata.outputRefs);
-		const item: Item = { subject, fact, boundary, ...(timestamp && Number.isFinite(timestamp.getTime()) ? { at: timestamp.toISOString() } : {}), ...(week ? { week } : {}), ...(container ? { container } : {}), ...(generationSummary.success ? { generationSummary: generationSummary.data } : {}), ...(outputRefs.success ? { outputRefs: outputRefs.data } : {}) };
+		const item: Item = {
+			subject,
+			fact,
+			boundary,
+			...(timestamp && Number.isFinite(timestamp.getTime()) ? { at: timestamp.toISOString() } : {}),
+			...(week ? { week } : {}),
+			...(container ? { container } : {}),
+			...(generationSummary.success ? { generationSummary: generationSummary.data } : {}),
+			...(outputRefs.success ? { outputRefs: outputRefs.data } : {}),
+		};
 		target.push(item);
 		if (target === needsAttention)
 			snapshotFindings.push({ item, ...detail });
 	};
 	const missing = (subject: Unknown['subject'], gap: Unknown['gap'], boundary: Unknown['boundary'], container?: Unknown['container']) => {
-		if (!unknowns.some(item => item.subject === subject && item.gap === gap && item.boundary === boundary && item.container === container))
+		if (
+			!unknowns.some(
+				item => item.subject === subject
+					&& item.gap === gap
+					&& item.boundary === boundary
+					&& item.container === container,
+			)
+		) {
 			unknowns.push({ subject, gap, boundary, ...(container ? { container } : {}) });
+		}
 	};
 
 	const [evidenceResult, fantasyResult, workflowResult, storeResult] = await Promise.allSettled([
@@ -347,10 +404,14 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 	missing('operator_conversation', 'handset_delivery_unverified', 'recent_history');
 
 	let fantasyCounts: DeploymentMonitoringSummary['serviceOutcomes'][1]['counts'] = null;
-	if (fantasyRuns && fantasyRuns.length <= 22 && new Set(fantasyRuns.map(run => run.fantasyWeek)).size === fantasyRuns.length
+	if (
+		fantasyRuns
+		&& fantasyRuns.length <= 22
+		&& new Set(fantasyRuns.map(run => run.fantasyWeek)).size === fantasyRuns.length
 		&& fantasyRuns.every(run => Number.isInteger(run.fantasyWeek) && run.fantasyWeek >= 1 && run.fantasyWeek <= 22
 			&& run.updatedAt instanceof Date && Number.isFinite(run.updatedAt.getTime())
-			&& ['sent', 'failed', 'delivery_unknown', 'started'].includes(run.status))) {
+			&& ['sent', 'failed', 'delivery_unknown', 'started'].includes(run.status))
+	) {
 		fantasyCounts = { sent: 0, failed: 0, deliveryUnknown: 0, active: 0, expiredActive: 0 };
 		for (const run of fantasyRuns) {
 			if (run.status === 'sent') {

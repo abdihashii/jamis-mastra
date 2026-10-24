@@ -57,7 +57,10 @@ export function revokeSpecialistAuthority(context: RequestContext): void {
 }
 
 /** Source receipts stay in the current Accounts invocation, never serialized context. */
-export function recordAccountsGmailRead(context: RequestContext | undefined, result: GmailSearchResult): GmailSearchResult & { messageRefs?: string[] } {
+export function recordAccountsGmailRead(
+	context: RequestContext | undefined,
+	result: GmailSearchResult,
+): GmailSearchResult & { messageRefs?: string[] } {
 	const authority = context && authorities.get(context);
 	if (authority?.caller.kind !== 'agent' || authority.caller.id !== 'personal-accounts-agent')
 		return result;
@@ -99,10 +102,13 @@ export function requireAccountsReplySource(context: ToolExecutionContext, refere
 }
 
 /** Native Jamis entry owns the caller identity; tool arguments and serialized context cannot mint it. */
-export function createJamisSpecialistProcessor(channelRequest: (context: RequestContext) => string | undefined, clarification?: {
-	take: (context: RequestContext) => SpecialistClarification | undefined;
-	save: (context: RequestContext, clarification: SpecialistClarification) => Promise<void>;
-}) {
+export function createJamisSpecialistProcessor(
+	channelRequest: (context: RequestContext) => string | undefined,
+	clarification?: {
+		take: (context: RequestContext) => SpecialistClarification | undefined;
+		save: (context: RequestContext, clarification: SpecialistClarification) => Promise<void>;
+	},
+) {
 	return {
 		id: 'authorize_jamis_specialists',
 		processInput: ({ messageList, requestContext }) => {
@@ -118,7 +124,9 @@ export function createJamisSpecialistProcessor(channelRequest: (context: Request
 				operatorRequest,
 				researchResults: new Map(),
 				clarification: clarification?.take(requestContext),
-				saveClarification: clarification && channelInput !== undefined ? state => clarification.save(requestContext, state) : undefined,
+				saveClarification: clarification && channelInput !== undefined
+					? state => clarification.save(requestContext, state)
+					: undefined,
 			});
 			return messageList;
 		},
@@ -157,8 +165,14 @@ function allowedEdge(caller: SpecialistCaller, target: InvocationId) {
 function requireAuthority(context: ToolExecutionContext | undefined, allowed: Set<string>) {
 	const authority = context?.requestContext && authorities.get(context.requestContext);
 	const nativeId = authority?.caller.kind === 'agent' ? context?.agent?.agentId : context?.workflow?.workflowId;
-	if (!authority || authority.broadcasterParent || nativeId !== authority.caller.id || !allowed.has(callerKey(authority.caller)))
+	if (
+		!authority
+		|| authority.broadcasterParent
+		|| nativeId !== authority.caller.id
+		|| !allowed.has(callerKey(authority.caller))
+	) {
 		throw new Error('Specialist invocation is not authorized.');
+	}
 	return authority;
 }
 
@@ -176,7 +190,13 @@ function throwIfCanceled(signal?: AbortSignal) {
 		throw new DOMException('Specialist invocation was canceled.', signal.reason instanceof Error && signal.reason.name === 'TimeoutError' ? 'TimeoutError' : 'AbortError');
 }
 
-function recordClarification<R>(authority: Authority, owner: InvocationId, assignment: string, handback: SpecialistHandback<R>, originalAccountsRequest?: string) {
+function recordClarification<R>(
+	authority: Authority,
+	owner: InvocationId,
+	assignment: string,
+	handback: SpecialistHandback<R>,
+	originalAccountsRequest?: string,
+) {
 	if (authority.nextClarification?.owner === owner)
 		authority.nextClarification = undefined;
 	if (authority.saveClarification && handback.case === 'needs_help' && handback.need.kind === 'input') {
@@ -191,19 +211,31 @@ function recordClarification<R>(authority: Authority, owner: InvocationId, assig
 	return handback;
 }
 
-export function createSpecialistInvocation<I extends Record<string, unknown>, R extends Record<string, unknown>>(config: {
-	id: InvocationId;
-	agent: Agent;
-	inputSchema: z.ZodType<I, I>;
-	resultSchema: z.ZodType<R, R>;
-	modelHandback?: { schema: z.ZodType; resolve: (value: unknown, context: RequestContext) => unknown };
-	allowedCallers: readonly SpecialistCaller[];
-	project: (input: I, context: { caller: SpecialistCaller; operatorRequest?: string; clarification?: SpecialistClarification }) => string | { case: 'blocked'; reason: string; progress: null };
-	continueClarification?: (input: I) => boolean;
-	run?: <T>(execute: () => Promise<T>) => Promise<T>;
-	pendingOperationId?: () => string | undefined;
-	validate?: (handback: SpecialistHandback<R>, context: { input: I; requestContext: RequestContext; pendingOperationId?: string; toolResults: Array<{ payload: { toolName: string; result: unknown; args?: unknown; isError?: boolean } }> }) => void | Promise<void>;
-}) {
+export function createSpecialistInvocation<I extends Record<string, unknown>, R extends Record<string, unknown>>(
+	config: {
+		id: InvocationId;
+		agent: Agent;
+		inputSchema: z.ZodType<I, I>;
+		resultSchema: z.ZodType<R, R>;
+		modelHandback?: { schema: z.ZodType; resolve: (value: unknown, context: RequestContext) => unknown };
+		allowedCallers: readonly SpecialistCaller[];
+		project: (input: I, context: { caller: SpecialistCaller; operatorRequest?: string; clarification?: SpecialistClarification }) => string | { case: 'blocked'; reason: string; progress: null };
+		continueClarification?: (input: I) => boolean;
+		run?: <T>(execute: () => Promise<T>) => Promise<T>;
+		pendingOperationId?: () => string | undefined;
+		validate?: (
+			handback: SpecialistHandback<R>,
+			context: {
+				input: I;
+				requestContext: RequestContext;
+				pendingOperationId?: string;
+				toolResults: Array<{
+					payload: { toolName: string; result: unknown; args?: unknown; isError?: boolean };
+				}>;
+			},
+		) => void | Promise<void>;
+	},
+) {
 	if (config.agent.id !== targets[config.id] || config.allowedCallers.some(caller => !allowedEdge(caller, config.id)))
 		throw new Error('Unsupported specialist invocation configuration.');
 	const editorial = isFantasyEditorialTarget(config.id);
@@ -240,14 +272,30 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 				const assignmentLimit = editorial ? FANTASY_EDITORIAL_LIMITS.assignmentChars : 16_000;
 				if (!assignment.trim() || assignment.length > assignmentLimit)
 					throw new Error('Specialist assignment is invalid.');
-				if (config.id === 'invoke_research' && authority.researchResults.has(assignment))
-					return recordClarification(authority, config.id, assignment, handbackSchema.parse(authority.researchResults.get(assignment)));
+				if (config.id === 'invoke_research' && authority.researchResults.has(assignment)) {
+					return recordClarification(
+						authority,
+						config.id,
+						assignment,
+						handbackSchema.parse(authority.researchResults.get(assignment)),
+					);
+				}
 				const requestContext = config.id === 'invoke_research' || editorial || broadcaster
 					? new RequestContext()
 					: createSpecialistContext({ kind: 'agent', id: config.agent.id as 'weather-agent' | 'personal-accounts-agent' | 'fantasy-broadcast-agent' }, authority.pendingOperationId);
 				calleeContext = requestContext;
-				if (broadcaster)
-					authorities.set(requestContext, { caller: { ...authority.caller }, broadcasterParent: context.requestContext, researchResults: new Map() });
+				if (broadcaster) {
+					authorities.set(
+						requestContext,
+						{
+							caller: {
+								...authority.caller,
+							},
+							broadcasterParent: context.requestContext,
+							researchResults: new Map(),
+						},
+					);
+				}
 				const childAuthority = authorities.get(requestContext);
 				if (childAuthority && !broadcaster)
 					childAuthority.researchResults = authority.researchResults;
@@ -285,7 +333,9 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 				if (isValidationError(response.object))
 					throw new Error('Specialist handback is invalid.');
 				const modelHandback = envelopeSchema.parse(response.object).handback;
-				const handback = handbackSchema.parse(config.modelHandback ? config.modelHandback.resolve(modelHandback, requestContext) : modelHandback);
+				const handback = handbackSchema.parse(
+					config.modelHandback ? config.modelHandback.resolve(modelHandback, requestContext) : modelHandback,
+				);
 				const pendingOperationId = config.pendingOperationId?.() ?? authority.pendingOperationId;
 				if (handback.case === 'needs_help' && handback.need.kind === 'approval' && handback.need.operationId !== pendingOperationId)
 					throw new Error('Specialist approval does not match the pending operation.');
@@ -294,15 +344,31 @@ export function createSpecialistInvocation<I extends Record<string, unknown>, R 
 				const toolResults = [
 					...response.toolResults,
 					...(config.id !== 'invoke_research' ? pending?.researchResults ?? [] : []).map(receipt => ({ payload: { toolName: 'invoke_research', result: receipt.handback } })),
-					...response.toolCalls.filter(({ payload }) => !returnedCalls.has(payload.toolCallId)).map(({ payload }) => ({
-						payload: { toolCallId: payload.toolCallId, toolName: payload.toolName, args: payload.args, result: null, isError: true },
-					})),
+					...response
+						.toolCalls
+						.filter(({ payload }) => !returnedCalls.has(payload.toolCallId))
+						.map(({ payload }) => ({
+							payload: {
+								toolCallId: payload.toolCallId,
+								toolName: payload.toolName,
+								args: payload.args,
+								result: null,
+								isError: true,
+							},
+						})),
 				];
-				await config.validate?.(handback, { input: input as I, requestContext, pendingOperationId, toolResults });
+				await config
+					.validate?.(handback, { input: input as I, requestContext, pendingOperationId, toolResults });
 				throwIfCanceled(context.abortSignal);
 				if (config.id === 'invoke_research')
 					authority.researchResults.set(assignment, handback);
-				return recordClarification(authority, config.id, assignment, handback, childAuthority?.originalAccountsRequest);
+				return recordClarification(
+					authority,
+					config.id,
+					assignment,
+					handback,
+					childAuthority?.originalAccountsRequest,
+				);
 			} finally {
 				if (calleeContext)
 					revokeSpecialistAuthority(calleeContext);

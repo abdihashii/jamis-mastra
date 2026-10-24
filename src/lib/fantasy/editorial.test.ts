@@ -340,7 +340,10 @@ describe('deterministic editorial candidates (off live path)', () => {
 		expect(JSON.stringify(issues(packet, unsafe))).toBe('[{"path":"","code":"invalid_draft_shape"}]');
 		expect(codes(packet, { ...draft(packet), quote: { ...draft(packet).quote, text: 'invented' } })).toContain('invalid_draft_shape');
 		expect(codes(packet, { ...draft(packet), quote: { ...draft(packet).quote, start: 0, end: 5 } })).toContain('invalid_draft_shape');
-		expect(editorialDraftSchema.safeParse({ ...draft(packet), manager: { ...input.manager, rosterIds: [] } }).success).toBe(false);
+		expect(editorialDraftSchema.safeParse({
+			...draft(packet),
+			manager: { ...input.manager, rosterIds: [] },
+		}).success).toBe(false);
 	});
 
 	it.each([

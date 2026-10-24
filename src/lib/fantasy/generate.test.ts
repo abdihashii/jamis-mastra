@@ -498,8 +498,22 @@ describe('renderWeekRecap', () => {
 		const long = 'team'.repeat(40);
 		const alpha = { rosterId: 1, userId: 'u1', displayName: `${long}a` };
 		const bravo = { rosterId: 2, userId: 'u2', displayName: `${long}b` };
-		const result = { a: alpha, b: bravo, aPoints: 120.5, bPoints: 97.25, margin: 23.25, winner: alpha, loser: bravo };
-		const facts = factsStub({ results: [result], high: { teams: [alpha], points: 120.5 }, low: { teams: [bravo], points: 97.25 }, closest: result, blowout: result });
+		const result = {
+			a: alpha,
+			b: bravo,
+			aPoints: 120.5,
+			bPoints: 97.25,
+			margin: 23.25,
+			winner: alpha,
+			loser: bravo,
+		};
+		const facts = factsStub({
+			results: [result],
+			high: { teams: [alpha], points: 120.5 },
+			low: { teams: [bravo], points: 97.25 },
+			closest: result,
+			blowout: result,
+		});
 		const story = (marker: string, fill: string) => ({
 			sentences: [
 				{ text: `${marker} ${fill.repeat(170)}.`, callbackMessageId: null },
@@ -520,8 +534,22 @@ describe('renderWeekRecap', () => {
 		const long = 'team'.repeat(300);
 		const alpha = { rosterId: 1, userId: 'u1', displayName: `${long}a` };
 		const bravo = { rosterId: 2, userId: 'u2', displayName: `${long}b` };
-		const result = { a: alpha, b: bravo, aPoints: 120.5, bPoints: 97.25, margin: 23.25, winner: alpha, loser: bravo };
-		const facts = factsStub({ results: [result], high: { teams: [alpha], points: 120.5 }, low: { teams: [bravo], points: 97.25 }, closest: result, blowout: result });
+		const result = {
+			a: alpha,
+			b: bravo,
+			aPoints: 120.5,
+			bPoints: 97.25,
+			margin: 23.25,
+			winner: alpha,
+			loser: bravo,
+		};
+		const facts = factsStub({
+			results: [result],
+			high: { teams: [alpha], points: 120.5 },
+			low: { teams: [bravo], points: 97.25 },
+			closest: result,
+			blowout: result,
+		});
 		expect(() => renderWeekRecap(facts, shapingOf(), context)).toThrow(RecapRenderError);
 	});
 
@@ -529,7 +557,15 @@ describe('renderWeekRecap', () => {
 		const facts = factsStub();
 		const charlie = { rosterId: 3, userId: 'u3', displayName: 'charlie' };
 		const delta = { rosterId: 4, userId: 'u4', displayName: 'delta' };
-		facts.results.push({ a: charlie, b: delta, aPoints: 110, bPoints: 86.75, margin: 23.25, winner: charlie, loser: delta });
+		facts.results.push({
+			a: charlie,
+			b: delta,
+			aPoints: 110,
+			bPoints: 86.75,
+			margin: 23.25,
+			winner: charlie,
+			loser: delta,
+		});
 		const text = renderWeekRecap(facts, shapingOf(), context);
 		expect(text).toContain('alpha 120.5, bravo 97.25; charlie 110, delta 86.75');
 	});

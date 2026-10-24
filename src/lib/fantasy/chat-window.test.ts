@@ -32,8 +32,14 @@ describe('shared queried reporting-window loader', () => {
 		if (first.status !== 'ready' || later.status !== 'ready')
 			throw new Error('Queried fixture required');
 		expect(first.window).toEqual(later.window);
-		expect(first.window).toEqual({ startAtUtc: new Date(fixture.current.startDate).toISOString(), endAtUtc: new Date(fixture.next.startDate).toISOString() });
-		expect(calls).toEqual([{ season: fixture.sleeper.season, phase: fixture.sleeper.phase }, { season: fixture.sleeper.season, phase: fixture.sleeper.phase }]);
+		expect(first.window).toEqual({
+			startAtUtc: new Date(fixture.current.startDate).toISOString(),
+			endAtUtc: new Date(fixture.next.startDate).toISOString(),
+		});
+		expect(calls).toEqual([{
+			season: fixture.sleeper.season,
+			phase: fixture.sleeper.phase,
+		}, { season: fixture.sleeper.season, phase: fixture.sleeper.phase }]);
 		expect(fetchSpy).toHaveBeenCalledTimes(6);
 	});
 	test('invalid or canceled scope never reads a schedule or falls back to collection time', async () => {

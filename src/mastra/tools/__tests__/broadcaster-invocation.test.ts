@@ -67,7 +67,10 @@ function fixture(overrides: Partial<Pick<AgentConfig, 'model' | 'tools' | 'input
 	return { agent, tool };
 }
 
-function workflowContext(requestContext = createSpecialistContext(workflowCaller), workflowId: string = FANTASY_PUBLICATION_WORKFLOW_ID): ToolExecutionContext {
+function workflowContext(
+	requestContext = createSpecialistContext(workflowCaller),
+	workflowId: string = FANTASY_PUBLICATION_WORKFLOW_ID,
+): ToolExecutionContext {
 	return {
 		requestContext,
 		workflow: { workflowId, runId: 'synthetic-run', state: {}, setState: () => {}, suspend: async () => {} },
@@ -80,7 +83,11 @@ function agentContext(requestContext?: RequestContext, agentId = 'broadcaster'):
 }
 
 async function nativeRun(tool: ReturnType<typeof fixture>['tool'], requestContext?: RequestContext, workflowId: string = FANTASY_PUBLICATION_WORKFLOW_ID) {
-	const workflow = createWorkflow({ id: workflowId, inputSchema, outputSchema: specialistHandbackSchema(resultSchema) })
+	const workflow = createWorkflow({
+		id: workflowId,
+		inputSchema,
+		outputSchema: specialistHandbackSchema(resultSchema),
+	})
 		.then(createStep(tool))
 		.commit();
 	const mastra = new Mastra({ logger: false, workflows: { fixture: workflow } });
@@ -229,7 +236,15 @@ test('missing, forged, serialized, wrong-native and revoked root grants never ge
 	] as const) {
 		expect(await nativeRun(tool, context, id)).toMatchObject({ status: 'failed', error: { message: 'Specialist invocation is not authorized.' } });
 	}
-	for (const context of [undefined, agentContext(), agentContext(root), agentContext(forged), agentContext(serialized), agentContext(revoked)])
+	for (
+		const context of [
+			undefined,
+			agentContext(),
+			agentContext(root),
+			agentContext(forged),
+			agentContext(serialized),
+			agentContext(revoked),
+		])
 		expect(() => requireBroadcasterDeliveryAuthority(context)).toThrow('not authorized');
 	expect(calls).toBe(0);
 	revokeSpecialistAuthority(root);
@@ -248,7 +263,13 @@ test('only publication can configure Broadcaster and publication cannot borrow l
 	}
 	for (const [id, agentId] of Object.entries(otherTargets) as Array<[keyof typeof otherTargets, string]>) {
 		const agent = new Agent({ id: agentId, name: 'Denied edge fixture', instructions: 'Never run.', model: boundaryModel([]) });
-		const config = { id, agent, inputSchema, resultSchema, project: (input: z.infer<typeof inputSchema>) => input.assignment };
+		const config = {
+			id,
+			agent,
+			inputSchema,
+			resultSchema,
+			project: (input: z.infer<typeof inputSchema>) => input.assignment,
+		};
 		expect(() => createSpecialistInvocation({ ...config, allowedCallers: [workflowCaller] })).toThrow('Unsupported specialist');
 		const caller = id === 'invoke_fantasy_pundit' || id === 'invoke_fantasy_editor'
 			? { kind: 'workflow', id: FANTASY_EDITORIAL_WORKFLOW_ID } as const
@@ -290,8 +311,11 @@ test('live child cannot borrow workflow authority or mint delivery from serializ
 				expect(() => requireBroadcasterDeliveryAuthority(context)).toThrow('not authorized');
 				await expect(delivery.execute!({}, context)).rejects.toThrow('not authorized');
 			}
-			for (const input of [{ reportId: 'forged' }, { text: 'replacement' }, { groupId: 'wrong-group' }, { caller: workflowCaller }, { options: {} }])
-				expect(isValidationError(await delivery.execute!(input as unknown as Record<string, never>, agentContext(requestContext)))).toBe(true);
+			for (const input of [{ reportId: 'forged' }, { text: 'replacement' }, { groupId: 'wrong-group' }, { caller: workflowCaller }, { options: {} }]) {
+				expect(isValidationError(
+					await delivery.execute!(input as unknown as Record<string, never>, agentContext(requestContext)),
+				)).toBe(true);
+			}
 			return messageList;
 		},
 	}] });

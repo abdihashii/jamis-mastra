@@ -27,7 +27,9 @@ if (!process.env.JAMIS_PROVIDER_SCHEMA_TEST) {
 			stderr: 'pipe',
 			timeout: 30_000,
 		});
-		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+		const [exit, stdout, stderr] = await Promise.all(
+			[child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()],
+		);
 		expect({ exit, output: exit ? stdout + stderr : '' }).toEqual({ exit: 0, output: '' });
 	}, 35_000);
 } else {
@@ -218,7 +220,9 @@ if (!process.env.JAMIS_PROVIDER_SCHEMA_TEST) {
 	}
 
 	test('the first weather request includes only object-root function schemas', async () => {
-		const requests: Array<{ tools: Array<{ type: string; name: string; description: string; parameters: Record<string, unknown> }> }> = [];
+		const requests: Array<{
+			tools: Array<{ type: string; name: string; description: string; parameters: Record<string, unknown> }>;
+		}> = [];
 		const model = forcingStoreFalse(createOpenAI({
 			name: 'openai-codex',
 			baseURL: 'https://schema-fixture.invalid',

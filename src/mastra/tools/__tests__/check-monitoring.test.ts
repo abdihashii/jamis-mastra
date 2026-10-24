@@ -246,7 +246,12 @@ describe('check monitoring', () => {
 		});
 		const direct = await checkMonitoringTool.execute!(
 			{ scope: 'application' },
-			{ mastra: { observability: { flush: async () => {} }, getStorage: () => ({ getStore: async () => failed.store }) } } as never,
+			{
+				mastra: {
+					observability: { flush: async () => {} },
+					getStorage: () => ({ getStore: async () => failed.store }),
+				},
+			} as never,
 		);
 		expect(direct).toMatchObject({ availability: 'available', recordedActivity: 'present', failedRuns: 1 });
 		expect(direct).not.toHaveProperty('status');
@@ -262,7 +267,14 @@ describe('check monitoring', () => {
 	});
 
 	test('distinguishes empty telemetry and missing optional token metrics from reported zero', async () => {
-		const empty = fixture({ completedRuns: 0, averageDurationMs: null, inputTokens: 0, inputTokenRecords: 0, outputTokens: 0, outputTokenRecords: 0 });
+		const empty = fixture({
+			completedRuns: 0,
+			averageDurationMs: null,
+			inputTokens: 0,
+			inputTokenRecords: 0,
+			outputTokens: 0,
+			outputTokenRecords: 0,
+		});
 		expect((await readMonitoring(async () => empty.store))).toMatchObject({
 			availability: 'available',
 			recordedActivity: 'none',

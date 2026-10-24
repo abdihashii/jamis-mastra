@@ -109,9 +109,14 @@ export async function runSpecialistClarificationFixture(mastra: Mastra, sql: Sql
 			continueResearch,
 			unavailable,
 		], (options) => {
-			const prompt = z.object({ prompt: z.array(z.object({ role: z.string(), content: z.unknown() })) }).parse(options).prompt;
+			const prompt = z.object({
+				prompt: z.array(z.object({ role: z.string(), content: z.unknown() })),
+			}).parse(options).prompt;
 			for (const message of prompt.filter(message => message.role === 'tool')) {
-				const parts = z.array(z.object({ type: z.string(), output: z.object({ value: z.unknown() }).optional() })).parse(message.content);
+				const parts = z.array(z.object({
+					type: z.string(),
+					output: z.object({ value: z.unknown() }).optional(),
+				})).parse(message.content);
 				for (const part of parts.filter(part => part.type === 'tool-result')) {
 					const value = part.output?.value;
 					try {
@@ -207,7 +212,10 @@ export async function runSpecialistClarificationFixture(mastra: Mastra, sql: Sql
 		const oldSession = (await currentThread()).id;
 		await send('/new');
 		assert.notEqual((await currentThread()).id, oldSession);
-		assert.equal((await memory.getThreadById({ threadId: oldSession }))?.metadata?.[specialistClarificationKey], null);
+		assert.equal(
+			(await memory.getThreadById({ threadId: oldSession }))?.metadata?.[specialistClarificationKey],
+			null,
+		);
 		const beforeDenied = publicPrompts.length;
 		await send('Mastra');
 		assert.equal(publicPrompts.length, beforeDenied);
@@ -221,7 +229,10 @@ export async function runSpecialistClarificationFixture(mastra: Mastra, sql: Sql
 		assert.equal(publicPrompts.length, beforeOtherSession, 'An unrelated non-tool reply supersedes the prior task.');
 
 		await send(original);
-		await memory.updateThreadMetadata({ id: (await currentThread()).id, update: thread => ({ ...thread.metadata, [specialistClarificationKey]: { corrupted: true } }) });
+		await memory.updateThreadMetadata({
+			id: (await currentThread()).id,
+			update: thread => ({ ...thread.metadata, [specialistClarificationKey]: { corrupted: true } }),
+		});
 		const beforeCorrupt = publicPrompts.length;
 		await send('Mastra');
 		assert.equal(publicPrompts.length, beforeCorrupt);
@@ -246,6 +257,13 @@ export async function runSpecialistClarificationFixture(mastra: Mastra, sql: Sql
 		await send('Mastra');
 		assert.equal(publicPrompts.length, beforeFailure, 'A failed intervening intake cannot reset the old Research task budget.');
 		assert.equal((await currentThread()).metadata?.[specialistClarificationKey], null);
-		return { priorResearchReused: true, originalResearchTaskPreserved: true, supersessionAndSessionIsolation: true, forgedAndCorruptStateDenied: true, storageFailureStopped: true, publicSourceReads: sourceReads };
+		return {
+			priorResearchReused: true,
+			originalResearchTaskPreserved: true,
+			supersessionAndSessionIsolation: true,
+			forgedAndCorruptStateDenied: true,
+			storageFailureStopped: true,
+			publicSourceReads: sourceReads,
+		};
 	} finally { await channels.sdk?.shutdown(); }
 }

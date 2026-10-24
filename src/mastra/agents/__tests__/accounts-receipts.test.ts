@@ -56,23 +56,34 @@ test('references resolve before unchanged record, omission, and coverage guards'
 	const handback = resolvedSchema.parse(resolvePersonalAccountsHandback(input, context));
 	expect(handback).toMatchObject({ result: { messages: [{ ...message, truncated: false }] } });
 	validatePersonalAccountsHandback(handback, { toolResults });
-	const omitted = resolvedSchema.parse(resolvePersonalAccountsHandback({ ...input, result: modelResult([]) }, context));
+	const omitted = resolvedSchema.parse(
+		resolvePersonalAccountsHandback({ ...input, result: modelResult([]) }, context),
+	);
 	expect(() => validatePersonalAccountsHandback(omitted, { toolResults })).toThrow('cannot omit');
 	if (handback.case !== 'completed')
 		throw new Error('Fixture completion required.');
 	handback.result.messages[0]!.body = 'Altered by an adapter.';
 	expect(() => validatePersonalAccountsHandback(handback, { toolResults })).toThrow('do not match');
-	for (const extra of [{ messages: [message] }, { body: 'Override' }])
-		expect(personalAccountsModelHandbackSchema.safeParse({ ...input, result: { ...input.result, ...extra } }).success).toBe(false);
+	for (const extra of [{ messages: [message] }, { body: 'Override' }]) {
+		expect(personalAccountsModelHandbackSchema.safeParse({
+			...input,
+			result: { ...input.result, ...extra },
+		}).success).toBe(false);
+	}
 	expect(personalAccountsModelHandbackSchema.safeParse({ ...input, result: modelResult(['invented']) }).success).toBe(false);
 	const missing = { ...message, body: undefined };
 	const mixed = recordAccountsGmailRead(context, { estimatedTotal: 3, messages: [message, missing, { ...message, body: 'Partial\n... (truncated)' }] });
 	const partial = { case: 'partial', result: { ...modelResult(mixed.messageRefs!), coverage: [{ source: 'gmail', status: 'unavailable', gaps: ['One body is missing; another is truncated.'] }] }, gaps: ['Incomplete source coverage.'] };
 	const mixedResults = [{ payload: { toolName: 'gmailSearchTool', result: mixed } }];
-	validatePersonalAccountsHandback(resolvedSchema.parse(resolvePersonalAccountsHandback(partial, context)), { toolResults: mixedResults });
+	validatePersonalAccountsHandback(
+		resolvedSchema.parse(resolvePersonalAccountsHandback(partial, context)),
+		{ toolResults: mixedResults },
+	);
 	for (const changed of [{ ...partial, case: 'completed', gaps: undefined }, { ...partial, result: { ...partial.result, coverage: input.result.coverage } }]) {
 		const resolved = resolvePersonalAccountsHandback(JSON.parse(JSON.stringify(changed)), context);
-		expect(() => validatePersonalAccountsHandback(resolvedSchema.parse(resolved), { toolResults: mixedResults })).toThrow();
+		expect(
+			() => validatePersonalAccountsHandback(resolvedSchema.parse(resolved), { toolResults: mixedResults }),
+		).toThrow();
 	}
 	revokeSpecialistAuthority(context);
 });
@@ -88,7 +99,9 @@ test('linked source references retain single-message, complete-body, caller, and
 	expect(() => requireAccountsReplySource({ ...context, agent: { ...context.agent, agentId: 'jamis' } }, read.messageRefs![0]!)).toThrow('native Accounts caller');
 	expect(() => requireAccountsReplySource(context, read.messageRefs![0]!)).toThrow('original Accounts task');
 	const proposal = { action: 'create', title: 'Fixture', description: 'Fixture', replySourceRef: read.messageRefs![0] };
-	expect((linearCreateProposalTool.inputSchema as z.ZodType).safeParse({ ...proposal, replySource: message }).success).toBe(false);
+	expect(
+		(linearCreateProposalTool.inputSchema as z.ZodType).safeParse({ ...proposal, replySource: message }).success,
+	).toBe(false);
 	revokeSpecialistAuthority(requestContext);
 	expect(() => requireAccountsReplySource(context, read.messageRefs![0]!)).toThrow('unavailable');
 });

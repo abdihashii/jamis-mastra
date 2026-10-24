@@ -15,7 +15,9 @@ const volumes = [`${id}-rg-ipc`, `${id}-jq-ipc`];
 let backendAvailable = false;
 async function docker(args: string[], allowFailure = false) {
 	const child = Bun.spawn(['docker', ...args], { stdout: 'pipe', stderr: 'pipe' });
-	const [exit, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+	const [exit, out, err] = await Promise.all(
+		[child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()],
+	);
 	if (!allowFailure)
 		assert.equal(exit, 0, `docker ${args[0]} failed: ${err.slice(-2000)}`);
 	return { exit, out, err };

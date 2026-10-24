@@ -49,7 +49,9 @@ describe('fantasyWeeklyRecapWorkflow', () => {
 	it('is the single daily step behind the 10:00 America/Chicago cron', () => {
 		expect(fantasyWeeklyRecapWorkflow.id).toBe('fantasy-weekly-recap');
 		expect(fantasyWeeklyRecapSchedule).toEqual({ cron: '0 10 * * *', timezone: 'America/Chicago', inputData: {} });
-		const schema = fantasyWeeklyRecapWorkflow.inputSchema as unknown as { safeParse: (v: unknown) => { success: boolean } };
+		const schema = fantasyWeeklyRecapWorkflow.inputSchema as unknown as {
+			safeParse: (v: unknown) => { success: boolean };
+		};
 		expect(schema.safeParse({}).success).toBe(true);
 	});
 });

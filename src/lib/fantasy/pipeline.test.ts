@@ -53,7 +53,12 @@ import {
 import { buildSavedReport, parseSavedReport } from './saved-report';
 import { dispatchSavedReport, readSavedReportReceipt } from './saved-report-delivery';
 
-const request = { config: editorialFixtureConfig, season: 2026, week: 1, window: reportingWindowFixture(editorialFixtureWindow) };
+const request = {
+	config: editorialFixtureConfig,
+	season: 2026,
+	week: 1,
+	window: reportingWindowFixture(editorialFixtureWindow),
+};
 const scope = {
 	leagueId: editorialFixtureConfig.sleeperLeagueId,
 	groupId: editorialFixtureConfig.sendblueGroupId,
@@ -282,8 +287,14 @@ describe.skipIf(!databaseUrl)('pipeline native PostgreSQL + scripted private Ast
 	async function unpublished() {
 		const snap = await snapshot();
 		expect(snap.history).toEqual([]);
-		for (const run of snap.runs)
-			expect(run.row).toMatchObject({ saved_report: null, part_delivery: null, final_text: null, send_attempt_at: null });
+		for (const run of snap.runs) {
+			expect(run.row).toMatchObject({
+				saved_report: null,
+				part_delivery: null,
+				final_text: null,
+				send_attempt_at: null,
+			});
+		}
 	}
 	async function save(report = reports[0]!) {
 		expect((await claimRun(scope.leagueId, scope.week, 'saved-owner', expires(), null, sql)).claimed).toBe(true);
@@ -372,10 +383,12 @@ describe.skipIf(!databaseUrl)('pipeline native PostgreSQL + scripted private Ast
 				return options.send ? options.send(sent.length - 1) : accepted(`fixture-${sent.length}`);
 			},
 		});
-		const sleeper = Object.fromEntries(Object.entries(editorialFixtureSleeper).map(([key, method]) => [key, (...args: unknown[]) => {
-			events.source++;
-			return Reflect.apply(method, editorialFixtureSleeper, args);
-		}])) as NonNullable<PipelineDeps['sleeper']>;
+		const sleeper = Object.fromEntries(
+			Object.entries(editorialFixtureSleeper).map(([key, method]) => [key, (...args: unknown[]) => {
+				events.source++;
+				return Reflect.apply(method, editorialFixtureSleeper, args);
+			}]),
+		) as NonNullable<PipelineDeps['sleeper']>;
 		const deps: PipelineDeps = {
 			sql: database.sql,
 			sleeper,

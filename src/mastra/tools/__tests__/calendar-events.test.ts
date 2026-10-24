@@ -462,7 +462,10 @@ describe('calendarEventsTool wiring', () => {
 		});
 		const raw = calendarEventsTool.execute;
 		expect(raw).toBeDefined();
-		const result = await (raw as unknown as (input: { daysAhead?: number; q?: string }, ctx: { abortSignal?: AbortSignal }) => Promise<unknown>)({}, {});
+		const result = await (raw as unknown as (
+			input: { daysAhead?: number; q?: string },
+			ctx: { abortSignal?: AbortSignal },
+		) => Promise<unknown>)({}, {});
 		expect((result as { events: Array<{ title: string }> }).events[0].title).toBe('Through execute');
 	});
 });

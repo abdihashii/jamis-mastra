@@ -335,7 +335,10 @@ describe('bounded incident reader', () => {
 			const row = traceRow({ entityId: component, spanType });
 			const result = await readIncident({ kind: 'application', component, window: { start, end } }, {
 				flush: async () => {},
-				getStore: async () => storeFixture({ branches: [row], structures: new Map([[row.traceId, structure(row)]]) }),
+				getStore: async () => storeFixture({
+					branches: [row],
+					structures: new Map([[row.traceId, structure(row)]]),
+				}),
 			});
 			expect(result).toMatchObject({ status: 'found', incident: { component, stage: spanType === SpanType.TOOL_CALL ? 'tool' : 'agent', classification: 'execution_failed' } });
 			expect(JSON.stringify(result)).not.toContain(rawDiagnostic);
@@ -480,7 +483,10 @@ describe('bounded incident reader', () => {
 
 	test('denies preceding-request capability to Studio and subagent tool calls', async () => {
 		let flushed = 0;
-		const execute = async (requestContext: MastraRequestContext, agentId?: string) => await triageIncidentTool.execute!(
+		const execute = async (
+			requestContext: MastraRequestContext,
+			agentId?: string,
+		) => await triageIncidentTool.execute!(
 			{ kind: 'preceding_request', component: 'jamis', window: null, humanDomainReference: null },
 			{
 				...(agentId ? { agent: { agentId } } : {}),
@@ -683,7 +689,9 @@ describe('bounded incident reader', () => {
 			spanId: 'span-empty-reply',
 			metadata: { stage: 'reply_generation', classification: 'failed', planted: rawDiagnostic },
 		});
-		const result = await withPrecedingCapability(storeFixture({ roots: [agent, channel], structures: new Map([[agent.traceId, structure(agent)]]) }));
+		const result = await withPrecedingCapability(
+			storeFixture({ roots: [agent, channel], structures: new Map([[agent.traceId, structure(agent)]]) }),
+		);
 		expect(result).toMatchObject({
 			status: 'found',
 			incident: { component: 'sendblue-channel', stage: 'reply_generation', classification: 'execution_failed', impact: 'request_failed', cause: 'reply_not_generated', traceReference: { traceId: channel.traceId, spanId: channel.spanId } },
@@ -788,7 +796,11 @@ describe('bounded incident reader', () => {
 					getStore: async () => storeFixture({
 						branches: [tool],
 						structures: new Map([[tool.traceId, structure(tool)]]),
-						onBranches: (args) => { queriedEntityId = (args as { filters?: { entityId?: string } }).filters?.entityId; },
+						onBranches: (args) => {
+							queriedEntityId = (args as {
+								filters?: { entityId?: string };
+							}).filters?.entityId;
+						},
 					}),
 				},
 			);

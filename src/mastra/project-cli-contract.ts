@@ -13,7 +13,14 @@ export async function checkedProjectPath(root: string, path: string) {
 	return target;
 }
 // Shared wire policy only: this module must not import app initialization or dependencies.
-export const limits = { wallMs: 10000, streamBytes: 65536, expressionBytes: 4096, jsonBytes: 4 * 1024 * 1024, requestBytes: 6 * 1024 * 1024, responseBytes: 512 * 1024 };
+export const limits = {
+	wallMs: 10000,
+	streamBytes: 65536,
+	expressionBytes: 4096,
+	jsonBytes: 4 * 1024 * 1024,
+	requestBytes: 6 * 1024 * 1024,
+	responseBytes: 512 * 1024,
+};
 export interface ProjectView { generation: string; preparedAt: string }
 export type Operation = { operation: 'search' | 'files' | 'count'; path: string; pattern: string; globs?: string[]; ignoreCase?: boolean; literal?: boolean } | { operation: 'jq'; path: string; filter: string };
 export type Failure = 'denied' | 'missing' | 'unavailable' | 'invalid' | 'limit' | 'busy';

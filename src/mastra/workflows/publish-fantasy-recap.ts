@@ -58,7 +58,11 @@ export function createFantasyPublicationProcedure(parent: Mastra, config: {
 }) {
 	const mastra = new StorageFreeRuntime(parent);
 	const { leagueId, groupId, sql, sendExact } = config;
-	return async (value: SavedReportReference, claimToken: string, callerSignal?: AbortSignal): Promise<PublicationResult> => {
+	return async (
+		value: SavedReportReference,
+		claimToken: string,
+		callerSignal?: AbortSignal,
+	): Promise<PublicationResult> => {
 		const reference = Object.freeze({ ...value });
 		const denied = (reason: string): PublicationResult => ({ contribution: failed(), receipt: {
 			status: 'blocked',
@@ -82,7 +86,10 @@ export function createFantasyPublicationProcedure(parent: Mastra, config: {
 		} catch {
 			return denied('saved_report_unavailable');
 		}
-		const signal = AbortSignal.any([AbortSignal.timeout(FANTASY_BROADCAST_LIMITS.callMs), ...(callerSignal ? [callerSignal] : [])]);
+		const signal = AbortSignal.any([
+			AbortSignal.timeout(FANTASY_BROADCAST_LIMITS.callMs),
+			...(callerSignal ? [callerSignal] : []),
+		]);
 		let delivery: Promise<SavedReportReceipt> | undefined;
 		let receipt: SavedReportReceipt | undefined;
 		let contribution: PublicationResult['contribution'] = failed();
@@ -98,7 +105,13 @@ export function createFantasyPublicationProcedure(parent: Mastra, config: {
 				execute: async (_, context) => {
 					requireBroadcasterDeliveryAuthority(context);
 					// Memoize before dispatch can enter any asynchronous owner or sender.
-					delivery ??= Promise.resolve().then(() => dispatchSavedReport(reference, claimToken, sql, sendExact, context.abortSignal ?? signal));
+					delivery ??= Promise.resolve().then(() => dispatchSavedReport(
+						reference,
+						claimToken,
+						sql,
+						sendExact,
+						context.abortSignal ?? signal,
+					));
 					return delivery;
 				},
 			});
@@ -112,8 +125,13 @@ export function createFantasyPublicationProcedure(parent: Mastra, config: {
 				validate: async (handback) => {
 					const actual = delivery && await delivery;
 					if (handback.case === 'completed' || handback.case === 'partial') {
-						if (!actual || handback.result.reportId !== actual.reportId || handback.result.status !== actual.status)
+						if (
+							!actual
+							|| handback.result.reportId !== actual.reportId
+							|| handback.result.status !== actual.status
+						) {
 							throw new Error('Broadcaster contribution does not match delivery.');
+						}
 					}
 				},
 			});
@@ -132,11 +150,14 @@ export function createFantasyPublicationProcedure(parent: Mastra, config: {
 				retries: 0,
 				execute: async (context) => {
 					try {
-						const result = await normalizeSpecialistResult(broadcasterResultSchema, () => nativeStep.execute({
-							...context,
-							inputData: {},
-							bail: () => { throw new Error('Private publication cannot bail'); },
-						}));
+						const result = await normalizeSpecialistResult(
+							broadcasterResultSchema,
+							() => nativeStep.execute({
+								...context,
+								inputData: {},
+								bail: () => { throw new Error('Private publication cannot bail'); },
+							}),
+						);
 						return publicationHandbackSchema.parse(result);
 					} catch {
 						return failed();

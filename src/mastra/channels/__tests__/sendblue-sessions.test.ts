@@ -331,11 +331,15 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 			expect(fixture.prompts).toHaveLength(1);
 			const group = { ...active, group_id: fantasyConfig.sendblueGroupId, content: '/new', message_handle: randomUUID() };
 			const groupNext = { ...group, content: 'PASSIVE GROUP SENTINEL', message_handle: randomUUID() };
-			const groups = await Promise.all([webhook(fixture, group), webhook(fixture, groupNext), webhook(fixture, group)]);
+			const groups = await Promise.all(
+				[webhook(fixture, group), webhook(fixture, groupNext), webhook(fixture, group)],
+			);
 			await Promise.all(groups.map(item => item.completion));
 			const groupMessages = await memory.listMessages({ threadId: `fantasy-group-${fantasyConfig.sendblueGroupId}` });
 			expect(groupMessages.total).toBe(2);
-			expect(groupMessages.messages.map(item => item.id).sort()).toEqual([group.message_handle, groupNext.message_handle].sort());
+			expect(groupMessages.messages.map(item => item.id).sort()).toEqual(
+				[group.message_handle, groupNext.message_handle].sort(),
+			);
 			expect(fixture.prompts).toHaveLength(1);
 			expect((await memory.listThreads({ filter: { metadata: { ...coordinates(thread), channel_ownerId: 'jamis' } } })).total).toBe(1);
 			release.resolve();
@@ -343,7 +347,9 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 			expect(http.replies).toEqual(['Fixture reply.', NEW_SESSION_SUCCESS, 'Fixture reply.']);
 			expect(fixture.prompts).toHaveLength(2);
 			expect(JSON.stringify(fixture.prompts[1])).toContain('FOLLOWING DM SENTINEL');
-			expect(JSON.stringify(fixture.prompts[1])).not.toMatch(/ACTIVE DM SENTINEL|\/new|New session started|PASSIVE GROUP SENTINEL/);
+			expect(JSON.stringify(fixture.prompts[1])).not.toMatch(
+				/ACTIVE DM SENTINEL|\/new|New session started|PASSIVE GROUP SENTINEL/,
+			);
 			const fresh = (await memory.listThreads({ filter: { metadata: { ...coordinates(thread), channel_ownerId: 'jamis' } }, perPage: 1 })).threads[0];
 			expect(fresh.id).not.toBe(old.id);
 			expect(fresh.resourceId).toBe(old.resourceId);

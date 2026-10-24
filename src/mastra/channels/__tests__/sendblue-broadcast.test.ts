@@ -46,7 +46,9 @@ if (!process.env.FANTASY_BROADCAST_CONTRACT_TEST) {
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
-		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+		const [exit, stdout, stderr] = await Promise.all(
+			[child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()],
+		);
 		expect({ exit, output: exit === 0 ? '' : stdout + stderr }).toEqual({ exit: 0, output: '' });
 	}, 120000);
 } else {
@@ -173,7 +175,12 @@ if (!process.env.FANTASY_BROADCAST_CONTRACT_TEST) {
 		const channels = agent.getChannels()!;
 		await channels.initialize(mastra);
 		const line = `+1555${Math.floor(1000000 + Math.random() * 8999999)}`;
-		async function send(text: string, id: string = randomUUID(), overrides: Record<string, unknown> = {}, addHistory = true) {
+		async function send(
+			text: string,
+			id: string = randomUUID(),
+			overrides: Record<string, unknown> = {},
+			addHistory = true,
+		) {
 			const payload = { message_handle: id, content: text, from_number: process.env.JAMIS_ALLOWED_NUMBER!, to_number: line, group_id: '', is_outbound: false, status: 'RECEIVED', service: 'iMessage', date_sent: new Date().toISOString(), ...overrides };
 			const message = adapter.parseMessage(payload as never);
 			if (addHistory)

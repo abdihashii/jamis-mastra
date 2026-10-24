@@ -18,9 +18,13 @@ import { hasNewerActiveRun, withFantasyLeagueLock } from './runs';
 import { buildSavedReport } from './saved-report';
 
 const safeCode = z.string().regex(/^[a-z][a-z0-9_:.-]{0,99}$/);
-const sameScope = (a: SavedReportScope, b: SavedReportScope) => a.leagueId === b.leagueId && a.groupId === b.groupId && a.season === b.season && a.week === b.week;
+function sameScope(a: SavedReportScope, b: SavedReportScope) {
+	return a.leagueId === b.leagueId && a.groupId === b.groupId && a.season === b.season && a.week === b.week;
+}
 const counter = { nfl: 'nfl', writer: 'drafts', reviewer: 'reviews' } as const;
-const lateCall = (call: GenerationCall) => call.settledAtUtc !== null && Date.parse(call.settledAtUtc) >= Date.parse(call.deadlineAtUtc);
+function lateCall(call: GenerationCall) {
+	return call.settledAtUtc !== null && Date.parse(call.settledAtUtc) >= Date.parse(call.deadlineAtUtc);
+}
 
 /** Private owner state, never a monitoring, agent-tool or HTTP response. */
 export interface GenerationRunState {
@@ -63,10 +67,22 @@ export async function getGenerationRun(scope: SavedReportScope, sql: SqlLike): P
 		|| (['collecting', 'editorial'].includes(generation.current.phase) && row.status !== 'started')) {
 		throw new Error('invalid_generation_state');
 	}
-	return { generation, status: row.status, claimToken: row.claim_token, leaseStamp: row.lease_stamp, leaseCurrent: row.lease_current === true, nowUtc: row.db_now.toISOString(), publicationExists: row.publication_exists };
+	return {
+		generation,
+		status: row.status,
+		claimToken: row.claim_token,
+		leaseStamp: row.lease_stamp,
+		leaseCurrent: row.lease_current === true,
+		nowUtc: row.db_now.toISOString(),
+		publicationExists: row.publication_exists,
+	};
 }
 
-function owned(before: GenerationRunState | null, ref: GenerationAttemptRef, token: string): before is GenerationRunState {
+function owned(
+	before: GenerationRunState | null,
+	ref: GenerationAttemptRef,
+	token: string,
+): before is GenerationRunState {
 	return !!before && before.generation.current.id === ref.attemptId && before.status === 'started'
 		&& before.claimToken === token && before.leaseCurrent && !before.publicationExists
 		&& ['collecting', 'editorial'].includes(before.generation.current.phase)
@@ -276,7 +292,13 @@ export async function claimGenerationAttempt(
 }
 
 /** Call ordinals are expected by the caller: a recreated loop starting at one cannot resume a used budget. */
-export async function reserveGenerationCall(ref: GenerationAttemptRef, token: string, kind: GenerationCallKind, ordinal: number, sql: SqlLike) {
+export async function reserveGenerationCall(
+	ref: GenerationAttemptRef,
+	token: string,
+	kind: GenerationCallKind,
+	ordinal: number,
+	sql: SqlLike,
+) {
 	if (!['nfl', 'writer', 'reviewer'].includes(kind) || !Number.isInteger(ordinal) || ordinal < 1 || ordinal > 3)
 		return null;
 	const enteredAt = performance.now();
@@ -302,14 +324,27 @@ export async function reserveGenerationCall(ref: GenerationAttemptRef, token: st
 				if (!packet.admission.canDraft || packet.status === 'blocked')
 					return null;
 				current.phase = 'editorial';
-				current.editorialDeadlineAtUtc ??= new Date(Math.min(Date.parse(current.workDeadlineAtUtc), Date.parse(before.nowUtc) + FANTASY_EDITORIAL_LIMITS.totalMs)).toISOString();
+				current.editorialDeadlineAtUtc
+					??= new Date(
+						Math
+							.min(
+								Date.parse(current.workDeadlineAtUtc),
+								Date.parse(before.nowUtc) + FANTASY_EDITORIAL_LIMITS.totalMs,
+							),
+					).toISOString();
 				if (current.editorialDeadlineAtUtc <= before.nowUtc)
 					return null;
 			}
 			current.paidWorkAtUtc ??= before.nowUtc;
 			const deadline = kind === 'nfl'
 				? current.workDeadlineAtUtc
-				: new Date(Math.min(Date.parse(current.editorialDeadlineAtUtc!), Date.parse(before.nowUtc) + FANTASY_EDITORIAL_LIMITS.callMs)).toISOString();
+				: new Date(
+						Math
+							.min(
+								Date.parse(current.editorialDeadlineAtUtc!),
+								Date.parse(before.nowUtc) + FANTASY_EDITORIAL_LIMITS.callMs,
+							),
+					).toISOString();
 			const call = { id: randomUUID(), kind, ordinal, state: 'reserved' as const, atUtc: before.nowUtc, deadlineAtUtc: deadline, settledAtUtc: null, code: null };
 			current.calls.push(call);
 			current.counts[key]++;
@@ -328,7 +363,12 @@ export async function reserveGenerationCall(ref: GenerationAttemptRef, token: st
 	}
 }
 
-export async function captureGenerationPacket(ref: GenerationAttemptRef, token: string, packet: RecapEvidencePacket, sql: SqlLike): Promise<boolean> {
+export async function captureGenerationPacket(
+	ref: GenerationAttemptRef,
+	token: string,
+	packet: RecapEvidencePacket,
+	sql: SqlLike,
+): Promise<boolean> {
 	return withFantasyLeagueLock(ref.leagueId, sql, async (tx) => {
 		const before = await getGenerationRun(ref, tx);
 		if (!owned(before, ref, token))
@@ -366,7 +406,14 @@ export async function recordGenerationOutput(ref: GenerationAttemptRef, callId: 
 				const existing = bundle.outputs.find(item => item.callId === callId);
 				if (existing)
 					return existing.valueJson === valueJson && existing.contributionCase === contributionCase;
-				bundle.outputs.push({ callId, kind: call.kind, ordinal: call.ordinal, contributionCase, valueJson, atUtc: before.nowUtc });
+				bundle.outputs.push({
+					callId,
+					kind: call.kind,
+					ordinal: call.ordinal,
+					contributionCase,
+					valueJson,
+					atUtc: before.nowUtc,
+				});
 				call.state = contributionCase === 'failed' ? 'failed' : 'completed';
 				call.settledAtUtc = before.nowUtc;
 				call.code = lateCall(call) ? 'call_deadline_exceeded' : contributionCase === 'completed' ? null : contributionCase === 'failed' ? failureCode : `contribution:${contributionCase}`;
@@ -386,7 +433,13 @@ export async function recordGenerationOutput(ref: GenerationAttemptRef, callId: 
 	return false;
 }
 
-export async function blockGenerationAttempt(ref: GenerationAttemptRef, token: string, reason: string, sql: SqlLike, sourceRetryable = false): Promise<boolean> {
+export async function blockGenerationAttempt(
+	ref: GenerationAttemptRef,
+	token: string,
+	reason: string,
+	sql: SqlLike,
+	sourceRetryable = false,
+): Promise<boolean> {
 	const code = safeCode.parse(reason);
 	return withFantasyLeagueLock(ref.leagueId, sql, async (tx) => {
 		const before = await getGenerationRun(ref, tx);
@@ -419,8 +472,12 @@ export async function recoverGenerationAttempt(scope: SavedReportScope, sql: Sql
 export async function markGenerationNotified(ref: GenerationAttemptRef, sql: SqlLike): Promise<boolean> {
 	return withFantasyLeagueLock(ref.leagueId, sql, async (tx) => {
 		const before = await getGenerationRun(ref, tx);
-		if (!before || before.generation.current.id !== ref.attemptId || before.generation.current.notifiedAtUtc !== null)
+		if (
+			!before
+			|| before.generation.current.id !== ref.attemptId || before.generation.current.notifiedAtUtc !== null
+		) {
 			return false;
+		}
 		const next = structuredClone(before.generation);
 		next.current.notifiedAtUtc = before.nowUtc;
 		return replaceGeneration(before, next, tx, { diagnostic: true });
@@ -433,13 +490,20 @@ export async function readGenerationDebug(ref: GenerationAttemptRef, sql: SqlLik
 	return before ? retainedGenerationDebug(before.generation, ref.attemptId, before.nowUtc) : null;
 }
 
-export async function findGenerationReference(leagueId: string, week: number, groupId: string, attemptId: string, sql: SqlLike): Promise<GenerationAttemptRef | null> {
+export async function findGenerationReference(
+	leagueId: string,
+	week: number,
+	groupId: string,
+	attemptId: string,
+	sql: SqlLike,
+): Promise<GenerationAttemptRef | null> {
 	const [row] = await sql`SELECT editorial_attempt FROM fantasy_recap_runs WHERE league_id = ${leagueId} AND fantasy_week = ${week}` as { editorial_attempt: unknown }[];
 	if (!row || row.editorial_attempt == null)
 		return null;
 	const state = parseGenerationState(row.editorial_attempt);
 	const attempt = [state.current, ...state.prior].find(item => item.id === attemptId);
-	return attempt && attempt.scope.leagueId === leagueId && attempt.scope.groupId === groupId && attempt.scope.week === week
+	return attempt
+		&& attempt.scope.leagueId === leagueId && attempt.scope.groupId === groupId && attempt.scope.week === week
 		? { ...attempt.scope, attemptId }
 		: null;
 }
@@ -480,10 +544,23 @@ export function generationApprovalState(before: GenerationRunState, report: Save
 		const next = parseGenerationState(before.generation);
 		const meta = next.current;
 		const bundle = next.debug[meta.id];
-		if (meta.calendarProof === undefined || !before.leaseCurrent || before.status !== 'started' || before.publicationExists || meta.phase !== 'editorial'
-			|| before.nowUtc >= meta.workDeadlineAtUtc || !meta.editorialDeadlineAtUtc || before.nowUtc >= meta.editorialDeadlineAtUtc
-			|| !sameScope(meta.scope, report.scope) || meta.evidenceId !== report.evidenceId || meta.candidateId !== report.candidateId
-			|| !bundle?.packetJson || meta.calls.some(call => lateCall(call) || (call.kind !== 'nfl' && call.state !== 'completed'))) {
+		if (
+			meta.calendarProof === undefined
+			|| !before.leaseCurrent
+			|| before.status !== 'started'
+			|| before.publicationExists
+			|| meta.phase !== 'editorial'
+			|| before.nowUtc >= meta.workDeadlineAtUtc
+			|| !meta.editorialDeadlineAtUtc
+			|| before.nowUtc >= meta.editorialDeadlineAtUtc
+			|| !sameScope(meta.scope, report.scope)
+			|| meta.evidenceId !== report.evidenceId
+			|| meta.candidateId !== report.candidateId
+			|| !bundle?.packetJson
+			|| meta.calls.some(
+				call => lateCall(call) || (call.kind !== 'nfl' && call.state !== 'completed'),
+			)
+		) {
 			return null;
 		}
 		const packet = freeze(JSON.parse(bundle.packetJson)) as RecapEvidencePacket;

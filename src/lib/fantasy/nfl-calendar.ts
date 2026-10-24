@@ -10,7 +10,13 @@ const CORE = 'https://sports.core.api.espn.com/v2/sports/football/leagues/nfl';
 const SITE = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const minute = z.iso.datetime({ precision: -1 });
-const periodSchema = z.object({ $ref: z.url(), number: z.number().int(), startDate: minute, endDate: minute, text: z.string().max(100) });
+const periodSchema = z.object({
+	$ref: z.url(),
+	number: z.number().int(),
+	startDate: minute,
+	endDate: minute,
+	text: z.string().max(100),
+});
 const seasonSchema = z.object({ year: z.number().int(), type: z.number().int() });
 const weekSchema = z.object({ number: z.number().int() });
 const statusSchema = z.object({ type: z.object({ name: z.string().max(80), state: z.enum(['pre', 'in', 'post']), completed: z.boolean() }) });
@@ -79,7 +85,12 @@ export const nflCalendarProofSchema: z.ZodType<NflCalendarProof> = z.object({
 }).strict();
 
 /** Historical proof parsing grants no execution authority and never re-queries or changes its timestamps. */
-export function parseNflCalendarProof(value: unknown, season: number, fantasyWeek: number, window: ChatWindow): NflCalendarProof {
+export function parseNflCalendarProof(
+	value: unknown,
+	season: number,
+	fantasyWeek: number,
+	window: ChatWindow,
+): NflCalendarProof {
 	try {
 		const source = nflCalendarProofSchema.parse(value);
 		const regular = season >= 2021 ? 18 : 17;
@@ -88,15 +99,20 @@ export function parseNflCalendarProof(value: unknown, season: number, fantasyWee
 		const type = fantasyWeek <= regular ? 2 : 3;
 		const local = type === 2 ? fantasyWeek : fantasyWeek - regular;
 		const current: Scope = { season, type, week: type === 3 && local === 4 ? 5 : local };
-		const next: Scope = type === 2 && local === regular ? { season, type: 3, week: 1 } : { ...current, week: current.week + 1 };
+		const next: Scope = type === 2 && local === regular
+			? { season, type: 3, week: 1 }
+			: { ...current, week: current.week + 1 };
 		for (const [actual, expected] of [[source.current, current], [source.next, next]] as const) {
 			const label = expected.type === 2
 				? `Week ${expected.week}`
 				: ({ 1: 'Wild Card', 2: 'Divisional Round', 3: 'Conference Championship', 4: 'Pro Bowl', 5: 'Super Bowl' } as Record<number, string>)[expected.week];
-			requireValue(actual.url === calendarUrl(expected) && actual.providerWeek === expected.week && actual.label === label
+			requireValue(
+				actual.url === calendarUrl(expected) && actual.providerWeek === expected.week && actual.label === label
 				&& actual.startAtUtc < actual.lastMinuteAtUtc
 				&& [actual.startAtUtc, actual.lastMinuteAtUtc].every(date => date.endsWith(':00.000Z')
-					&& [season, season + 1].includes(Number(date.slice(0, 4)))), 'calendar_source_invalid');
+					&& [season, season + 1].includes(Number(date.slice(0, 4)))),
+				'calendar_source_invalid',
+			);
 		}
 		requireValue(source.current.startAtUtc === window.startAtUtc && source.next.startAtUtc === window.endAtUtc
 			&& Date.parse(source.current.lastMinuteAtUtc) + 60_000 === Date.parse(source.next.startAtUtc), 'calendar_boundary_conflict');
@@ -176,9 +192,12 @@ function gamesInWindow(raw: unknown, scope: Scope, snapshot: SleeperScheduleSnap
 	const used = new Set<string>();
 	return value.events.map((event) => {
 		const competition = event.competitions[0]!;
-		requireValue(event.season.year === scope.season && event.season.type === scope.type && event.week.number === scope.week
+		requireValue(
+			event.season.year === scope.season && event.season.type === scope.type && event.week.number === scope.week
 			&& competition.id === event.id && competition.date === event.date
-			&& JSON.stringify(competition.status) === JSON.stringify(event.status), 'calendar_source_invalid');
+			&& JSON.stringify(competition.status) === JSON.stringify(event.status),
+			'calendar_source_invalid',
+		);
 		requireValue(event.status.type.completed && event.status.type.state === 'post' && event.status.type.name === 'STATUS_FINAL', 'calendar_games_unclosed');
 		const home = nflTeamCode(competition.competitors.find(team => team.homeAway === 'home')?.team.abbreviation ?? '');
 		const away = nflTeamCode(competition.competitors.find(team => team.homeAway === 'away')?.team.abbreviation ?? '');
@@ -196,7 +215,12 @@ function gamesInWindow(raw: unknown, scope: Scope, snapshot: SleeperScheduleSnap
 }
 
 /** Queried calendar periods, not final-whistle timestamps. Week is local to the supplied Sleeper phase. */
-export async function readNflReportingWindow(snapshot: SleeperScheduleSnapshot, week: number, now: Date, signal?: AbortSignal): Promise<NflReportingWindow> {
+export async function readNflReportingWindow(
+	snapshot: SleeperScheduleSnapshot,
+	week: number,
+	now: Date,
+	signal?: AbortSignal,
+): Promise<NflReportingWindow> {
 	const parsed = sleeperScheduleSchema.safeParse(snapshot);
 	const year = parsed.success ? Number(parsed.data.season) : Number.NaN;
 	const regularWeeks = year >= 2021 ? 18 : 17;
@@ -209,7 +233,11 @@ export async function readNflReportingWindow(snapshot: SleeperScheduleSnapshot, 
 	// ESPN's fourth postseason period is Pro Bowl; Sleeper's fourth game week is Super Bowl.
 	const currentScope = { season: year, type: snapshot.phase === 'regular' ? 2 : 3, week: snapshot.phase === 'post' && week === 4 ? 5 : week };
 	const transition = currentScope.type === 2 && week === regularWeeks;
-	const nextScope = { season: year, type: transition ? 3 : currentScope.type, week: transition ? 1 : currentScope.week + 1 };
+	const nextScope = {
+		season: year,
+		type: transition ? 3 : currentScope.type,
+		week: transition ? 1 : currentScope.week + 1,
+	};
 	const controller = new AbortController();
 	const deadline = AbortSignal.any([controller.signal, AbortSignal.timeout(20_000), ...(signal ? [signal] : [])]);
 	try {

@@ -18,7 +18,18 @@ try {
 		] as const) {
 			const result = await linearReadTool.execute!(linearReadInputSchema.parse(input), { observe: noopObserve });
 			if (result && 'status' in result) {
-				console.log(JSON.stringify({ action: input.action, status: result.status, partial: result.partial, nextCursor: result.nextCursor, identifier: result.issue?.identifier, state: result.issue?.state, issues: result.issues?.map(issue => issue.identifier), comments: result.comments?.length, attachments: result.attachments?.length, reason: result.reason }));
+				console.log(JSON.stringify({
+					action: input.action,
+					status: result.status,
+					partial: result.partial,
+					nextCursor: result.nextCursor,
+					identifier: result.issue?.identifier,
+					state: result.issue?.state,
+					issues: result.issues?.map(issue => issue.identifier),
+					comments: result.comments?.length,
+					attachments: result.attachments?.length,
+					reason: result.reason,
+				}));
 				if (result.status !== ('reference' in input && input.reference === 'OUTSIDE-1' ? 'denied' : 'ok'))
 					throw new Error('Unexpected smoke outcome');
 			} else {

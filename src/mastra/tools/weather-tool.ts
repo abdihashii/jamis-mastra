@@ -1,7 +1,7 @@
-import type { SqlLike } from '../../lib/operator-time-zone';
-
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+
+import type { SqlLike } from '../../lib/operator-time-zone';
 
 import { fetchJson } from '../../lib/fetch';
 import { geocodeQueries, zipQuery } from '../../lib/geocode';
@@ -164,7 +164,13 @@ async function geocode(location: string, signal?: AbortSignal): Promise<GeoResul
 		}
 		const z = res.json as Partial<GeoResult> | null;
 		if (z && typeof z.lat === 'number' && typeof z.lon === 'number') {
-			return { name: z.name ?? zip.zip, state: z.state, country: z.country ?? zip.country, lat: z.lat, lon: z.lon };
+			return {
+				name: z.name ?? zip.zip,
+				state: z.state,
+				country: z.country ?? zip.country,
+				lat: z.lat,
+				lon: z.lon,
+			};
 		}
 		throw notFound(location);
 	}

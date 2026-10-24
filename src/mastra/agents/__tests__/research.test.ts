@@ -15,7 +15,9 @@ if (!process.env.RESEARCH_AGENT_CONTRACT_TEST) {
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
-		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+		const [exit, stdout, stderr] = await Promise.all(
+			[child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()],
+		);
 		expect({ exit, output: exit === 0 ? '' : stdout + stderr }).toEqual({ exit: 0, output: '' });
 	}, 10_000);
 } else {
@@ -26,7 +28,9 @@ if (!process.env.RESEARCH_AGENT_CONTRACT_TEST) {
 		let failingCapability = 'search';
 		const upstreamDiagnostic = 'raw upstream diagnostic fc-fixture';
 		const server = Bun.serve({ port: 0, async fetch(request) {
-			const { alexandria: [call] } = await request.json() as { alexandria: Array<{ provider: string; capability: string }> };
+			const { alexandria: [call] } = await request.json() as {
+				alexandria: Array<{ provider: string; capability: string }>;
+			};
 			calls.push(call!.capability);
 			if (call!.capability === failingCapability) {
 				const status = { upstream_error: 503, access_denied: 401, unknown_outcome: 408 }[sourceOutcome];
@@ -47,7 +51,10 @@ if (!process.env.RESEARCH_AGENT_CONTRACT_TEST) {
 				: call!.capability === 'read'
 					? { success: true, paperId: '123', paper: { paperId: '123', primaryId: 'arxiv:2005.11401', title: 'Fixture paper' }, passages: [{ text: 'An explicit passage finding.' }] }
 					: { success: true, partial: sourceOutcome === 'partial', results: sourceOutcome === 'invalid_response' ? 'malformed' : sourceOutcome === 'empty' ? [] : [{ paperId: '123', primaryId: 'arxiv:2005.11401', title: 'Fixture paper', abstract: 'An explicit abstract finding.' }] };
-			return Response.json({ success: true, data: { alexandria: [{ ...call, creditsCost: 0, data }], creditsCost: 0 } });
+			return Response.json({
+				success: true,
+				data: { alexandria: [{ ...call, creditsCost: 0, data }], creditsCost: 0 },
+			});
 		} });
 		process.env.FIRECRAWL_API_URL = server.url.toString();
 		try {
@@ -180,21 +187,44 @@ if (!process.env.RESEARCH_AGENT_CONTRACT_TEST) {
 					await observability.getInstance('test')!.flush();
 					const toolName = capability === 'find-tools' ? 'researchSourceDiscover' : 'researchSourceRetrieve';
 					const component = capability === 'find-tools' ? 'research-source-discover' : 'research-source-retrieve';
-					const span = spans.slice(before).find(span => span.type === SpanType.TOOL_CALL && span.entityId === toolName)!;
+					const span = spans.slice(before).find(
+						span => span.type === SpanType.TOOL_CALL && span.entityId === toolName,
+					)!;
 					expect(span.output).toMatchObject({ status: outcome });
 					const failed = ['upstream_error', 'access_denied', 'unknown_outcome', 'invalid_response'].includes(outcome!);
 					expect(!!span.errorInfo).toBe(failed);
 					if (failed)
 						expect(span.errorInfo?.message).toBe('Research source operation failed.');
-					expect(JSON.stringify({ error: span.errorInfo, metadata: span.metadata })).not.toContain(upstreamDiagnostic);
+					expect(JSON.stringify({
+						error: span.errorInfo,
+						metadata: span.metadata,
+					})).not.toContain(upstreamDiagnostic);
 					// Match the storage exporter's row fields and error-derived SQL status.
-					const row = { ...span, spanId: span.id, spanType: span.type, startedAt: span.startTime, endedAt: span.endTime, createdAt: span.startTime, updatedAt: null, error: span.errorInfo ?? null, status: span.errorInfo ? TraceStatus.ERROR : TraceStatus.SUCCESS };
+					const row = {
+						...span,
+						spanId: span.id,
+						spanType: span.type,
+						startedAt: span.startTime,
+						endedAt: span.endTime,
+						createdAt: span.startTime,
+						updatedAt: null,
+						error: span.errorInfo ?? null,
+						status: span.errorInfo ? TraceStatus.ERROR : TraceStatus.SUCCESS,
+					};
 					const incident = await readIncident({ kind: 'application', component, window: { start: new Date(span.startTime.getTime() - 1000), end: new Date(span.endTime!.getTime() + 1000) } }, {
 						flush: async () => {},
 						getStore: async () => ({
-							listBranches: async ({ filters }) => ({ branches: row.status === filters?.status && row.entityId === filters?.entityId ? [row] : [], pagination: { total: 1, page: 0, perPage: 6, hasMore: false } }),
+							listBranches: async ({ filters }) => ({
+								branches: row.status === filters?.status && row.entityId === filters?.entityId
+									? [row]
+									: [],
+								pagination: { total: 1, page: 0, perPage: 6, hasMore: false },
+							}),
 							getStructure: async () => ({ traceId: row.traceId, spans: [row] }),
-							listTracesLight: async () => ({ spans: [], pagination: { total: 0, page: 0, perPage: 6, hasMore: false } }),
+							listTracesLight: async () => ({
+								spans: [],
+								pagination: { total: 0, page: 0, perPage: 6, hasMore: false },
+							}),
 						} as import('../../tools/triage-incident').IncidentStore),
 					});
 					expect(incident).toMatchObject(failed ? { status: 'found', incident: { component, stage: 'tool', classification: 'execution_failed' } } : { status: 'not_found' });

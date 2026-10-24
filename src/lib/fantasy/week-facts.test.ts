@@ -25,8 +25,28 @@ const league: SleeperLeague = {
 };
 
 const bracket: BracketGame[] = [
-	{ matchupId: 1, round: 1, placement: null, team1: 1, team2: 4, winner: 1, loser: 4, team1From: null, team2From: null },
-	{ matchupId: 2, round: 1, placement: null, team1: 2, team2: 3, winner: 2, loser: 3, team1From: null, team2From: null },
+	{
+		matchupId: 1,
+		round: 1,
+		placement: null,
+		team1: 1,
+		team2: 4,
+		winner: 1,
+		loser: 4,
+		team1From: null,
+		team2From: null,
+	},
+	{
+		matchupId: 2,
+		round: 1,
+		placement: null,
+		team1: 2,
+		team2: 3,
+		winner: 2,
+		loser: 3,
+		team1From: null,
+		team2From: null,
+	},
 	{
 		matchupId: 3,
 		round: 2,
@@ -192,7 +212,10 @@ describe('buildWeekFacts — regular season', () => {
 			score(2, 10, 90),
 			score(3, 10, 120),
 		];
-		expect(() => buildWeekFacts(input({ week: 1, scoresByWeek: new Map([[1, triple]]) }))).toThrow(SleeperDataError);
+		expect(() => buildWeekFacts(input({
+			week: 1,
+			scoresByWeek: new Map([[1, triple]]),
+		}))).toThrow(SleeperDataError);
 	});
 
 	it('lists next regular-season matchups from next week rows', () => {
@@ -318,7 +341,9 @@ describe('buildWeekFacts — playoffs', () => {
 	});
 
 	it('never fabricates upcoming when playoff teams are unresolved', () => {
-		const unresolved = bracket.map(g => (g.round === 2 && g.placement === 1 ? { ...g, team1: null, team2: null } : g));
+		const unresolved = bracket.map(
+			g => (g.round === 2 && g.placement === 1 ? { ...g, team1: null, team2: null } : g),
+		);
 		const facts = buildWeekFacts(input({ week: 3, bracket: unresolved }));
 		expect(facts.upcoming).toEqual([]);
 	});

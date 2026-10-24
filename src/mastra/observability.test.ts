@@ -119,7 +119,12 @@ test('standalone specialist, invocation, and workflow roots protect their first 
 		spanFilter: filterProjectTrace,
 		exporters: [protectProjectSignals({
 			name: 'capture',
-			onTracingEvent: (event) => { events.push({ type: event.type, span: structuredClone(event.exportedSpan) }); },
+			onTracingEvent: (event) => {
+				events.push({
+					type: event.type,
+					span: structuredClone(event.exportedSpan),
+				});
+			},
 			onLogEvent: (event) => { logs.push(structuredClone(event.log)); },
 			onMetricEvent: (event) => { metrics.push(structuredClone(event.metric)); },
 			exportTracingEvent: async () => {},
@@ -166,7 +171,9 @@ test('standalone specialist, invocation, and workflow roots protect their first 
 		expect(logs.filter(log => roots.includes(log.correlationContext?.rootEntityId ?? ''))).toHaveLength(roots.length);
 		expect(metrics.filter(metric => metric.name === 'architecture_duration')).toHaveLength(roots.length);
 		for (const entityId of roots) {
-			expect(events.some(event => event.type === TracingEventType.SPAN_STARTED && event.span.entityId === entityId)).toBe(true);
+			expect(
+				events.some(event => event.type === TracingEventType.SPAN_STARTED && event.span.entityId === entityId),
+			).toBe(true);
 			expect(logs.some(log => log.correlationContext?.rootEntityId === entityId)).toBe(true);
 		}
 	} finally { await instance.shutdown(); }

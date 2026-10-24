@@ -77,7 +77,10 @@ describe('queried NFL calendar reader', () => {
 		expect(result.status).toBe('ready');
 		if (result.status !== 'ready')
 			throw new Error(result.reason);
-		expect(result.window).toEqual({ startAtUtc: new Date(value.current.startDate).toISOString(), endAtUtc: new Date(value.next.startDate).toISOString() });
+		expect(result.window).toEqual({
+			startAtUtc: new Date(value.current.startDate).toISOString(),
+			endAtUtc: new Date(value.next.startDate).toISOString(),
+		});
 		expect(result.source.provider).toBe('espn');
 		expect(result.source.current.url).toBe(urls[0]);
 		expect(result.source.next.url).toBe(urls[1]);

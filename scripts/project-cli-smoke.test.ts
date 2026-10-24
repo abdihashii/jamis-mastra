@@ -17,7 +17,9 @@ test.each(['project-cli-smoke', 'project-cli-deploy-smoke'])('%s removes tempora
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
-		const [exit, , stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+		const [exit, , stderr] = await Promise.all(
+			[child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()],
+		);
 		assert.notEqual(exit, 0);
 		assert.match(stderr, /docker/);
 		assert.deepEqual(await readdir(root), []);
