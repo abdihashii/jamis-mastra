@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { fetchJson } from '../fetch';
+import { fetchJson } from '../fetch/fetch';
 import { nflTeamCode } from './nfl-sources';
 
 /** Thrown for leagues outside V1's supported shape or incomplete Sleeper data. */

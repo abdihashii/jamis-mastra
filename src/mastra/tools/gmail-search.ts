@@ -5,7 +5,7 @@ import { Buffer } from 'node:buffer';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
-import { fetchJson } from '../../lib/fetch.js';
+import { fetchJson } from '../../lib/fetch/fetch.js';
 import {
 	getUsableCredential,
 	GOOGLE_AUTH_FAILURE,
