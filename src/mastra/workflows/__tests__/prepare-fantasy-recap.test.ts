@@ -3,9 +3,9 @@ import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { Agent } from '@mastra/core/agent';
 import { Groups } from 'sendblue/resources/groups';
 import { Messages } from 'sendblue/resources/messages';
-import { editorialFixtureRuntime, passingEditorialReview } from '../../../lib/fantasy/__tests__/fixtures/editorial-runtime.fixture';
-import { editorialFixtureQuote, frozenEditorialFixture, validEditorialDraft } from '../../../lib/fantasy/__tests__/fixtures/editorial.fixture';
 import { editorialReviewSchema } from '../../../lib/fantasy/editorial-loop';
+import { editorialFixtureRuntime, passingEditorialReview } from '../../../lib/fantasy/editorial-runtime.fixture';
+import { editorialFixtureQuote, frozenEditorialFixture, validEditorialDraft } from '../../../lib/fantasy/editorial.fixture';
 
 let createProcedure: typeof CreateProcedure;
 let group: ReturnType<typeof spyOn>;
