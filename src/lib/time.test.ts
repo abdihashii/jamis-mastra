@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { dateTimeInstant, isIanaTimeZone, localDate, localTime, nextDayDate, zonedDate, zonedDateTime, zonedDayWindow } from '../time';
+import { dateTimeInstant, isIanaTimeZone, localDate, localTime, nextDayDate, zonedDate, zonedDateTime, zonedDayWindow } from './time';
 
 test('localTime formats midnight and noon as 12-hour', () => {
 	expect(localTime(0, 0)).toBe('12:00 AM +00:00');
