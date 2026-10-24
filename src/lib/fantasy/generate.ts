@@ -1,9 +1,11 @@
 import type { MastraDBMessage } from '@mastra/core/memory';
+
+import { z } from 'zod';
+
 import type { FantasyConfig } from './config';
 import type { SleeperManager } from './sleeper';
-
 import type { WeekFacts } from './week-facts';
-import { z } from 'zod';
+
 import { isPriorRecap } from './chat-archive';
 
 /**

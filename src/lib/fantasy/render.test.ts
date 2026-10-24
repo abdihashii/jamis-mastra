@@ -1,5 +1,7 @@
-import type { MatchupResult } from './week-facts';
 import { describe, expect, it } from 'bun:test';
+
+import type { MatchupResult } from './week-facts';
+
 import { renderResult } from './render';
 
 const a = { rosterId: 1, userId: 'u1', displayName: 'alpha' };

@@ -1,7 +1,9 @@
-import type { NflSourceInput } from './nfl-sources.schema';
-import type { NflSourceResult } from './nfl-sources.types';
 import { Firecrawl } from 'firecrawl';
 import { z } from 'zod';
+
+import type { NflSourceInput } from './nfl-sources.schema';
+import type { NflSourceResult } from './nfl-sources.types';
+
 import { admitNflSourceRequest, nflSourceCatalogueOptions, normalizeNflSourceResult } from './nfl-sources';
 import { nflSourceInputSchema, season } from './nfl-sources.schema';
 

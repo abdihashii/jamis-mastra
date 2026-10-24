@@ -1,9 +1,12 @@
 import type { FileHandle } from 'node:fs/promises';
-import type { GenerationAttemptRef } from './generation-state';
-import type { SqlLike } from './recaps';
+
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, readdir, unlink } from 'node:fs/promises';
 import { join, parse, resolve, sep } from 'node:path';
+
+import type { GenerationAttemptRef } from './generation-state';
+import type { SqlLike } from './recaps';
+
 import { readGenerationDebug } from './generation-runs';
 import { GENERATION_STATE_VERSION, parseGenerationState } from './generation-state';
 

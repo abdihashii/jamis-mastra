@@ -1,5 +1,6 @@
 import type { EditorialOutcome } from './editorial-loop';
 import type { RecapEvidencePacket } from './recap-evidence';
+
 import { previewRecapEvidence } from './evidence-preview';
 
 export interface CandidatePreviewResult {

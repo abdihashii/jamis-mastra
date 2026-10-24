@@ -1,7 +1,9 @@
+import { SQL } from 'bun';
+
 import type { ChatWindow } from './chat-archive';
 import type { FantasyConfig } from './config';
 import type { EvidenceOptions, RecapEvidencePacket } from './recap-evidence';
-import { SQL } from 'bun';
+
 import { evidenceReadOnlyDatabaseUrl, openRecapArchive } from './archive';
 import { chatWindowSchema } from './chat-archive';
 import { createNflSourceTask } from './nfl-sources-task';

@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { MastraWorker } from '@mastra/core/worker';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+
 import { FantasyDebugMaintenance } from './generation-maintenance';
 
 interface FakeTimer {

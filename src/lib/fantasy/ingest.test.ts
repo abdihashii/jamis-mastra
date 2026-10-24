@@ -2,12 +2,13 @@ import type { ChannelHandlerContext } from '@mastra/core/channels';
 import type { MemoryStorage } from '@mastra/core/storage';
 import type { Message, Thread } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
+
+import { InMemoryStore } from '@mastra/core/storage';
+import { describe, expect, it, spyOn } from 'bun:test';
+import { createSendblueAdapter } from 'chat-adapter-sendblue';
+
 import type { FantasyConfig } from './config';
 
-import { describe, expect, it, spyOn } from 'bun:test';
-import { InMemoryStore } from '@mastra/core/storage';
-
-import { createSendblueAdapter } from 'chat-adapter-sendblue';
 import { createFantasyGroupHandler, persistFantasyGroupMessage } from './ingest';
 
 const config: FantasyConfig = {

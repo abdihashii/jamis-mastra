@@ -1,6 +1,8 @@
+import { z } from 'zod';
+
 import type { NflSourceInput } from './nfl-sources.schema';
 import type { NflSourceRecord, NflSourceResult } from './nfl-sources.types';
-import { z } from 'zod';
+
 import { clubs, position, scoring, season, team, week } from './nfl-sources.schema';
 
 /** Canonical public club identity, never an arbitrary research query. */

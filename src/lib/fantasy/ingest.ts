@@ -2,10 +2,10 @@ import type { ChannelHandler } from '@mastra/core/channels';
 import type { MastraDBMessage } from '@mastra/core/memory';
 import type { MemoryStorage } from '@mastra/core/storage';
 import type { Message } from 'chat';
-
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
 
 import type { FantasyConfig } from './config';
+
 import { isGroupMessage } from '../../mastra/channels/sendblue';
 
 function fantasyThreadId(groupId: string): string {

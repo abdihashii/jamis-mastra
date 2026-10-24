@@ -1,4 +1,7 @@
 import type { MemoryStorage } from '@mastra/core/storage';
+
+import { randomUUID } from 'node:crypto';
+
 import type { FantasyEditorialObserver } from '../../mastra/workflows/prepare-fantasy-recap';
 import type { FantasyConfig } from './config';
 import type { CoordinatorResult } from './coordinator';
@@ -9,7 +12,7 @@ import type { EvidenceOptions, RecapEvidencePacket } from './recap-evidence';
 import type { SqlLike } from './recaps';
 import type { SavedReportReference } from './runs';
 import type { SavedReportReceipt } from './saved-report-delivery';
-import { randomUUID } from 'node:crypto';
+
 import { createGenerationCapture } from './generation-capture';
 import { blockGenerationAttempt, claimGenerationAttempt, getGenerationRun, markGenerationNotified, recoverGenerationAttempt } from './generation-runs';
 import { GENERATION_LIMITS, GENERATION_VERSION, generationSummary } from './generation-state';

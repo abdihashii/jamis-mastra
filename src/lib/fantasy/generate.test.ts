@@ -1,11 +1,11 @@
+import { describe, expect, it, spyOn } from 'bun:test';
+import { toPlainText } from 'chat-adapter-sendblue';
+
 import type { ChatContextMessage, RecapCorrection, RecapGenerator, RecapShaping } from './generate';
 import type { RecapGenerationRecord, SqlLike } from './recaps';
 import type { SleeperManager } from './sleeper';
-
 import type { WeekFacts } from './week-facts';
 
-import { describe, expect, it, spyOn } from 'bun:test';
-import { toPlainText } from 'chat-adapter-sendblue';
 import { parseFantasyConfig } from './config';
 import { buildRecapPrompt, FANTASY_GENERATOR_VERSION, generateWithRepair, recapShapingSchema, ShapingValidationError, toChatContext, validateShaping } from './generate';
 import { listGenerations, recordClaimedGeneration, recordGeneration } from './recaps';

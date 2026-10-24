@@ -2,6 +2,7 @@ import type { FantasyEditorialObserver } from '../../mastra/workflows/prepare-fa
 import type { GenerationAttemptRef } from './generation-state';
 import type { EvidenceOptions, RecapEvidencePacket } from './recap-evidence';
 import type { SqlLike } from './recaps';
+
 import { captureGenerationPacket, recordGenerationOutput, reserveGenerationCall } from './generation-runs';
 
 /**

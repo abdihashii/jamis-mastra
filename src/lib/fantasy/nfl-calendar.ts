@@ -1,6 +1,8 @@
+import { z } from 'zod';
+
 import type { ChatWindow } from './chat-archive';
 import type { SleeperScheduleSnapshot } from './sleeper';
-import { z } from 'zod';
+
 import { nflTeamCode } from './nfl-sources';
 import { sleeperScheduleSchema } from './sleeper';
 

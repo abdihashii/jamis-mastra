@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+
 import { parseNflCalendarProof, readNflReportingWindow } from './nfl-calendar';
 import { reportingWindowFixture } from './reporting-window.fixture';
 import { sleeperScheduleSchema } from './sleeper';

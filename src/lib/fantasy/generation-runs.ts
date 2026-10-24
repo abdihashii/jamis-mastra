@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+
 import type { ChatWindow } from './chat-archive';
 import type { GenerationAttemptRef, GenerationCall, GenerationCallKind, GenerationDebugOutput, GenerationState } from './generation-state';
 import type { NflCalendarProof } from './nfl-calendar';
@@ -5,8 +8,7 @@ import type { RecapEvidencePacket } from './recap-evidence';
 import type { SqlLike } from './recaps';
 import type { RunStatus } from './runs';
 import type { SavedReport, SavedReportScope } from './saved-report';
-import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
+
 import { buildEditorialCandidate } from './editorial';
 import { editorialReviewSchema } from './editorial-loop';
 import { FANTASY_EDITORIAL_LIMITS } from './editorial-policy';

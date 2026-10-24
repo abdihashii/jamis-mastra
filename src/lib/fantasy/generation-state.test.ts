@@ -1,7 +1,9 @@
-import type { GenerationCallKind, GenerationDebugOutput, GenerationState } from './generation-state';
-import type { NflSourceResult } from './nfl-sources.types';
 import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
+
+import type { GenerationCallKind, GenerationDebugOutput, GenerationState } from './generation-state';
+import type { NflSourceResult } from './nfl-sources.types';
+
 import { editorialFixtureQuote, editorialFixtureWindow, frozenEditorialFixture, validEditorialDraft } from './editorial.fixture';
 import {
 	GENERATION_LIMITS,
