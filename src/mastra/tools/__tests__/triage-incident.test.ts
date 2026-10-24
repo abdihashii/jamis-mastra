@@ -1,6 +1,6 @@
 import type { ChannelHandlerContext } from '@mastra/core/channels';
 import type { Message, Thread } from 'chat';
-import type { RecapRun } from '../../../fantasy/runs';
+import type { RecapRun } from '../../../lib/fantasy/runs';
 import type { SqlLike } from '../../../lib/operator-time-zone';
 
 import { describe, expect, test } from 'bun:test';
@@ -189,7 +189,7 @@ function message(id: string, at: string): Message {
 	} as Message;
 }
 
-const sql = (async (strings: TemplateStringsArray) => strings.join(' ').includes('WITH previous')
+const sql = (async (strings: TemplateStringsArray) => strings.join(' ').replace(/\s+/g, ' ').trim().includes('WITH previous')
 	? [{ applied: false, consumed_proposal: false, proposal_time_zone: null }]
 	: []) as SqlLike;
 sql.begin = operation => operation(sql);
@@ -262,6 +262,8 @@ describe('bounded incident reader', () => {
 			component: 'fantasy-weekly-recap',
 			humanDomainReference: 'Week 1',
 		});
+		for (const component of ['fantasy-football-pundit', 'fantasy-agent'])
+			expect(schema.parse({ kind: 'application', component })).toEqual({ kind: 'application', component });
 		expect(schema.parse({ kind: 'application', component: 'docker' })).toEqual({ kind: 'application', component: 'docker' });
 		expect(schema.parse({ kind: 'application', component: 'docker', container: 'postgres' })).toEqual({ kind: 'application', component: 'docker', container: 'postgres' });
 		for (const input of [

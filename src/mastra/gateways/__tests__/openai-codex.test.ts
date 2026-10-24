@@ -107,8 +107,7 @@ async function performCodexFetch(body: unknown): Promise<Response> {
 async function captureError(action: () => Promise<unknown>): Promise<Error> {
 	try {
 		await action();
-	}
-	catch (error) {
+	} catch (error) {
 		return error as Error;
 	}
 	throw new Error('expected the action to throw, but it resolved');
@@ -183,8 +182,7 @@ describe('resolveAuth', () => {
 			expect(error.message).toBe(MODEL_AUTH_FAILURE);
 			expect(error.message).not.toContain('codex');
 			expect(errors.some(e => e.includes('scripts/openai-codex-login.ts'))).toBe(true);
-		}
-		finally {
+		} finally {
 			console.error = originalError;
 		}
 	});
@@ -280,8 +278,7 @@ describe('CODEX_SMOKE_DEBUG fingerprint', () => {
 		process.env.CODEX_SMOKE_DEBUG = '1';
 		try {
 			await performCodexFetch({ model: 'gpt-5.6-terra', input: [], instructions: 'x', stream: true });
-		}
-		finally {
+		} finally {
 			delete process.env.CODEX_SMOKE_DEBUG;
 			restore();
 		}
@@ -299,8 +296,7 @@ describe('CODEX_SMOKE_DEBUG fingerprint', () => {
 		const { warns, restore } = captureWarns();
 		try {
 			await performCodexFetch({ model: 'gpt-5.6-terra', input: [], instructions: 'x', stream: true });
-		}
-		finally {
+		} finally {
 			restore();
 		}
 		expect(warns.length).toBe(0);
@@ -445,8 +441,7 @@ describe('refresh rotation through resolveAuth', () => {
 			const error = await captureError(() => refreshCredential(cred));
 			expect(error.message).toBe(MODEL_AUTH_FAILURE);
 			expect(errors.some(e => e.includes('detail=before_safe_window'))).toBe(true);
-		}
-		finally {
+		} finally {
 			console.error = originalError;
 		}
 		expect(fetchCalls.filter(call => call.url.includes('/oauth/token')).length).toBe(0);
@@ -478,8 +473,7 @@ describe('refresh rotation through resolveAuth', () => {
 			expect(error.message).toBe(MODEL_AUTH_FAILURE);
 			expect(error.message).not.toContain('Re-login');
 			expect(errors.some(e => e.includes('Re-login required'))).toBe(true);
-		}
-		finally {
+		} finally {
 			console.error = originalError;
 		}
 	});
@@ -647,8 +641,7 @@ describe('401 credential recovery', () => {
 				performCodexFetch({ model: 'gpt-5.6-terra', input: [], instructions: 'x', stream: true }),
 			);
 			expect(error.message).toBe(MODEL_AUTH_FAILURE);
-		}
-		finally {
+		} finally {
 			console.error = originalError;
 		}
 
@@ -708,8 +701,7 @@ describe('missing credential at fetch time', () => {
 			const error = await captureError(() => performCodexFetch({ model: 'gpt-5.6-terra', input: [] }));
 			expect(error.message).toBe(MODEL_AUTH_FAILURE);
 			expect(errors.some(e => e.includes('scripts/openai-codex-login.ts'))).toBe(true);
-		}
-		finally {
+		} finally {
 			console.error = originalError;
 		}
 		expect(fetchCalls.length).toBe(0);
@@ -759,8 +751,7 @@ test('Codex auth failures export fixed reasons on their exact execution traces',
 			expect((error as CodexAuthFailure).reason).toBe(reason);
 			expect(error.message).toBe(MODEL_AUTH_FAILURE);
 			expected.push({ reason, traceId: root.externalTraceId! });
-		}
-		finally {
+		} finally {
 			root.end();
 		}
 	};
@@ -817,12 +808,10 @@ test('Codex auth failures export fixed reasons on their exact execution traces',
 		try {
 			const error = await executeWithContext({ span: broken, fn: () => captureError(() => openAICodexGateway.getApiKey('openai-codex/gpt-5.6-terra')) });
 			expect(error.message).toBe(MODEL_AUTH_FAILURE);
-		}
-		finally {
+		} finally {
 			broken.end();
 		}
-	}
-	finally {
+	} finally {
 		await observability.shutdown();
 	}
 });
@@ -846,8 +835,7 @@ test('a failed agent generation exports one auth event on its direct or schedule
 				tracingOptions: { hideInput: true, hideOutput: true },
 			}));
 			expect(scheduledError.message).toBe(MODEL_AUTH_FAILURE);
-		}
-		finally {
+		} finally {
 			attempt.end();
 		}
 		const now = originalDateNow();
@@ -870,8 +858,7 @@ test('a failed agent generation exports one auth event on its direct or schedule
 		expect(events[0]?.traceId).toBe(root!.traceId);
 		expect(events[1]?.traceId).toBe(attempt.traceId);
 		expect(events.map(event => event.metadata?.reasonCode)).toEqual(['credential_missing', 'credential_missing', 'unauthorized_after_retry']);
-	}
-	finally {
+	} finally {
 		await observability.shutdown();
 	}
 });

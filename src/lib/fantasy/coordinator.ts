@@ -4,13 +4,13 @@ import type { WeekFacts } from './analysis';
 
 import type { FantasyConfig } from './config';
 import type { SendClient } from './deliver';
-import type { ChatContextMessage, RecapShaping } from './generate';
+import type { RecapGenerator } from './generate';
 import type { RecapGenerationRecord } from './recaps';
 import type { RecapFailureClassification, RecapFailureStage, RunsStore } from './runs';
 import type { SleeperManager } from './sleeper';
 import { createHash, randomUUID } from 'node:crypto';
 
-import { FANTASY_GENERATOR_VERSION, ShapingValidationError, toChatContext, validateShaping } from './generate';
+import { FANTASY_GENERATOR_VERSION, generateWithRepair, ShapingValidationError, toChatContext } from './generate';
 import { renderWeekRecap } from './render';
 
 const LEASE_MS = 15 * 60 * 1000;
@@ -49,8 +49,7 @@ export interface CoordinatorDeps {
 async function tryDm(send: SendClient, text: string): Promise<void> {
 	try {
 		await send.directMessage(text);
-	}
-	catch (error) {
+	} catch (error) {
 		// Provider errors can echo request bodies; log status + short message only.
 		const status = (error as { status?: number })?.status;
 		console.error(`[fantasy-recap] operator DM failed: ${status ? `HTTP ${status} ` : ''}${(error as Error)?.message?.slice(0, 120) ?? error}`);
@@ -66,28 +65,15 @@ async function alertUnmappedSenders(senders: string[], deps: CoordinatorDeps): P
 	}
 }
 
-/** Structured generation with the plan's single repair attempt for validation failures. */
-async function generateWithRepair(
-	generate: (facts: WeekFacts, context: ChatContextMessage[]) => Promise<RecapShaping>,
-	facts: WeekFacts,
-	context: ChatContextMessage[],
-): Promise<RecapShaping> {
-	try {
-		return await generate(facts, context);
-	}
-	catch (error) {
-		if (!(error instanceof ShapingValidationError))
-			throw error;
-		console.warn(`[fantasy-recap] shaping rejected (${error.message}); the one repair attempt follows`);
-		return generate(facts, context);
-	}
-}
-
-async function preserveUnknownDelivery(week: number, claimToken: string, error: string, deps: CoordinatorDeps): Promise<CoordinatorResult> {
+async function preserveUnknownDelivery(
+	week: number,
+	claimToken: string,
+	error: string,
+	deps: CoordinatorDeps,
+): Promise<CoordinatorResult> {
 	try {
 		await deps.runs.markDeliveryUnknown(week, claimToken, error);
-	}
-	catch { /* the started lease will expire to delivery_unknown */ }
+	} catch { /* the started lease will expire to delivery_unknown */ }
 	await tryDm(deps.send, `[fantasy-recap] week ${week} recap delivery is unknown (${error}). Check the group, then run confirm-sent --week ${week} if it landed, or retry --week ${week} --operator-verified-absent if not.`);
 	return { outcome: 'delivery_unknown', week, error };
 }
@@ -104,8 +90,7 @@ async function failRun(
 	try {
 		if (!await deps.runs.markFailed(week, claimToken, error, stage, classification))
 			return { outcome: 'blocked-active-claim', week };
-	}
-	catch { /* the started lease will expire to a conservative interruption state */ }
+	} catch { /* the started lease will expire to a conservative interruption state */ }
 	await tryDm(deps.send, alert);
 	return { outcome: 'failed', week, error };
 }
@@ -134,8 +119,7 @@ async function deliverStoredText(
 		}
 		if (!await runs.recordAttemptText(week, claimToken, text))
 			return { outcome: 'blocked-active-claim', week };
-	}
-	catch (error) {
+	} catch (error) {
 		const message = error instanceof Error ? error.message.slice(0, 120) : 'unknown storage failure';
 		return failRun(
 			week,
@@ -153,8 +137,7 @@ async function deliverStoredText(
 		try {
 			if (await runs.markSent(week, claimToken, outcome.handle))
 				return { outcome: 'sent', week };
-		}
-		catch { /* handled as delivery_unknown below */ }
+		} catch { /* handled as delivery_unknown below */ }
 		return preserveUnknownDelivery(week, claimToken, 'delivery result could not be recorded', deps);
 	}
 	if (outcome.kind === 'failed') {
@@ -179,7 +162,7 @@ export interface RunWeeklyArgs {
 	loadFacts: (() => Promise<{ facts: WeekFacts; managers: SleeperManager[] }>) | null;
 	model: string;
 	traceId?: string;
-	generate: (facts: WeekFacts, context: ChatContextMessage[]) => Promise<RecapShaping>;
+	generate: RecapGenerator;
 }
 
 export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps): Promise<CoordinatorResult> {
@@ -205,7 +188,12 @@ export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps)
 		return { outcome: 'blocked-delivery-unknown', week };
 
 	const claimToken = randomUUID();
-	const claim = await runs.claimRun(week, claimToken, new Date(deps.now().getTime() + LEASE_MS), args.traceId ?? null);
+	const claim = await runs.claimRun(
+		week,
+		claimToken,
+		new Date(deps.now().getTime() + LEASE_MS),
+		args.traceId ?? null,
+	);
 	if (!claim.claimed)
 		return { outcome: claim.run?.status === 'delivery_unknown' ? 'blocked-delivery-unknown' : 'blocked-active-claim', week };
 
@@ -232,12 +220,10 @@ export async function runWeeklyRecap(args: RunWeeklyArgs, deps: CoordinatorDeps)
 
 		failureStage = 'model';
 		const shaping = await generateWithRepair(args.generate, facts, context);
-		validateShaping(shaping, context, facts);
 		const text = renderWeekRecap(facts, shaping, context);
 
 		return await deliverStoredText(week, claimToken, text, { model: args.model, facts }, deps);
-	}
-	catch (error) {
+	} catch (error) {
 		// Shaping messages carry only field labels/ids; other errors (LLM/provider) get the
 		// tighter slice because error text can echo prompt content towards traces/DB/DM.
 		const bound = error instanceof ShapingValidationError ? 300 : 120;
@@ -265,7 +251,11 @@ export type RetryResult
  * Resends the exact stored text, never regenerates. Refuses stale weeks and
  * un-cleared delivery-unknown states.
  */
-export async function retryWeek(week: number, operatorVerifiedAbsent: boolean, deps: CoordinatorDeps): Promise<RetryResult> {
+export async function retryWeek(
+	week: number,
+	operatorVerifiedAbsent: boolean,
+	deps: CoordinatorDeps,
+): Promise<RetryResult> {
 	const { runs } = deps;
 	await runs.ensureSchema();
 	const run = await runs.getRun(week);

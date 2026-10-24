@@ -9,7 +9,8 @@ import {
 } from '@mastra/observability';
 import { PostgresStore } from '@mastra/pg';
 
-import { createFantasyAgent, DEFAULT_RECAP_MODEL } from '../fantasy/generate';
+import { DEFAULT_RECAP_MODEL } from '../lib/fantasy/generate';
+import { createFantasyFootballPundit } from './agents/fantasy-football-pundit';
 import { createJamisAgent } from './agents/jamis';
 import { registerLinearReplyProcedure, SENDBLUE_CORRELATION_KEY } from './channels/sendblue';
 import { requireEnv, requireOperatorTimeZone } from './env';
@@ -65,7 +66,7 @@ export const mastra = new Mastra({
 });
 
 mastra.addAgent(createJamisAgent({ mastra }), 'jamis');
-// 'fantasy' has no channels wired; it exists only for the weekly recap workflow.
-mastra.addAgent(createFantasyAgent(DEFAULT_RECAP_MODEL), 'fantasy');
+// The Pundit has no channels wired; it exists only for the weekly recap workflow.
+mastra.addAgent(createFantasyFootballPundit(DEFAULT_RECAP_MODEL), 'fantasy-football-pundit');
 mastra.addWorkflow(fantasyWeeklyRecapWorkflow, 'fantasyWeeklyRecap');
 registerLinearReplyProcedure(mastra);

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { fetchJson } from '../lib/fetch';
+import { fetchJson } from '../fetch';
 
 /** Thrown for leagues outside V1's supported shape or incomplete Sleeper data. */
 export class SleeperDataError extends Error {}

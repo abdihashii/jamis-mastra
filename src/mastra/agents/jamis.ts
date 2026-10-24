@@ -5,9 +5,17 @@ import { Agent } from '@mastra/core/agent';
 import { LocalFilesystem } from '@mastra/core/workspace';
 import { Memory } from '@mastra/memory';
 
-import { getFantasyConfig } from '../../fantasy/config';
-import { createFantasyGroupHandler } from '../../fantasy/ingest';
-import { currentSpecialistClarification, formatSendblueError, getSendblueChannelCapability, handleSendblueDirectMessage, operatorTimeZoneChangeTool, retainSpecialistClarification, sendblueAdapter } from '../channels/sendblue';
+import { getFantasyConfig } from '../../lib/fantasy/config';
+import { createFantasyGroupHandler } from '../../lib/fantasy/ingest';
+import {
+	currentSpecialistClarification,
+	formatSendblueError,
+	getSendblueChannelCapability,
+	handleSendblueDirectMessage,
+	operatorTimeZoneChangeTool,
+	retainSpecialistClarification,
+	sendblueAdapter,
+} from '../channels/sendblue';
 import { createConversationContextProcessor } from '../processors/conversation-context';
 import { createProjectWorkspace } from '../project-workspace';
 import { createSpecialistTools } from '../specialist-invocations';

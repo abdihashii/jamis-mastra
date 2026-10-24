@@ -131,7 +131,7 @@ test('standalone specialist, invocation, and workflow roots protect their first 
 	// The runtime initializes native signal correlation and logger integration.
 	const runtime = new Mastra({ observability, logger: createProjectLogger() });
 	const instance = runtime.observability.getInstance('test')!;
-	const roots = ['weather-agent', 'research-agent', 'personal-accounts-agent', 'invoke_weather', 'invoke_research', 'invoke_personal_accounts', 'jamis-input-processor', 'jamis-output-processor', 'prepare_linear_reply', 'await_linear_outcome', 'prepare_linked_reply', 'await_reply_acceptance'];
+	const roots = ['weather-agent', 'research-agent', 'personal-accounts-agent', 'fantasy-agent', 'fantasy-football-pundit', 'invoke_weather', 'invoke_research', 'invoke_personal_accounts', 'jamis-input-processor', 'jamis-output-processor', 'prepare_linear_reply', 'await_linear_outcome', 'prepare_linked_reply', 'await_reply_acceptance'];
 	try {
 		for (const entityId of roots) {
 			const requestContext = new RequestContext();
@@ -170,6 +170,5 @@ test('standalone specialist, invocation, and workflow roots protect their first 
 			expect(events.some(event => event.type === TracingEventType.SPAN_STARTED && event.span.entityId === entityId)).toBe(true);
 			expect(logs.some(log => log.correlationContext?.rootEntityId === entityId)).toBe(true);
 		}
-	}
-	finally { await instance.shutdown(); }
+	} finally { await instance.shutdown(); }
 });

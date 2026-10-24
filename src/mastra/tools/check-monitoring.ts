@@ -1,12 +1,12 @@
 import type { ObservabilityStorage } from '@mastra/core/storage';
-import type { FantasyMonitoringRun } from '../../fantasy/runs';
+import type { FantasyMonitoringRun } from '../../lib/fantasy/runs';
 
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { getFantasyConfig } from '../../fantasy/config';
-import { getFantasySql } from '../../fantasy/recaps';
-import { listFantasyMonitoringRuns } from '../../fantasy/runs';
-import { getLeague, getNflState, getWinnersBracket, isWeekComplete, withBracketRounds } from '../../fantasy/sleeper';
+import { getFantasyConfig } from '../../lib/fantasy/config';
+import { getFantasySql } from '../../lib/fantasy/recaps';
+import { listFantasyMonitoringRuns } from '../../lib/fantasy/runs';
+import { getLeague, getNflState, getWinnersBracket, isWeekComplete, withBracketRounds } from '../../lib/fantasy/sleeper';
 import { readFullDeploymentEvidence } from './deployment-evidence';
 import { deploymentMonitoringOutputSchema, listRecentWorkflowRuns, readDeploymentMonitoring, stageDeploymentSnapshot } from './deployment-monitoring';
 
@@ -164,8 +164,7 @@ export async function readMonitoring(
 	let store: MonitoringStore | undefined;
 	try {
 		store = await getStore();
-	}
-	catch {
+	} catch {
 		return unavailableSummary(start, end);
 	}
 	if (!store) {
@@ -347,8 +346,7 @@ export async function readFantasyMonitoring(
 	let runs: FantasyMonitoringRun[];
 	try {
 		runs = await readRuns(leagueId, week);
-	}
-	catch {
+	} catch {
 		return unavailable('storage');
 	}
 	const summaries = runs
@@ -408,8 +406,7 @@ export const checkMonitoringTool = createTool({
 							getWinnersBracket(leagueId, signal),
 						]);
 						return isWeekComplete(week, state, withBracketRounds(rawLeague, bracket), bracket) ? 'complete' : 'incomplete';
-					}
-					catch (error) {
+					} catch (error) {
 						if (context.abortSignal?.aborted)
 							throw context.abortSignal.reason ?? error;
 						return 'unavailable';

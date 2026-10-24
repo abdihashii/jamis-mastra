@@ -2,17 +2,17 @@ import type { StorageThreadType } from '@mastra/core/memory';
 import type { MemoryStorage } from '@mastra/core/storage';
 import type { Message, Thread } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
-import type { FantasyConfig } from '../../../fantasy/config';
+import type { FantasyConfig } from '../../../lib/fantasy/config';
 
+import { SQL } from 'bun';
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
+
 import { Agent } from '@mastra/core/agent';
 import { Mastra } from '@mastra/core/mastra';
-
 import { MastraLanguageModelV2Mock } from '@mastra/core/test-utils/llm-mock';
 import { Memory } from '@mastra/memory';
 import { PostgresStore } from '@mastra/pg';
-import { SQL } from 'bun';
-import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { createSendblueAdapter } from 'chat-adapter-sendblue';
 
 import { clearOperatorTimeZoneConversation, readPendingOperatorTimeZoneProposal, resolveOperatorTimeZone, saveOperatorTimeZoneProposal, setOperatorTimeZoneOverride } from '../../../lib/operator-time-zone';
@@ -31,7 +31,7 @@ process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
 process.env.OPERATOR_TIMEZONE = 'America/Chicago';
 
 const { handleSendblueDirectMessage, NEW_SESSION_SUCCESS, sendblueAdapter, startJamisDmSession } = await import('../sendblue');
-const { createFantasyGroupHandler } = await import('../../../fantasy/ingest');
+const { createFantasyGroupHandler } = await import('../../../lib/fantasy/ingest');
 const { createJamisAgent } = await import('../../agents/jamis');
 const jamis = createJamisAgent();
 const memoryOptions = (await jamis.getMemory())!.getMergedThreadConfig();
@@ -85,8 +85,7 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 			try {
 				await sql?.close();
 				await store.db.none(`DROP SCHEMA "${schema}" CASCADE`);
-			}
-			finally {
+			} finally {
 				await store.close();
 			}
 		}
@@ -280,8 +279,7 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 			expect(JSON.stringify(messages)).not.toMatch(/\/new|New session started/);
 			expect((await memory.listMessages({ threadId: old.id })).total).toBe(0);
 			expect(http.replies).toEqual([NEW_SESSION_SUCCESS, 'Fixture reply.']);
-		}
-		finally {
+		} finally {
 			await fixture.sdk.shutdown();
 			http.fetch.mockRestore();
 		}
@@ -354,8 +352,7 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 			expect(await readPendingOperatorTimeZoneProposal(sql)).toBeNull();
 			expect(await resolveOperatorTimeZone('UTC', sql)).toEqual({ timeZone: 'America/Chicago', source: 'override' });
 			expect(getDeploymentSnapshot(thread.id, active.message_handle)).toBeUndefined();
-		}
-		finally {
+		} finally {
 			release.resolve();
 			await Promise.allSettled(completions);
 			await fixture.sdk.shutdown();
@@ -412,8 +409,7 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 			expect(await memory.getThreadById({ threadId: old.id })).toEqual(oldRecord);
 			expect(await memory.listMessages({ threadId: old.id })).toEqual(oldMessages);
 			expect(await memory.getObservationalMemoryHistory(old.id, old.resourceId)).toEqual(oldObservations);
-		}
-		finally {
+		} finally {
 			await restarted.sdk.shutdown();
 		}
 	}, 30000);
@@ -462,16 +458,14 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 			expect((await startJamisDmSession(memory, first.thread, first.message)).status).toBe('superseded');
 			expect(await memory.getThreadById({ threadId: a.thread.id })).toEqual(saved);
 			expect((await memory.listThreads({ filter: { metadata: { ...coordinates(first.thread), channel_ownerId: 'jamis' } } })).total).toBe(4);
-		}
-		finally {
+		} finally {
 			clock.mockRestore();
 		}
 		const restarted = await nativeChannels();
 		try {
 			await dispatch(restarted, first.message);
 			expect((await memory.listMessages({ threadId: latest!.id })).total).toBeGreaterThan(0);
-		}
-		finally {
+		} finally {
 			await restarted.sdk.shutdown();
 		}
 	}, 30000);
@@ -484,8 +478,7 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 		try {
 			await expect(startJamisDmSession(memory, thread, message)).rejects.toThrow('write failed');
 			expect((await memory.listThreads({ filter: { metadata: { ...coordinates(thread), channel_ownerId: 'jamis' } } })).threads[0].id).toBe(old.id);
-		}
-		finally {
+		} finally {
 			write.mockRestore();
 		}
 		write = spyOn(memory, 'saveThread').mockImplementation(async (args) => {
@@ -494,8 +487,7 @@ describe.skipIf(!databaseUrl)('Jamis DM sessions with PostgreSQL and native chan
 		});
 		try {
 			await expect(startJamisDmSession(memory, thread, message)).rejects.toThrow('acknowledgement lost');
-		}
-		finally {
+		} finally {
 			write.mockRestore();
 		}
 		const replay = await startJamisDmSession(memory, thread, message);

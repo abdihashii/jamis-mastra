@@ -2,7 +2,7 @@ import type { Mastra } from '@mastra/core/mastra';
 
 import { describe, expect, it, spyOn } from 'bun:test';
 
-import { fantasyWeeklyRecapSchedule, fantasyWeeklyRecapWorkflow } from '../../mastra/workflows/fantasy-weekly-recap';
+import { fantasyWeeklyRecapSchedule, fantasyWeeklyRecapWorkflow } from '../../../mastra/workflows/fantasy-weekly-recap';
 import { parseFantasyConfig } from '../config';
 import { runDailyRecap } from '../daily';
 
@@ -39,8 +39,7 @@ describe('runDailyRecap', () => {
 			else
 				throw new Error(`expected error outcome, got ${outcome.outcome}`);
 			expect(outcome.week).toBeNull();
-		}
-		finally {
+		} finally {
 			spy.mockRestore();
 		}
 	});

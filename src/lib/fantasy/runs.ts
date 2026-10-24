@@ -53,9 +53,9 @@ export async function ensureFantasyRunsTable(sql: SqlLike): Promise<void> {
 	`;
 	await sql`
 		ALTER TABLE fantasy_recap_runs
-			ADD COLUMN IF NOT EXISTS latest_attempt_trace_id TEXT,
-			ADD COLUMN IF NOT EXISTS failure_stage TEXT,
-			ADD COLUMN IF NOT EXISTS failure_classification TEXT
+		ADD COLUMN IF NOT EXISTS latest_attempt_trace_id TEXT,
+		ADD COLUMN IF NOT EXISTS failure_stage TEXT,
+		ADD COLUMN IF NOT EXISTS failure_classification TEXT
 	`;
 	// One operator alert per unmapped sender, forever (alert-once dedup).
 	await sql`
@@ -108,7 +108,13 @@ function toRun(row: RunRow): RecapRun {
 
 export async function getRun(leagueId: string, week: number, sql: SqlLike): Promise<RecapRun | null> {
 	const rows = (await sql`
-		SELECT * FROM fantasy_recap_runs WHERE league_id = ${leagueId} AND fantasy_week = ${week}
+		SELECT
+			*
+		FROM
+			fantasy_recap_runs
+		WHERE
+			league_id = ${leagueId}
+			AND fantasy_week = ${week}
 	`) as RunRow[];
 	return rows[0] ? toRun(rows[0]) : null;
 }
@@ -152,22 +158,51 @@ function toFantasyMonitoringRun(row: FantasyMonitoringRunRow): FantasyMonitoring
 }
 
 /** Allowlisted current-row evidence for configured-league Monitoring. */
-export async function listFantasyMonitoringRuns(leagueId: string, week: number | undefined, sql: SqlLike): Promise<FantasyMonitoringRun[]> {
+export async function listFantasyMonitoringRuns(
+	leagueId: string,
+	week: number | undefined,
+	sql: SqlLike,
+): Promise<FantasyMonitoringRun[]> {
 	const rows = week === undefined
 		? await sql`
-			SELECT fantasy_week, status, failure_stage, failure_classification,
-				lease_expires_at, send_attempt_at, delivery_source, sent_at, updated_at
-			FROM fantasy_recap_runs
-			WHERE league_id = ${leagueId} AND fantasy_week BETWEEN 1 AND 18
-			ORDER BY fantasy_week DESC
-			LIMIT 18
+			SELECT
+				fantasy_week,
+				status,
+				failure_stage,
+				failure_classification,
+				lease_expires_at,
+				send_attempt_at,
+				delivery_source,
+				sent_at,
+				updated_at
+			FROM
+				fantasy_recap_runs
+			WHERE
+				league_id = ${leagueId}
+				AND fantasy_week BETWEEN 1 AND 18
+			ORDER BY
+				fantasy_week DESC
+			LIMIT
+				18
 		`
 		: await sql`
-			SELECT fantasy_week, status, failure_stage, failure_classification,
-				lease_expires_at, send_attempt_at, delivery_source, sent_at, updated_at
-			FROM fantasy_recap_runs
-			WHERE league_id = ${leagueId} AND fantasy_week = ${week}
-			LIMIT 1
+			SELECT
+				fantasy_week,
+				status,
+				failure_stage,
+				failure_classification,
+				lease_expires_at,
+				send_attempt_at,
+				delivery_source,
+				sent_at,
+				updated_at
+			FROM
+				fantasy_recap_runs
+			WHERE
+				league_id = ${leagueId}
+				AND fantasy_week = ${week}
+			LIMIT
+				1
 		`;
 	return (rows as FantasyMonitoringRunRow[]).map(toFantasyMonitoringRun);
 }
@@ -193,19 +228,50 @@ export async function claimRun(
 	sql: SqlLike,
 ): Promise<ClaimResult> {
 	await sql`
-		INSERT INTO fantasy_recap_runs (league_id, fantasy_week, status, claim_token, lease_expires_at, latest_attempt_trace_id)
-		VALUES (${leagueId}, ${week}, 'started', ${claimToken}, ${leaseExpiresAt.toISOString()}, ${traceId})
+		INSERT INTO
+			fantasy_recap_runs (
+				league_id,
+				fantasy_week,
+				status,
+				claim_token,
+				lease_expires_at,
+				latest_attempt_trace_id
+			)
+		VALUES
+			(
+				${leagueId},
+				${week},
+				'started',
+				${claimToken},
+				${leaseExpiresAt.toISOString()},
+				${traceId}
+			)
 		ON CONFLICT (league_id, fantasy_week) DO NOTHING
 	`;
 	const rows = (await sql`
 		UPDATE fantasy_recap_runs
-		SET claim_token = ${claimToken}, lease_expires_at = ${leaseExpiresAt.toISOString()},
-			send_attempt_at = NULL, status = 'started', last_error = NULL,
-			latest_attempt_trace_id = ${traceId}, failure_stage = NULL, failure_classification = NULL,
+		SET
+			claim_token = ${claimToken},
+			lease_expires_at = ${leaseExpiresAt.toISOString()},
+			send_attempt_at = NULL,
+			status = 'started',
+			last_error = NULL,
+			latest_attempt_trace_id = ${traceId},
+			failure_stage = NULL,
+			failure_classification = NULL,
 			updated_at = now()
-		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
-			AND (status = 'failed' OR (status = 'started' AND claim_token = ${claimToken}))
-		RETURNING *
+		WHERE
+			league_id = ${leagueId}
+			AND fantasy_week = ${week}
+			AND (
+				status = 'failed'
+				OR (
+					status = 'started'
+					AND claim_token = ${claimToken}
+				)
+			)
+		RETURNING
+			*
 	`) as RunRow[];
 	if (rows[0])
 		return { claimed: true, run: toRun(rows[0]) };
@@ -214,24 +280,54 @@ export async function claimRun(
 }
 
 /** Stamps the exact text and attempt time immediately before the outbound request fires (ADR 0018). */
-export async function recordAttemptText(leagueId: string, week: number, claimToken: string, finalText: string, sql: SqlLike): Promise<boolean> {
+export async function recordAttemptText(
+	leagueId: string,
+	week: number,
+	claimToken: string,
+	finalText: string,
+	sql: SqlLike,
+): Promise<boolean> {
 	const rows = (await sql`
-		UPDATE fantasy_recap_runs SET final_text = ${finalText}, send_attempt_at = now(), updated_at = now()
-		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
-			AND status = 'started' AND claim_token = ${claimToken}
-		RETURNING 1
+		UPDATE fantasy_recap_runs
+		SET
+			final_text = ${finalText},
+			send_attempt_at = now(),
+			updated_at = now()
+		WHERE
+			league_id = ${leagueId}
+			AND fantasy_week = ${week}
+			AND status = 'started'
+			AND claim_token = ${claimToken}
+		RETURNING
+			1
 	`) as unknown[];
 	return rows.length === 1;
 }
 
-export async function markSent(leagueId: string, week: number, claimToken: string, handle: string, sql: SqlLike): Promise<boolean> {
+export async function markSent(
+	leagueId: string,
+	week: number,
+	claimToken: string,
+	handle: string,
+	sql: SqlLike,
+): Promise<boolean> {
 	const rows = (await sql`
 		UPDATE fantasy_recap_runs
-		SET status = 'sent', message_handle = ${handle}, delivery_source = 'api', sent_at = now(),
-			failure_stage = NULL, failure_classification = NULL, updated_at = now()
-		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
-			AND status = 'started' AND claim_token = ${claimToken}
-		RETURNING 1
+		SET
+			status = 'sent',
+			message_handle = ${handle},
+			delivery_source = 'api',
+			sent_at = now(),
+			failure_stage = NULL,
+			failure_classification = NULL,
+			updated_at = now()
+		WHERE
+			league_id = ${leagueId}
+			AND fantasy_week = ${week}
+			AND status = 'started'
+			AND claim_token = ${claimToken}
+		RETURNING
+			1
 	`) as unknown[];
 	return rows.length === 1;
 }
@@ -247,22 +343,43 @@ export async function markFailed(
 ): Promise<boolean> {
 	const rows = (await sql`
 		UPDATE fantasy_recap_runs
-		SET status = 'failed', last_error = ${error}, failure_stage = ${stage},
-			failure_classification = ${classification}, updated_at = now()
-		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
-			AND status = 'started' AND claim_token = ${claimToken}
-		RETURNING 1
+		SET
+			status = 'failed',
+			last_error = ${error},
+			failure_stage = ${stage},
+			failure_classification = ${classification},
+			updated_at = now()
+		WHERE
+			league_id = ${leagueId}
+			AND fantasy_week = ${week}
+			AND status = 'started'
+			AND claim_token = ${claimToken}
+		RETURNING
+			1
 	`) as unknown[];
 	return rows.length === 1;
 }
 
-export async function markDeliveryUnknown(leagueId: string, week: number, claimToken: string, error: string, sql: SqlLike): Promise<void> {
+export async function markDeliveryUnknown(
+	leagueId: string,
+	week: number,
+	claimToken: string,
+	error: string,
+	sql: SqlLike,
+): Promise<void> {
 	await sql`
 		UPDATE fantasy_recap_runs
-		SET status = 'delivery_unknown', last_error = ${error}, failure_stage = 'reply_delivery',
-			failure_classification = 'unknown', updated_at = now()
-		WHERE league_id = ${leagueId} AND fantasy_week = ${week}
-			AND status = 'started' AND claim_token = ${claimToken}
+		SET
+			status = 'delivery_unknown',
+			last_error = ${error},
+			failure_stage = 'reply_delivery',
+			failure_classification = 'unknown',
+			updated_at = now()
+		WHERE
+			league_id = ${leagueId}
+			AND fantasy_week = ${week}
+			AND status = 'started'
+			AND claim_token = ${claimToken}
 	`;
 }
 
@@ -273,10 +390,19 @@ export async function markDeliveryUnknown(leagueId: string, week: number, claimT
 export async function confirmSentByOperator(leagueId: string, week: number, sql: SqlLike): Promise<boolean> {
 	const rows = (await sql`
 		UPDATE fantasy_recap_runs
-		SET status = 'sent', delivery_source = 'operator', sent_at = COALESCE(send_attempt_at, now()),
-			failure_stage = NULL, failure_classification = NULL, updated_at = now()
-		WHERE league_id = ${leagueId} AND fantasy_week = ${week} AND status = 'delivery_unknown'
-		RETURNING *
+		SET
+			status = 'sent',
+			delivery_source = 'operator',
+			sent_at = COALESCE(send_attempt_at, now()),
+			failure_stage = NULL,
+			failure_classification = NULL,
+			updated_at = now()
+		WHERE
+			league_id = ${leagueId}
+			AND fantasy_week = ${week}
+			AND status = 'delivery_unknown'
+		RETURNING
+			*
 	`) as RunRow[];
 	return rows.length === 1;
 }
@@ -286,16 +412,38 @@ export async function confirmSentByOperator(leagueId: string, week: number, sql:
  * send attempt is retryable; work interrupted after one remains delivery_unknown.
  * Legacy rows stamped attempts at claim time, so no final text also proves no send.
  */
-export async function expireStaleLeases(leagueId: string, now: Date, reason: string, sql: SqlLike): Promise<RecapRun[]> {
+export async function expireStaleLeases(
+	leagueId: string,
+	now: Date,
+	reason: string,
+	sql: SqlLike,
+): Promise<RecapRun[]> {
 	const rows = (await sql`
 		UPDATE fantasy_recap_runs
-		SET status = CASE WHEN send_attempt_at IS NULL OR final_text IS NULL THEN 'failed' ELSE 'delivery_unknown' END,
-			last_error = CASE WHEN send_attempt_at IS NULL OR final_text IS NULL THEN 'recap processing interrupted before send' ELSE ${reason} END,
-			failure_stage = CASE WHEN send_attempt_at IS NULL OR final_text IS NULL THEN NULL ELSE 'reply_delivery' END,
+		SET
+			status = CASE
+				WHEN send_attempt_at IS NULL
+				OR final_text IS NULL THEN 'failed'
+				ELSE 'delivery_unknown'
+			END,
+			last_error = CASE
+				WHEN send_attempt_at IS NULL
+				OR final_text IS NULL THEN 'recap processing interrupted before send'
+				ELSE ${reason}
+			END,
+			failure_stage = CASE
+				WHEN send_attempt_at IS NULL
+				OR final_text IS NULL THEN NULL
+				ELSE 'reply_delivery'
+			END,
 			failure_classification = 'execution_interrupted',
 			updated_at = now()
-		WHERE league_id = ${leagueId} AND status = 'started' AND lease_expires_at < ${now.toISOString()}
-		RETURNING *
+		WHERE
+			league_id = ${leagueId}
+			AND status = 'started'
+			AND lease_expires_at < ${now.toISOString()}
+		RETURNING
+			*
 	`) as RunRow[];
 	return rows.map(toRun);
 }
@@ -303,9 +451,16 @@ export async function expireStaleLeases(leagueId: string, now: Date, reason: str
 /** Retry guard: nothing newer may be claimed/sent while an older week retries. */
 export async function hasNewerActiveRun(leagueId: string, week: number, sql: SqlLike): Promise<boolean> {
 	const rows = (await sql`
-		SELECT 1 FROM fantasy_recap_runs
-		WHERE league_id = ${leagueId} AND fantasy_week > ${week} AND status != 'failed'
-		LIMIT 1
+		SELECT
+			1
+		FROM
+			fantasy_recap_runs
+		WHERE
+			league_id = ${leagueId}
+			AND fantasy_week > ${week}
+			AND status != 'failed'
+		LIMIT
+			1
 	`) as unknown[];
 	return rows.length > 0;
 }
@@ -313,20 +468,45 @@ export async function hasNewerActiveRun(leagueId: string, week: number, sql: Sql
 /** Chat-context window anchor: the most recent sent run before this week. */
 export async function latestSentRunBefore(leagueId: string, week: number, sql: SqlLike): Promise<RecapRun | null> {
 	const rows = (await sql`
-		SELECT * FROM fantasy_recap_runs
-		WHERE league_id = ${leagueId} AND fantasy_week < ${week} AND status = 'sent'
-		ORDER BY fantasy_week DESC LIMIT 1
+		SELECT
+			*
+		FROM
+			fantasy_recap_runs
+		WHERE
+			league_id = ${leagueId}
+			AND fantasy_week < ${week}
+			AND status = 'sent'
+		ORDER BY
+			fantasy_week DESC
+		LIMIT
+			1
 	`) as RunRow[];
 	return rows[0] ? toRun(rows[0]) : null;
 }
 
 /** Bounded unresolved failures for incident triage, not a monitoring signal. */
-export async function listActionableRuns(leagueId: string, start: Date, end: Date, limit: number, sql: SqlLike): Promise<RecapRun[]> {
+export async function listActionableRuns(
+	leagueId: string,
+	start: Date,
+	end: Date,
+	limit: number,
+	sql: SqlLike,
+): Promise<RecapRun[]> {
 	const rows = (await sql`
-		SELECT * FROM fantasy_recap_runs
-		WHERE league_id = ${leagueId} AND status IN ('failed', 'delivery_unknown')
-			AND updated_at >= ${start.toISOString()} AND updated_at <= ${end.toISOString()}
-		ORDER BY updated_at ASC, fantasy_week ASC LIMIT ${limit}
+		SELECT
+			*
+		FROM
+			fantasy_recap_runs
+		WHERE
+			league_id = ${leagueId}
+			AND status IN ('failed', 'delivery_unknown')
+			AND updated_at >= ${start.toISOString()}
+			AND updated_at <= ${end.toISOString()}
+		ORDER BY
+			updated_at ASC,
+			fantasy_week ASC
+		LIMIT
+			${limit}
 	`) as RunRow[];
 	return rows.map(toRun);
 }
@@ -340,7 +520,13 @@ export interface RunsStore {
 	claimForRetry: (week: number, claimToken: string, leaseExpiresAt: Date) => Promise<string | null>;
 	recordAttemptText: (week: number, claimToken: string, finalText: string) => Promise<boolean>;
 	markSent: (week: number, claimToken: string, handle: string) => Promise<boolean>;
-	markFailed: (week: number, claimToken: string, error: string, stage: RecapFailureStage, classification: RecapFailureClassification) => Promise<boolean>;
+	markFailed: (
+		week: number,
+		claimToken: string,
+		error: string,
+		stage: RecapFailureStage,
+		classification: RecapFailureClassification,
+	) => Promise<boolean>;
 	markDeliveryUnknown: (week: number, claimToken: string, error: string) => Promise<void>;
 	confirmSentByOperator: (week: number) => Promise<boolean>;
 	/** Atomic expired-lease sweep; transitioned rows (each needs an operator DM). */
@@ -355,22 +541,47 @@ export function createRunsStore(leagueId: string, sql: SqlLike): RunsStore {
 	return {
 		ensureSchema: () => ensureFantasyRunsTable(sql),
 		getRun: week => getRun(leagueId, week, sql),
-		claimRun: (week, claimToken, leaseExpiresAt, traceId) => claimRun(leagueId, week, claimToken, leaseExpiresAt, traceId, sql),
+		claimRun: (
+			week,
+			claimToken,
+			leaseExpiresAt,
+			traceId,
+		) => claimRun(leagueId, week, claimToken, leaseExpiresAt, traceId, sql),
 		claimForRetry: async (week, claimToken, leaseExpiresAt) => {
 			const rows = (await sql`
 				UPDATE fantasy_recap_runs
-				SET claim_token = ${claimToken}, lease_expires_at = ${leaseExpiresAt.toISOString()},
-					send_attempt_at = NULL, status = 'started', last_error = NULL,
-					latest_attempt_trace_id = NULL, failure_stage = NULL, failure_classification = NULL,
+				SET
+					claim_token = ${claimToken},
+					lease_expires_at = ${leaseExpiresAt.toISOString()},
+					send_attempt_at = NULL,
+					status = 'started',
+					last_error = NULL,
+					latest_attempt_trace_id = NULL,
+					failure_stage = NULL,
+					failure_classification = NULL,
 					updated_at = now()
-				WHERE league_id = ${leagueId} AND fantasy_week = ${week} AND status IN ('failed', 'delivery_unknown')
-				RETURNING final_text
+				WHERE
+					league_id = ${leagueId}
+					AND fantasy_week = ${week}
+					AND status IN ('failed', 'delivery_unknown')
+				RETURNING
+					final_text
 			`) as { final_text: string }[];
 			return rows.length === 1 ? rows[0]!.final_text : null;
 		},
-		recordAttemptText: (week, claimToken, finalText) => recordAttemptText(leagueId, week, claimToken, finalText, sql),
+		recordAttemptText: (
+			week,
+			claimToken,
+			finalText,
+		) => recordAttemptText(leagueId, week, claimToken, finalText, sql),
 		markSent: (week, claimToken, handle) => markSent(leagueId, week, claimToken, handle, sql),
-		markFailed: (week, claimToken, error, stage, classification) => markFailed(leagueId, week, claimToken, error, stage, classification, sql),
+		markFailed: (
+			week,
+			claimToken,
+			error,
+			stage,
+			classification,
+		) => markFailed(leagueId, week, claimToken, error, stage, classification, sql),
 		markDeliveryUnknown: (week, claimToken, error) => markDeliveryUnknown(leagueId, week, claimToken, error, sql),
 		confirmSentByOperator: week => confirmSentByOperator(leagueId, week, sql),
 		expireStaleLeases: (now, reason) => expireStaleLeases(leagueId, now, reason, sql),
@@ -378,8 +589,13 @@ export function createRunsStore(leagueId: string, sql: SqlLike): RunsStore {
 		latestSentRunBefore: week => latestSentRunBefore(leagueId, week, sql),
 		alertUnmappedSenderOnce: async (senderHash) => {
 			const rows = (await sql`
-				INSERT INTO fantasy_unmapped_sender_alerts (sender_hash) VALUES (${senderHash})
-				ON CONFLICT (sender_hash) DO NOTHING RETURNING sender_hash
+				INSERT INTO
+					fantasy_unmapped_sender_alerts (sender_hash)
+				VALUES
+					(${senderHash})
+				ON CONFLICT (sender_hash) DO NOTHING
+				RETURNING
+					sender_hash
 			`) as unknown[];
 			return rows.length === 1;
 		},

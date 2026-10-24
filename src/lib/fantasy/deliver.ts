@@ -1,6 +1,6 @@
 import process from 'node:process';
 import { toPlainText } from 'chat-adapter-sendblue';
-import { requireSendbluePostAcceptance, sendblueAdapter } from '../mastra/channels/sendblue';
+import { requireSendbluePostAcceptance, sendblueAdapter } from '../../mastra/channels/sendblue';
 
 /** What one outbound attempt learned. `unknown` = the request's fate is unobservable to us. */
 export type SendOutcome
@@ -56,8 +56,7 @@ class SendblueSendClient implements SendClient {
 			return posted.message_handle
 				? { kind: 'sent', handle: posted.message_handle }
 				: { kind: 'unknown', error: 'provider returned no message handle' };
-		}
-		catch (error) {
+		} catch (error) {
 			return classifyError(error);
 		}
 	}

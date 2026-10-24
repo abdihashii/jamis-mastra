@@ -20,8 +20,7 @@ export function createProjectLogger(logger = new ConsoleLogger({ name: 'Mastra',
 			if (isProjectSpan(resolveCurrentSpan()) || args.some(isProjectDiagnostic)) {
 				const denied = message === 'Tool input validation failed';
 				log(denied ? 'Project query input denied' : 'Jamis diagnostic', { status: denied ? 'denied' : level === 'error' ? 'failed' : 'recorded' });
-			}
-			else {
+			} else {
 				log(message, ...args);
 			}
 		};
@@ -32,8 +31,7 @@ export function createProjectLogger(logger = new ConsoleLogger({ name: 'Mastra',
 			const safe = new Error('Execution failed');
 			safe.stack = undefined;
 			trackException(safe, { status: 'failed' });
-		}
-		else {
+		} else {
 			trackException(error, metadata);
 		}
 	};
@@ -53,6 +51,8 @@ const protectedRootEntityIds = [
 	'weather-agent',
 	'personal-accounts-agent',
 	'fantasy-broadcast-agent',
+	'fantasy-agent',
+	'fantasy-football-pundit',
 	'project-rg',
 	'project-jq',
 	'projectRg',
@@ -174,8 +174,7 @@ export function filterProjectTrace(span: AnyExportedSpan) {
 			metadata.status = 'ok';
 			if (isView(result.view))
 				metadata.view = result.view;
-		}
-		else if (result?.ok === false && ['denied', 'missing', 'unavailable', 'invalid', 'limit', 'busy'].includes(String(result.error))) {
+		} else if (result?.ok === false && ['denied', 'missing', 'unavailable', 'invalid', 'limit', 'busy'].includes(String(result.error))) {
 			metadata.status = result.error;
 		}
 	}
@@ -195,8 +194,7 @@ export function filterProjectTrace(span: AnyExportedSpan) {
 	if (!safeTraceEntityIds.includes(span.entityId ?? '')) {
 		delete span.entityId;
 		delete span.entityName;
-	}
-	else {
+	} else {
 		span.entityName = span.entityId === 'jamis' ? 'Jamis' : span.entityId;
 	}
 	delete span.input;

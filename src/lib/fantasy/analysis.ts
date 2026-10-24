@@ -117,7 +117,12 @@ export function buildWeekFacts(input: WeekFactsInput): WeekFacts {
 	const movement = computeMovement(input, week, standings, teams);
 
 	const upcoming = isChampionshipWeek ? null : computeUpcoming(input, teams);
-	const playerStoryCandidates = buildPlayerStoryCandidates(currentWeekScores(input, week), results, teams, input.players ?? []);
+	const playerStoryCandidates = buildPlayerStoryCandidates(
+		currentWeekScores(input, week),
+		results,
+		teams,
+		input.players ?? [],
+	);
 
 	return {
 		leagueId: league.id,
@@ -193,7 +198,9 @@ function buildPlayerStoryCandidates(
 			: [];
 	});
 
-	benchFlips.sort((a, b) => b.benchedPoints - a.benchedPoints || a.benchedPlayer.id.localeCompare(b.benchedPlayer.id));
+	benchFlips.sort(
+		(a, b) => b.benchedPoints - a.benchedPoints || a.benchedPlayer.id.localeCompare(b.benchedPlayer.id),
+	);
 	return [...topStarters, ...benchFlips];
 }
 
@@ -205,7 +212,11 @@ function currentWeekScores(input: WeekFactsInput, week: number): SleeperScore[] 
 }
 
 /** Groups rows into 2-team matchup pairs, skipping unpaired (bye) rows. */
-function groupMatchupPairs(leagueName: string, week: number, scores: SleeperScore[]): Array<[SleeperScore, SleeperScore]> {
+function groupMatchupPairs(
+	leagueName: string,
+	week: number,
+	scores: SleeperScore[],
+): Array<[SleeperScore, SleeperScore]> {
 	const byMatchup = new Map<number, SleeperScore[]>();
 	for (const score of scores) {
 		if (score.matchupId == null)

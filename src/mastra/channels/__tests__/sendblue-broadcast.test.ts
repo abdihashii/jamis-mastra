@@ -1,7 +1,7 @@
 import type { ChannelConfig } from '@mastra/core/channels';
 import type { Message } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
-import type { SqlLike } from '../../lib/operator-time-zone';
+import type { SqlLike } from '../../../lib/operator-time-zone';
 
 import { SQL } from 'bun';
 import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
@@ -48,8 +48,7 @@ if (!process.env.FANTASY_BROADCAST_CONTRACT_TEST) {
 		const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
 		expect({ exit, output: exit === 0 ? '' : stdout + stderr }).toEqual({ exit: 0, output: '' });
 	}, 120000);
-}
-else {
+} else {
 	const url = new URL(databaseUrl!);
 	if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.pathname !== '/jamis_sessions_test')
 		throw new Error('Disposable loopback jamis_sessions_test PostgreSQL is required.');
@@ -67,13 +66,13 @@ else {
 		await root.unsafe(`DROP SCHEMA "${schema}" CASCADE`);
 		await root.close();
 	});
-	const { broadcastTools, readPendingBroadcast } = await import('../../fantasy/broadcast');
-	const { saveOperatorTimeZoneProposal, clearOperatorTimeZoneConversation } = await import('../../lib/operator-time-zone');
-	const { postLinearCreateProposal, readLinearProposal } = await import('../../lib/linear-proposals');
-	const { handleSendblueDirectMessage, sendblueAdapter, formatSendblueError, requireSendbluePostAcceptance, postExactSendblueMessage, startJamisDmSession, proposeOperatorTimeZoneChange, proposeLinearCreate } = await import('./sendblue');
-	const { createJamisAgent } = await import('../agents/jamis');
-	const { boundaryModel } = await import('../agents/__tests__/specialist-boundary.fixture');
-	const { spanOutputProcessors, filterProjectTrace, protectProjectSignals } = await import('../observability');
+	const { broadcastTools, readPendingBroadcast } = await import('../../../lib/fantasy/broadcast');
+	const { saveOperatorTimeZoneProposal, clearOperatorTimeZoneConversation } = await import('../../../lib/operator-time-zone');
+	const { postLinearCreateProposal, readLinearProposal } = await import('../../../lib/linear-proposals');
+	const { handleSendblueDirectMessage, sendblueAdapter, formatSendblueError, requireSendbluePostAcceptance, postExactSendblueMessage, startJamisDmSession, proposeOperatorTimeZoneChange, proposeLinearCreate } = await import('../sendblue');
+	const { createJamisAgent } = await import('../../agents/jamis');
+	const { boundaryModel } = await import('../../agents/__tests__/specialist-boundary.fixture');
+	const { spanOutputProcessors, filterProjectTrace, protectProjectSignals } = await import('../../observability');
 	const draftText = '  **Exact** PRIVATE_STAGE4_DRAFT_SENTINEL draft\nsecond line\nhttps://example.com/?x=1&y=2  ';
 	const originalFetch = globalThis.fetch;
 
@@ -113,8 +112,7 @@ else {
 				if ((options.failReview && input.content.startsWith('Fantasy draft:')) || (failNotification && input.content.startsWith('Fantasy broadcast')))
 					throw new Error('Synthetic notification failure.');
 				posts.push(input.content);
-			}
-			else {
+			} else {
 				throw new Error('Unstubbed Sendblue route refused.');
 			}
 			return Response.json({ message_handle: randomUUID(), status: 'SENT' });
@@ -233,8 +231,7 @@ else {
 			const protectedSpans = f.spans.filter(value => JSON.stringify(value).includes('fantasy-broadcast'));
 			expect(protectedSpans.length).toBeGreaterThan(0);
 			expect(JSON.stringify(f.spans)).not.toContain('PRIVATE_STAGE4_DRAFT_SENTINEL');
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	}, 30000);
 
 	test('decline, nonexact approval, unrelated input, edits and /new invalidate without sends', async () => {
@@ -249,8 +246,7 @@ else {
 				expect(await readPendingBroadcast(source.threadId, sql)).toBeNull();
 				const rows = await sql`SELECT status, decision FROM fantasy_broadcasts WHERE id = ${row.id}`;
 				expect(rows[0]).toMatchObject({ status: 'canceled', decision: { disposition: text === 'decline' ? 'declined' : 'canceled' } });
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 60000);
 
@@ -274,8 +270,7 @@ else {
 				await f.send('confirm');
 				expect(f.sends).toHaveLength(0);
 				expect(await readPendingBroadcast(source.threadId, sql)).toBeNull();
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 60000);
 
@@ -295,8 +290,7 @@ else {
 			await startJamisDmSession(memory, f.channels.sdk!.thread(source.threadId), { ...source, id: randomUUID(), text: '/new' } as Message);
 			await f.send('confirm');
 			expect(f.sends).toHaveLength(0);
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	}, 30000);
 
 	test('competing durable Linear/time-zone proposals cancel all authority', async () => {
@@ -312,8 +306,7 @@ else {
 				expect(f.sends).toHaveLength(0);
 				expect(await readPendingBroadcast(source.threadId, sql)).toBeNull();
 				expect(await readLinearProposal(source.threadId, sql)).toBeNull();
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 30000);
 
@@ -331,8 +324,7 @@ else {
 				expect(await readPendingBroadcast(source.threadId, sql)).toBeNull();
 				if (mode === 'lost' || mode === 'rejected')
 					expect(f.posts.join(' ')).toContain('uncertain');
-			}
-			finally { await f.close(); }
+			} finally { await f.close(); }
 		}
 	}, 60000);
 
@@ -361,8 +353,7 @@ else {
 				expect(await readPendingBroadcast(source.threadId, restart)).toBeNull();
 				if (mode === 'claim' || mode === 'missing-outcome')
 					expect(f.posts.join(' ')).toContain('uncertain');
-			}
-			finally {
+			} finally {
 				await f.close();
 				await restart.close();
 			}
@@ -375,7 +366,6 @@ else {
 			await f.send('Draft.');
 			expect(f.sends).toHaveLength(0);
 			expect(f.posts.join(' ')).not.toContain('Model claims sent');
-		}
-		finally { await f.close(); }
+		} finally { await f.close(); }
 	});
 }

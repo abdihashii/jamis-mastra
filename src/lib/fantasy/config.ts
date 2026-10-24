@@ -47,8 +47,7 @@ export function parseFantasyConfig(
 	let managerMap: Record<string, string>;
 	try {
 		managerMap = managerMapSchema.parse(JSON.parse(managerMapJson));
-	}
-	catch {
+	} catch {
 		warn('Fantasy disabled: FANTASY_MANAGER_MAP must be JSON of {"+1<phone>":"<sleeper user id>"}');
 		return null;
 	}

@@ -1,15 +1,15 @@
 import type { RequestContext } from '@mastra/core/request-context';
 import type { GetStructureResponse, ObservabilityStorage } from '@mastra/core/storage';
-import type { RecapRun } from '../../fantasy/runs';
+import type { RecapRun } from '../../lib/fantasy/runs';
 
 import type { DeploymentSnapshotFinding } from './deployment-monitoring';
 import { SpanType } from '@mastra/core/observability';
 import { extractBranchSpans, TraceStatus } from '@mastra/core/storage';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { getFantasyConfig } from '../../fantasy/config';
-import { getFantasySql } from '../../fantasy/recaps';
-import { getRun, listActionableRuns } from '../../fantasy/runs';
+import { getFantasyConfig } from '../../lib/fantasy/config';
+import { getFantasySql } from '../../lib/fantasy/recaps';
+import { getRun, listActionableRuns } from '../../lib/fantasy/runs';
 import { resolveOperatorTimeZone } from '../../lib/operator-time-zone';
 
 import { dateTimeInstant } from '../../lib/time';
@@ -53,6 +53,7 @@ const incidentComponents = [
 	'sendblue-channel',
 	'jamis',
 	'fantasy-agent',
+	'fantasy-football-pundit',
 	'research-agent',
 	'weather-agent',
 	'personal-accounts-agent',
@@ -650,8 +651,7 @@ async function readDeploymentIncident(
 	let evidence: Awaited<ReturnType<typeof readFullDeploymentEvidence>>;
 	try {
 		evidence = await context.readDeploymentEvidence?.() ?? await readFullDeploymentEvidence(context.getStore);
-	}
-	catch {
+	} catch {
 		return unavailable(target, 'deployment_evidence_unavailable');
 	}
 	const current = target.component === 'cloudflare_tunnel'
@@ -753,8 +753,7 @@ async function readMonitoringFinding(
 		const operatorMessages = messages.filter(message => message.threadId === capability.thread.id && isOperator(message));
 		const currentIndex = operatorMessages.findIndex(message => message.id === capability.message.id);
 		precedingMessageId = currentIndex > 0 ? operatorMessages[currentIndex - 1]?.id : undefined;
-	}
-	catch {
+	} catch {
 		return unavailable(target, 'message_history_unavailable');
 	}
 	if (!precedingMessageId)
@@ -853,8 +852,7 @@ async function resolvePrecedingDigest(requestContext: RequestContext | undefined
 		return preceding?.id.trim()
 			? { digest: hashSendblueMessageHandle(preceding.id) }
 			: { gap: 'preceding_request_not_found' };
-	}
-	catch {
+	} catch {
 		return { gap: 'message_history_unavailable' };
 	}
 }
@@ -909,8 +907,7 @@ async function readApplicationIncident(
 		});
 		rows = (response.spans as TraceRow[]).filter(row => row.name === SENDBLUE_CHANNEL_SPAN_NAME && !!channelFailure(row));
 		more = hasMore(response, response.spans.length);
-	}
-	else if (target.component) {
+	} else if (target.component) {
 		const response = await store.listBranches({
 			filters: { ...filters, entityId: traceEntityId(target.component), status: TraceStatus.ERROR },
 			pagination: { page: 0, perPage: traceLimit },
@@ -918,8 +915,7 @@ async function readApplicationIncident(
 		});
 		rows = response.branches as TraceRow[];
 		more = hasMore(response, rows.length);
-	}
-	else {
+	} else {
 		const failures = await store.listTracesLight({
 			filters: { ...filters, status: TraceStatus.ERROR },
 			pagination: { page: 0, perPage: traceLimit },
@@ -1005,30 +1001,25 @@ async function foundFantasyIncident(
 	let traceReference: { traceId: string; spanId: string } | undefined;
 	if (!exact) {
 		evidenceGaps.push('trace_identity_not_exact');
-	}
-	else if (!run.latestAttemptTraceId) {
+	} else if (!run.latestAttemptTraceId) {
 		evidenceGaps.push('trace_reference_missing');
-	}
-	else {
+	} else {
 		try {
 			await context.flush();
-		}
-		catch {
+		} catch {
 			evidenceGaps.push('observability_flush_failed');
 		}
 		if (!evidenceGaps.includes('observability_flush_failed')) {
 			let store: IncidentStore | undefined;
 			try {
 				store = await context.getStore();
-			}
-			catch {
+			} catch {
 				evidenceGaps.push('observability_storage_unavailable');
 			}
 			if (!store) {
 				if (!evidenceGaps.includes('observability_storage_unavailable'))
 					evidenceGaps.push('observability_storage_unavailable');
-			}
-			else {
+			} else {
 				try {
 					const structure = await store.getStructure({ traceId: run.latestAttemptTraceId });
 					const span = structure?.traceId === run.latestAttemptTraceId
@@ -1040,8 +1031,7 @@ async function foundFantasyIncident(
 						traceReference = { traceId: run.latestAttemptTraceId, spanId: span.spanId };
 					else
 						evidenceGaps.push('trace_reference_stale');
-				}
-				catch {
+				} catch {
 					evidenceGaps.push('observability_query_failed');
 				}
 			}
@@ -1086,8 +1076,7 @@ async function readFantasyIncident(
 			: week === undefined
 				? await listActionableRuns(leagueId, target.window.start, target.window.end, QUERY_LIMIT, getFantasySql())
 				: [await getRun(leagueId, week, getFantasySql())].filter((run): run is RecapRun => run !== null);
-	}
-	catch {
+	} catch {
 		return unavailable(target, 'fantasy_storage_unavailable');
 	}
 	const actionable = runs
@@ -1127,8 +1116,7 @@ export async function readIncident(target: IncidentTarget, context: IncidentRead
 					fantasyRuns = (await context.readFantasyRuns(leagueId, undefined, target.window.start, target.window.end))
 						.filter(run => run.status === 'failed' || run.status === 'delivery_unknown')
 						.sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime());
-				}
-				catch {
+				} catch {
 					return unavailable(target, 'fantasy_storage_unavailable');
 				}
 				if (fantasyRuns.length >= QUERY_LIMIT)
@@ -1145,16 +1133,14 @@ export async function readIncident(target: IncidentTarget, context: IncidentRead
 
 	try {
 		await context.flush();
-	}
-	catch {
+	} catch {
 		return unavailable(target, 'observability_flush_failed');
 	}
 
 	let store: IncidentStore | undefined;
 	try {
 		store = await context.getStore();
-	}
-	catch {
+	} catch {
 		return unavailable(target, 'observability_storage_unavailable');
 	}
 	if (!store)
@@ -1164,8 +1150,7 @@ export async function readIncident(target: IncidentTarget, context: IncidentRead
 		return target.kind === 'preceding_request'
 			? await readPrecedingIncident(target, store, preceding && 'digest' in preceding ? preceding.digest : '')
 			: await readApplicationIncident(target, store, context, fantasyRuns);
-	}
-	catch {
+	} catch {
 		return unavailable(target, 'observability_query_failed');
 	}
 }
@@ -1203,8 +1188,7 @@ export const triageIncidentTool = createTool({
 		if (needsOperatorTimeZone(input)) {
 			try {
 				timeZone = (await resolveOperatorTimeZone(requireOperatorTimeZone())).timeZone;
-			}
-			catch {
+			} catch {
 				const result: IncidentResult = {
 					status: 'unavailable',
 					targetKind: 'application',

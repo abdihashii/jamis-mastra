@@ -1,6 +1,6 @@
 import type { ObservabilityStorage } from '@mastra/core/storage';
-import type { SqlLike } from '../../fantasy/recaps';
-import type { FantasyMonitoringRun } from '../../fantasy/runs';
+import type { SqlLike } from '../../lib/fantasy/recaps';
+import type { FantasyMonitoringRun } from '../../lib/fantasy/runs';
 import type { readFullDeploymentEvidence } from './deployment-evidence';
 
 import { SpanType } from '@mastra/core/observability';
@@ -171,8 +171,7 @@ export function awaitDeploymentClarification(threadId: string, precedingMessageI
 	const snapshot = getDeploymentSnapshot(threadId, precedingMessageId);
 	if (snapshot?.clarificationUsed) {
 		deploymentSnapshots.delete(threadId);
-	}
-	else if (snapshot) {
+	} else if (snapshot) {
 		snapshot.clarificationUsed = true;
 		snapshot.pendingMessageId = currentMessageId;
 	}
@@ -205,10 +204,19 @@ function exactTraceReference(row: { traceId?: unknown; spanId?: unknown }): Pick
 export async function listRecentWorkflowRuns(sql: SqlLike, start: Date, end: Date): Promise<WorkflowRun[]> {
 	// Mastra's listWorkflowRuns filters createdAt; the outcome boundary is updatedAt.
 	return await sql`
-		SELECT snapshot, "updatedAt" FROM mastra_workflow_snapshot
-		WHERE workflow_name = 'fantasy-weekly-recap'
-			AND "updatedAt" >= ${start} AND "updatedAt" <= ${end}
-		ORDER BY "updatedAt" DESC LIMIT 11
+		SELECT
+			snapshot,
+			"updatedAt"
+		FROM
+			mastra_workflow_snapshot
+		WHERE
+			workflow_name = 'fantasy-weekly-recap'
+			AND "updatedAt" >= ${start}
+			AND "updatedAt" <= ${end}
+		ORDER BY
+			"updatedAt" DESC
+		LIMIT
+			11
 	` as WorkflowRun[];
 }
 
@@ -295,8 +303,7 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 				missing('operator_conversation', 'reply_status_unverified', 'recent_history');
 			if (response.pagination?.hasMore || (!response.pagination && response.spans.length === 100))
 				missing('operator_conversation', 'history_truncated', 'recent_history');
-		}
-		else {
+		} else {
 			missing('operator_conversation', 'channel_history_unavailable', 'recent_history');
 		}
 		if (agentResult.status === 'fulfilled') {
@@ -315,12 +322,10 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 				add(needsAttention, 'operator_conversation', 'top_level_execution_failed', 'recent_history', row.endedAt ?? row.startedAt, undefined, undefined, exactTraceReference(row));
 			if (response.pagination?.hasMore || (!response.pagination && response.spans.length === 100))
 				missing('operator_conversation', 'history_truncated', 'recent_history');
-		}
-		else {
+		} else {
 			missing('operator_conversation', 'application_history_unavailable', 'recent_history');
 		}
-	}
-	else {
+	} else {
 		missing('operator_conversation', 'channel_history_unavailable', 'recent_history');
 		missing('operator_conversation', 'application_history_unavailable', 'recent_history');
 	}
@@ -338,33 +343,28 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 			if (run.status === 'sent') {
 				fantasyCounts.sent++;
 				add(operatingNormally, 'fantasy_recaps', 'recap_sent', 'configured_fantasy_season', run.sentAt ?? run.updatedAt, run.fantasyWeek);
-			}
-			else if (run.status === 'failed') {
+			} else if (run.status === 'failed') {
 				fantasyCounts.failed++;
 				add(needsAttention, 'fantasy_recaps', 'recap_failed', 'configured_fantasy_season', run.updatedAt, run.fantasyWeek, undefined, {
 					fantasyStage: snapshotFantasyStage.safeParse(run.failureStage).data ?? 'unknown',
 					fantasyClassification: snapshotFantasyClassification.safeParse(run.failureClassification).data ?? 'unknown',
 				});
-			}
-			else if (run.status === 'delivery_unknown') {
+			} else if (run.status === 'delivery_unknown') {
 				fantasyCounts.deliveryUnknown++;
 				add(needsAttention, 'fantasy_recaps', 'recap_delivery_unknown', 'configured_fantasy_season', run.updatedAt, run.fantasyWeek, undefined, {
 					fantasyStage: snapshotFantasyStage.safeParse(run.failureStage).data ?? 'unknown',
 					fantasyClassification: snapshotFantasyClassification.safeParse(run.failureClassification).data ?? 'unknown',
 				});
-			}
-			else if (run.status === 'started' && run.leaseExpiresAt instanceof Date && run.leaseExpiresAt.getTime() < nowMs) {
+			} else if (run.status === 'started' && run.leaseExpiresAt instanceof Date && run.leaseExpiresAt.getTime() < nowMs) {
 				fantasyCounts.expiredActive++;
 				add(needsAttention, 'fantasy_recaps', 'recap_expired_active', 'configured_fantasy_season', run.leaseExpiresAt, run.fantasyWeek);
-			}
-			else if (run.status === 'started') {
+			} else if (run.status === 'started') {
 				fantasyCounts.active++;
 			}
 		}
 		if (fantasyRuns.length === 0)
 			missing('fantasy_recaps', 'no_fantasy_runs', 'configured_fantasy_season');
-	}
-	else {
+	} else {
 		missing('fantasy_recaps', fantasyRuns ? 'fantasy_row_invalid' : fantasyResult.status === 'fulfilled' ? 'fantasy_not_configured' : 'fantasy_runs_unavailable', 'configured_fantasy_season');
 	}
 
@@ -400,19 +400,16 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 						noop = true;
 					if (outcome === 'error')
 						add(needsAttention, 'fantasy_recaps', 'recap_execution_failed', 'recent_history', run.updatedAt);
-				}
-				catch { /* malformed stored output does not hide another run */ }
+				} catch { /* malformed stored output does not hide another run */ }
 			}
 			if (noop)
 				add(operatingNormally, 'fantasy_recaps', 'recap_noop', 'recent_history');
 			if (!observed)
 				missing('fantasy_recaps', 'fantasy_execution_unverified', 'recent_history');
-		}
-		catch {
+		} catch {
 			missing('fantasy_recaps', 'fantasy_execution_unverified', 'recent_history');
 		}
-	}
-	else {
+	} else {
 		missing('fantasy_recaps', 'fantasy_execution_unverified', 'recent_history');
 	}
 
@@ -432,8 +429,7 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 			}
 			if (evidence.docker.containers.every(container => container.state === 'running'))
 				add(operatingNormally, component, 'docker_observed', sourceBoundary, current.observedAt);
-		}
-		else if (component === 'cloudflare_tunnel' && evidence) {
+		} else if (component === 'cloudflare_tunnel' && evidence) {
 			if (evidence.cloudflareTunnel.recentDiagnostic === 'local_error')
 				add(needsAttention, component, 'tunnel_local_error', sourceBoundary, current.observedAt);
 			if (evidence.cloudflareTunnel.containerState === 'unknown')
@@ -442,8 +438,7 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 				add(needsAttention, component, 'container_not_running', sourceBoundary, current.observedAt, undefined, 'cloudflared');
 			else if (evidence.cloudflareTunnel.recentDiagnostic !== 'local_error')
 				add(operatingNormally, component, 'tunnel_observed', sourceBoundary, current.observedAt);
-		}
-		else if (component === 'tailscale' && evidence) {
+		} else if (component === 'tailscale' && evidence) {
 			const failed = (evidence.tailscale.serviceState !== 'active' && evidence.tailscale.serviceState !== 'unknown')
 				|| (evidence.tailscale.backendState !== 'Running' && evidence.tailscale.backendState !== 'unknown');
 			const unverified = evidence.tailscale.serviceState === 'unknown' || evidence.tailscale.backendState === 'unknown';
@@ -453,26 +448,21 @@ export async function readDeploymentMonitoring(sources: DeploymentMonitoringSour
 				missing(component, 'component_evidence_unavailable', sourceBoundary);
 			if (!failed && !unverified)
 				add(operatingNormally, component, 'tailscale_observed', sourceBoundary, current.observedAt);
-		}
-		else {
+		} else {
 			add(operatingNormally, component, component === 'cloudflare_tunnel' ? 'tunnel_observed' : `${component}_observed` as Item['fact'], sourceBoundary, current.observedAt);
 		}
 		if (component === 'host') {
 			missing(component, 'external_reachability_unverified', sourceBoundary);
 			missing(component, 'recent_host_events_unavailable', sourceBoundary);
-		}
-		else if (component === 'docker') {
+		} else if (component === 'docker') {
 			missing(component, 'service_functionality_unverified', sourceBoundary);
-		}
-		else if (component === 'cloudflare_tunnel') {
+		} else if (component === 'cloudflare_tunnel') {
 			missing(component, 'external_reachability_unverified', sourceBoundary);
 			if (evidence?.cloudflareTunnel.recentDiagnostic === 'unknown')
 				missing(component, 'recent_tunnel_diagnostics_unavailable', sourceBoundary);
-		}
-		else if (component === 'tailscale') {
+		} else if (component === 'tailscale') {
 			missing(component, 'operator_device_reachability_unverified', sourceBoundary);
-		}
-		else if (component === 'clickhouse' && evidence?.clickhouse.gaps.includes('no_recent_traces')) {
+		} else if (component === 'clickhouse' && evidence?.clickhouse.gaps.includes('no_recent_traces')) {
 			missing(component, 'no_recent_traces', sourceBoundary);
 		}
 	}

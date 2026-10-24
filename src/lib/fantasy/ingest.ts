@@ -6,7 +6,7 @@ import type { Message } from 'chat';
 import type { SendblueMessagePayload } from 'chat-adapter-sendblue';
 
 import type { FantasyConfig } from './config';
-import { isGroupMessage } from '../mastra/channels/sendblue';
+import { isGroupMessage } from '../../mastra/channels/sendblue';
 
 function fantasyThreadId(groupId: string): string {
 	return `fantasy-group-${groupId}`;
@@ -46,7 +46,11 @@ export async function persistFantasyGroupMessage(
 
 	const attachments = message.attachments
 		.filter(attachment => attachment.url)
-		.map(attachment => ({ name: attachment.name, contentType: attachment.mimeType, url: attachment.url as string }));
+		.map(attachment => ({
+			name: attachment.name,
+			contentType: attachment.mimeType,
+			url: attachment.url as string,
+		}));
 
 	const dbMessage: MastraDBMessage = {
 		id: message.id,
@@ -90,8 +94,7 @@ export function createFantasyGroupHandler(config: FantasyConfig | null): Channel
 				return;
 			}
 			await persistFantasyGroupMessage(memory, config, message as Message<SendblueMessagePayload>);
-		}
-		catch (error) {
+		} catch (error) {
 			console.error(`[fantasy-recap] failed to persist group message: ${(error as Error).message}`);
 		}
 	};

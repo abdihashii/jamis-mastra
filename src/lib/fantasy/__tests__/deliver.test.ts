@@ -1,7 +1,7 @@
 import { describe, expect, it, spyOn } from 'bun:test';
 import process from 'node:process';
 
-import { sendblueAdapter } from '../../mastra/channels/sendblue';
+import { sendblueAdapter } from '../../../mastra/channels/sendblue';
 import { classifyError, sendblueSendClient } from '../deliver';
 
 describe('sendblueSendClient', () => {
@@ -23,8 +23,7 @@ describe('sendblueSendClient', () => {
 				signal: expect.any(AbortSignal),
 				timeout: 15_000,
 			});
-		}
-		finally {
+		} finally {
 			sendMessage.mockRestore();
 			if (previousFromNumber == null)
 				delete process.env.SENDBLUE_FROM_NUMBER;
@@ -46,8 +45,7 @@ describe('sendblueSendClient', () => {
 			controller.abort(new Error('response body stalled'));
 			expect(await pending).toEqual({ kind: 'unknown', error: 'response body stalled' });
 			expect(timeout).toHaveBeenCalledWith(15_000);
-		}
-		finally {
+		} finally {
 			sendMessage.mockRestore();
 			timeout.mockRestore();
 		}

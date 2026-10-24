@@ -1,13 +1,13 @@
 import type { ObservabilityStorage } from '@mastra/core/storage';
-import type { SqlLike } from '../../fantasy/recaps';
+import type { SqlLike } from '../../lib/fantasy/recaps';
 import { Buffer } from 'node:buffer';
 import { existsSync } from 'node:fs';
 import { connect } from 'node:net';
 import process from 'node:process';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { getFantasyConfig } from '../../fantasy/config';
-import { getFantasySql } from '../../fantasy/recaps';
+import { getFantasyConfig } from '../../lib/fantasy/config';
+import { getFantasySql } from '../../lib/fantasy/recaps';
 
 const socketPath = '/run/jamis-evidence/probe.sock';
 const utcTime = z.iso.datetime({ precision: 0 });
@@ -185,8 +185,7 @@ export function parseDeploymentEvidence(raw: string, nowMs = Date.now()) {
 	let value: unknown;
 	try {
 		value = JSON.parse(raw);
-	}
-	catch {
+	} catch {
 		return fallback;
 	}
 	if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -225,8 +224,7 @@ export async function readDeploymentEvidence(path = socketPath, timeoutMs = 10_0
 		let socket: ReturnType<typeof connect>;
 		try {
 			socket = connect(path);
-		}
-		catch {
+		} catch {
 			resolve(null);
 			return;
 		}
@@ -295,9 +293,20 @@ async function readPostgres(sqlFactory: () => SqlLike, leagueId: string | undefi
 			return result;
 		try {
 			const rows = await sql`
-				SELECT fantasy_week, status, latest_attempt_trace_id, updated_at
-				FROM fantasy_recap_runs WHERE league_id = ${leagueId} AND fantasy_week BETWEEN 1 AND 18
-				ORDER BY fantasy_week DESC LIMIT 1
+				SELECT
+					fantasy_week,
+					status,
+					latest_attempt_trace_id,
+					updated_at
+				FROM
+					fantasy_recap_runs
+				WHERE
+					league_id = ${leagueId}
+					AND fantasy_week BETWEEN 1 AND 18
+				ORDER BY
+					fantasy_week DESC
+				LIMIT
+					1
 			`;
 			const row = rows[0] as Record<string, unknown> | undefined;
 			if (!row)
@@ -315,8 +324,7 @@ async function readPostgres(sqlFactory: () => SqlLike, leagueId: string | undefi
 			}
 			result.recentFantasyRun = parsed.data;
 			result.gaps = parsed.data.traceId ? [] : ['trace_reference_missing'];
-		}
-		catch {
+		} catch {
 			result.gaps = ['fantasy_runs_unavailable'];
 		}
 		return result;
