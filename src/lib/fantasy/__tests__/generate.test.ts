@@ -585,6 +585,7 @@ describe('generation records', () => {
 			calls.push({ strings, values });
 			return Promise.resolve(rows);
 		}) as SqlLike;
+		Object.assign(sql, { begin: (action: (tx: SqlLike) => Promise<unknown>) => action(sql) });
 		return { calls, sql };
 	}
 
@@ -600,9 +601,10 @@ describe('generation records', () => {
 		};
 		await recordGeneration(base, sql);
 		await recordGeneration({ ...base, generatorVersion: `${FANTASY_GENERATOR_VERSION}+prompt2`, finalText: 'text v2' }, sql);
-		expect(calls).toHaveLength(2);
-		expect(calls[0].strings.join('')).toContain('ON CONFLICT (league_id, fantasy_week, generator_version, model)');
-		const [v1Args, v2Args] = calls.map(c => c.values);
+		const inserts = calls.filter(call => call.strings.join('').replace(/\s+/g, ' ').includes('INSERT INTO fantasy_recap_generations'));
+		expect(inserts).toHaveLength(2);
+		expect(inserts[0].strings.join('')).toContain('ON CONFLICT (league_id, fantasy_week, generator_version, model)');
+		const [v1Args, v2Args] = inserts.map(c => c.values);
 		expect(v1Args[2]).toBe(FANTASY_GENERATOR_VERSION);
 		expect(v2Args[2]).toBe(`${FANTASY_GENERATOR_VERSION}+prompt2`);
 		expect(v1Args[0]).toBe(v2Args[0]); // same league/week — history, not replacement

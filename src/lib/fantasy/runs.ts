@@ -2,6 +2,7 @@ import type { SqlLike } from './recaps';
 import type { SavedReport, SavedReportScope } from './saved-report';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { parseGenerationState } from './generation-state';
 import { parseSavedReport, sameSavedReportScope } from './saved-report';
 
 export type RunStatus = 'started' | 'failed' | 'delivery_unknown' | 'sent';
@@ -28,8 +29,8 @@ export interface RecapRun {
 }
 
 /**
- * Delivery-state authority for one league/week (ADR 0018). Born complete:
- * Multipart artifact/progress stays on this same row. The optimistic claim UPDATE
+ * Delivery-state authority for one league/week (ADR 0018).
+ * Multipart progress and pre-publication attempt metadata stay on this same row. The optimistic claim UPDATE
  * is the single-writer lock: two concurrent coordinators race it and exactly one
  * gets a row back.
  */
@@ -61,7 +62,8 @@ export async function ensureFantasyRunsTable(sql: SqlLike): Promise<void> {
 		ADD COLUMN IF NOT EXISTS failure_stage TEXT,
 		ADD COLUMN IF NOT EXISTS failure_classification TEXT,
 		ADD COLUMN IF NOT EXISTS saved_report JSONB,
-		ADD COLUMN IF NOT EXISTS part_delivery JSONB
+		ADD COLUMN IF NOT EXISTS part_delivery JSONB,
+		ADD COLUMN IF NOT EXISTS editorial_attempt JSONB
 	`;
 	// One operator alert per unmapped sender, forever (alert-once dedup).
 	await sql`
@@ -271,6 +273,7 @@ async function claimRunUnlocked(
 			AND fantasy_week = ${week}
 			AND saved_report IS NULL
 			AND part_delivery IS NULL
+			AND editorial_attempt IS NULL
 			AND (
 				status = 'failed'
 				OR (
@@ -304,6 +307,7 @@ export async function recordAttemptText(
 		WHERE
 			saved_report IS NULL
 			AND part_delivery IS NULL
+			AND editorial_attempt IS NULL
 			AND league_id = ${leagueId}
 			AND fantasy_week = ${week}
 			AND status = 'started'
@@ -334,6 +338,7 @@ export async function markSent(
 		WHERE
 			saved_report IS NULL
 			AND part_delivery IS NULL
+			AND editorial_attempt IS NULL
 			AND league_id = ${leagueId}
 			AND fantasy_week = ${week}
 			AND status = 'started'
@@ -364,6 +369,7 @@ export async function markFailed(
 		WHERE
 			saved_report IS NULL
 			AND part_delivery IS NULL
+			AND editorial_attempt IS NULL
 			AND league_id = ${leagueId}
 			AND fantasy_week = ${week}
 			AND status = 'started'
@@ -392,6 +398,7 @@ export async function markDeliveryUnknown(
 		WHERE
 			saved_report IS NULL
 			AND part_delivery IS NULL
+			AND editorial_attempt IS NULL
 			AND league_id = ${leagueId}
 			AND fantasy_week = ${week}
 			AND status = 'started'
@@ -416,6 +423,7 @@ export async function confirmSentByOperator(leagueId: string, week: number, sql:
 		WHERE
 			saved_report IS NULL
 			AND part_delivery IS NULL
+			AND editorial_attempt IS NULL
 			AND league_id = ${leagueId}
 			AND fantasy_week = ${week}
 			AND status = 'delivery_unknown'
@@ -461,6 +469,7 @@ export async function expireStaleLeases(
 			AND status = 'started'
 			AND saved_report IS NULL
 			AND part_delivery IS NULL
+			AND editorial_attempt IS NULL
 			AND lease_expires_at < ${now.toISOString()}
 		RETURNING
 			*
@@ -482,6 +491,7 @@ export async function hasNewerActiveRun(leagueId: string, week: number, sql: Sql
 				status != 'failed'
 				OR saved_report IS NOT NULL
 				OR part_delivery IS NOT NULL
+				OR editorial_attempt IS NOT NULL
 			)
 		LIMIT
 			1
@@ -654,10 +664,18 @@ export async function getSavedReportState(reference: SavedReportReference, sql: 
 		WHERE
 			league_id = ${reference.leagueId}
 			AND fantasy_week = ${reference.week}
-	` as (RunRow & { saved_report: unknown; part_delivery: unknown; lease_current: boolean; lease_stamp: string | null })[];
+	` as (RunRow & { saved_report: unknown; part_delivery: unknown; editorial_attempt: unknown; lease_current: boolean; lease_stamp: string | null })[];
 	if (!row || (row.saved_report == null && row.part_delivery == null))
 		return null;
 	const report = parseSavedReport(row.saved_report);
+	if (row.editorial_attempt != null) {
+		const attempt = parseGenerationState(row.editorial_attempt).current;
+		if (attempt.phase !== 'approved' || !sameSavedReportScope(report, attempt.scope)
+			|| attempt.reportId !== report.id || attempt.evidenceId !== report.evidenceId || attempt.candidateId !== report.candidateId
+			|| attempt.counts.drafts !== report.counts.drafts || attempt.counts.reviews !== report.counts.reviews) {
+			throw new Error('invalid_saved_report_state');
+		}
+	}
 	const progress = partProgressSchema.parse(row.part_delivery);
 	const statuses = progress.parts.map(savedPartStatus);
 	const next = statuses.findIndex(status => status !== 'accepted');
@@ -739,6 +757,7 @@ async function replaceSavedReportState(
 							newer.status != 'failed'
 							OR newer.saved_report IS NOT NULL
 							OR newer.part_delivery IS NOT NULL
+							OR newer.editorial_attempt IS NOT NULL
 						)
 				)
 			)
@@ -1006,6 +1025,7 @@ export function createRunsStore(leagueId: string, sql: SqlLike): RunsStore {
 					AND status IN ('failed', 'delivery_unknown')
 					AND saved_report IS NULL
 					AND part_delivery IS NULL
+					AND editorial_attempt IS NULL
 				RETURNING
 					final_text
 			`) as { final_text: string }[];

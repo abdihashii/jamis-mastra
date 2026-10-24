@@ -1,5 +1,6 @@
 import type { Mastra } from '@mastra/core';
-import type { EditorialOutcome } from '../../lib/fantasy/editorial-loop';
+import type { EditorialDraft } from '../../lib/fantasy/editorial';
+import type { EditorialOutcome, EditorialReview } from '../../lib/fantasy/editorial-loop';
 import type { RecapEvidencePacket } from '../../lib/fantasy/recap-evidence';
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
@@ -12,35 +13,76 @@ import { specialistHandbackSchema } from '../agents/specialist-handback';
 import { StorageFreeRuntime } from '../storage-free-runtime';
 import { createSpecialistContext, createSpecialistInvocation, revokeSpecialistAuthority } from '../tools/invoke-specialist';
 
+export interface FantasyEditorialObserver {
+	beforeCall: (call: { kind: 'writer' | 'reviewer'; ordinal: number }) => Promise<{ remainingMs: number }>;
+	output: (output: { kind: 'writer' | 'reviewer'; ordinal: number; contributionCase: 'completed' | 'partial' | 'needs_help' | 'blocked'; value: EditorialDraft | EditorialReview | null }) => Promise<void>;
+	failure: (failure: { kind: 'writer' | 'reviewer'; ordinal: number; code: 'execution_failed' | 'no_structured_output' }) => Promise<void>;
+}
+
 /** Private native execution only. No root registration, snapshots, scheduled restart, memory or delivery. */
 export function createFantasyEditorialProcedure(parent: Mastra) {
 	const mastra = new StorageFreeRuntime(parent);
 	const inputSchema = z.object({ assignment: z.string().min(1).max(FANTASY_EDITORIAL_LIMITS.assignmentChars) }).strict();
 	const allowedCallers = [{ kind: 'workflow', id: FANTASY_EDITORIAL_WORKFLOW_ID }] as const;
-	const writer = createSpecialistInvocation({
-		id: 'invoke_fantasy_pundit',
-		agent: createFantasyFootballPundit({ mastra }),
-		inputSchema,
-		resultSchema: editorialDraftSchema,
-		allowedCallers,
-		project: input => input.assignment,
-	});
-	const editor = createSpecialistInvocation({
-		id: 'invoke_fantasy_editor',
-		agent: createFantasyFootballEditor(mastra),
-		inputSchema,
-		resultSchema: editorialReviewSchema,
-		allowedCallers,
-		project: input => input.assignment,
-	});
-	const writerStep = createStep(writer, { retries: 0 });
-	const editorStep = createStep(editor, { retries: 0 });
-	return async (packet: RecapEvidencePacket, signal?: AbortSignal): Promise<EditorialOutcome> => {
+	return async (packet: RecapEvidencePacket, signal?: AbortSignal, observer?: FantasyEditorialObserver): Promise<EditorialOutcome> => {
 		let outcome: EditorialOutcome | undefined;
 		const counts = { drafts: 0, reviews: 0 };
 		const unavailable = (reason: string): EditorialOutcome => ({ status: 'blocked', evidenceId: packet.id, reason, candidateId: null, counts, issues: [] });
 		if (signal?.aborted)
 			return unavailable('canceled');
+		async function reserve(kind: 'writer' | 'reviewer', ordinal: number, abortSignal: AbortSignal) {
+			abortSignal.throwIfAborted();
+			if (!observer)
+				return abortSignal;
+			const { remainingMs } = await observer.beforeCall({ kind, ordinal });
+			if (!Number.isFinite(remainingMs) || remainingMs <= 0)
+				throw new Error('Editorial deadline unavailable');
+			return AbortSignal.any([abortSignal, AbortSignal.timeout(Math.floor(Math.min(remainingMs, FANTASY_EDITORIAL_LIMITS.callMs)))]);
+		}
+		async function capture<T, R extends EditorialDraft | EditorialReview>(kind: 'writer' | 'reviewer', ordinal: number, schema: z.ZodType<R, R>, generate: () => Promise<T>): Promise<T> {
+			if (!observer)
+				return generate();
+			let response: T;
+			try {
+				response = await generate();
+			} catch (error) {
+				await observer.failure({ kind, ordinal, code: 'execution_failed' });
+				throw error;
+			}
+			// Capture only typed output before invoke-specialist's post-generate cancellation check.
+			const object = response && typeof response === 'object' && 'object' in response ? response.object : undefined;
+			const parsed = z.object({ handback: specialistHandbackSchema(schema) }).strict().safeParse(object);
+			if (!parsed.success) {
+				await observer.failure({ kind, ordinal, code: 'no_structured_output' });
+				throw new Error('Editorial structured output unavailable');
+			}
+			const handback = parsed.data.handback;
+			await observer.output({
+				kind,
+				ordinal,
+				contributionCase: handback.case,
+				value: handback.case === 'completed' || handback.case === 'partial' ? handback.result : handback.progress,
+			});
+			return response;
+		}
+		const writerStep = createStep(createSpecialistInvocation({
+			id: 'invoke_fantasy_pundit',
+			agent: createFantasyFootballPundit({ mastra }),
+			inputSchema,
+			resultSchema: editorialDraftSchema,
+			allowedCallers,
+			project: input => input.assignment,
+			run: generate => capture('writer', counts.drafts, editorialDraftSchema, generate),
+		}), { retries: 0 });
+		const editorStep = createStep(createSpecialistInvocation({
+			id: 'invoke_fantasy_editor',
+			agent: createFantasyFootballEditor(mastra),
+			inputSchema,
+			resultSchema: editorialReviewSchema,
+			allowedCallers,
+			project: input => input.assignment,
+			run: generate => capture('reviewer', counts.reviews, editorialReviewSchema, generate),
+		}), { retries: 0 });
 		const step = createStep({
 			id: 'prepare_fantasy_editorial_candidate',
 			inputSchema: z.object({ evidenceId: z.literal(packet.id) }).strict(),
@@ -54,7 +96,7 @@ export function createFantasyEditorialProcedure(parent: Mastra) {
 						const result = await writerStep.execute({
 							...context,
 							inputData: { assignment },
-							abortSignal,
+							abortSignal: await reserve('writer', counts.drafts, abortSignal),
 							bail: () => { throw new Error('Private invocation cannot bail'); },
 						});
 						const parsed = specialistHandbackSchema(editorialDraftSchema).safeParse(result);
@@ -67,7 +109,7 @@ export function createFantasyEditorialProcedure(parent: Mastra) {
 						const result = await editorStep.execute({
 							...context,
 							inputData: { assignment },
-							abortSignal,
+							abortSignal: await reserve('reviewer', counts.reviews, abortSignal),
 							bail: () => { throw new Error('Private invocation cannot bail'); },
 						});
 						const parsed = specialistHandbackSchema(editorialReviewSchema).safeParse(result);

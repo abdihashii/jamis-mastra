@@ -1,9 +1,11 @@
+import type { GenerationState } from './generation-state';
 import type { SavedReport } from './saved-report';
 import type { WeekFacts } from './week-facts';
 
 import { SQL } from 'bun';
 import process from 'node:process';
-import { getSavedReportState, initialSavedReportProgress } from './runs';
+import { generationApprovalState, getGenerationRun } from './generation-runs';
+import { getSavedReportState, hasNewerActiveRun, initialSavedReportProgress, withFantasyLeagueLock } from './runs';
 import { parseSavedReport, SAVED_REPORT_VERSION } from './saved-report';
 
 export interface RecapGenerationRecord {
@@ -53,6 +55,10 @@ export async function ensureFantasyRecapsTable(sql: SqlLike = getFantasySql()): 
 export async function recordGeneration(record: RecapGenerationRecord, sql: SqlLike = getFantasySql()): Promise<void> {
 	if (record.generatorVersion === SAVED_REPORT_VERSION)
 		throw new Error('reserved_report_version');
+	await withFantasyLeagueLock(record.leagueId, sql, tx => recordLegacyGeneration(record, tx));
+}
+
+async function recordLegacyGeneration(record: RecapGenerationRecord, sql: SqlLike): Promise<void> {
 	await sql`
 		INSERT INTO
 			fantasy_recap_generations (
@@ -82,6 +88,7 @@ export async function recordGeneration(record: RecapGenerationRecord, sql: SqlLi
 					AND (
 						saved_report IS NOT NULL
 						OR part_delivery IS NOT NULL
+						OR editorial_attempt IS NOT NULL
 					)
 			)
 		ON CONFLICT (league_id, fantasy_week, generator_version, model) DO UPDATE
@@ -114,6 +121,7 @@ export async function recordClaimedGeneration(
 					AND claim_token = ${claimToken}
 					AND saved_report IS NULL
 					AND part_delivery IS NULL
+					AND editorial_attempt IS NULL
 				RETURNING
 					1
 			)
@@ -149,9 +157,37 @@ export async function recordClaimedGeneration(
 /** Server-internal save, after buildSavedReport validated both gates; an ID is not authority. */
 export async function recordApprovedReport(value: SavedReport, claimToken: string, sql: SqlLike): Promise<boolean> {
 	const report = parseSavedReport(value);
+	try {
+		const tagged = await getGenerationRun(report.scope, sql);
+		if (!tagged)
+			return recordApprovedReportLocked(report, claimToken, sql, null, null);
+		return await withFantasyLeagueLock(report.scope.leagueId, sql, async (tx) => {
+			const before = await getGenerationRun(report.scope, tx);
+			if (!before || before.claimToken !== claimToken || !before.leaseCurrent || before.status !== 'started'
+				|| await hasNewerActiveRun(report.scope.leagueId, report.scope.week, tx)) {
+				return false;
+			}
+			let next = generationApprovalState(before, report);
+			if (!next && before.generation.current.phase === 'approved') {
+				const saved = await getSavedReportState({ ...report.scope, reportId: report.id }, tx);
+				if (saved && JSON.stringify(saved.report) === JSON.stringify(report))
+					next = before.generation;
+			}
+			return next ? recordApprovedReportLocked(report, claimToken, tx, before.generation, next) : false;
+		});
+	} catch {
+		return reconcileApprovedReport(report, claimToken, sql);
+	}
+}
+
+async function recordApprovedReportLocked(report: SavedReport, claimToken: string, sql: SqlLike, before: GenerationState | null, after: GenerationState | null): Promise<boolean> {
 	const { scope } = report;
 	const text = report.parts.join('\n\n');
 	const history = { version: report.version, report };
+	// Previously saved reports remain reconcilable; a new approval must still be inside both budgets.
+	const deadline = before && before.current.phase !== 'approved'
+		? new Date(Math.min(Date.parse(before.current.workDeadlineAtUtc), Date.parse(before.current.editorialDeadlineAtUtc!))).toISOString()
+		: null;
 	try {
 		const rows = await sql`
 			WITH
@@ -167,7 +203,12 @@ export async function recordApprovedReport(value: SavedReport, claimToken: strin
 						AND fantasy_week = ${scope.week}
 						AND status = 'started'
 						AND claim_token = ${claimToken}
+						AND editorial_attempt IS NOT DISTINCT FROM ${before}
 						AND lease_expires_at > clock_timestamp()
+						AND (
+							${deadline}::timestamptz IS NULL
+							OR ${deadline}::timestamptz > clock_timestamp()
+						)
 						AND (
 							(
 								saved_report IS NULL
@@ -203,6 +244,10 @@ export async function recordApprovedReport(value: SavedReport, claimToken: strin
 						eligible
 					WHERE
 						eligible.lease_expires_at > clock_timestamp()
+						AND (
+							${deadline}::timestamptz IS NULL
+							OR ${deadline}::timestamptz > clock_timestamp()
+						)
 					ON CONFLICT (league_id, fantasy_week, generator_version, model) DO UPDATE
 					SET
 						updated_at = fantasy_recap_generations.updated_at
@@ -214,6 +259,7 @@ export async function recordApprovedReport(value: SavedReport, claimToken: strin
 				)
 			UPDATE fantasy_recap_runs target
 			SET
+				editorial_attempt = ${after},
 				saved_report = ${report},
 				part_delivery = COALESCE(target.part_delivery, ${initialSavedReportProgress(report)}),
 				final_text = ${text},
@@ -224,17 +270,38 @@ export async function recordApprovedReport(value: SavedReport, claimToken: strin
 			WHERE
 				target.league_id = eligible.league_id
 				AND target.fantasy_week = eligible.fantasy_week
+				AND (
+					${deadline}::timestamptz IS NULL
+					OR ${deadline}::timestamptz > clock_timestamp()
+				)
+				AND (
+					${before === null}
+					OR target.lease_expires_at > clock_timestamp()
+				)
 			RETURNING
 				1
 		`;
+		if (before !== null && rows.length !== 1)
+			throw new Error('generation_approval_unavailable');
 		return rows.length === 1;
 	} catch {
-		// A lost acknowledgement can hide a committed atomic save. Check both owners, never rewrite.
-		try {
-			const state = await getSavedReportState({ ...scope, reportId: report.id }, sql);
-			if (!state || state.claimToken !== claimToken || !state.leaseCurrent || state.status !== 'started')
-				return false;
-			const rows = await sql`
+		// Roll back any tentative history row when a tagged save loses a final clock/CAS check.
+		if (before !== null)
+			throw new Error('generation_approval_unavailable');
+		return reconcileApprovedReport(report, claimToken, sql);
+	}
+}
+
+async function reconcileApprovedReport(report: SavedReport, claimToken: string, sql: SqlLike): Promise<boolean> {
+	const { scope } = report;
+	const text = report.parts.join('\n\n');
+	const history = { version: report.version, report };
+	// A lost acknowledgement can hide a committed atomic save. Check both owners, never rewrite.
+	try {
+		const state = await getSavedReportState({ ...scope, reportId: report.id }, sql);
+		if (!state || state.claimToken !== claimToken || !state.leaseCurrent || state.status !== 'started')
+			return false;
+		const rows = await sql`
 				SELECT
 					1
 				FROM
@@ -247,10 +314,9 @@ export async function recordApprovedReport(value: SavedReport, claimToken: strin
 					AND final_text = ${text}
 					AND facts = ${history}
 			`;
-			return rows.length === 1;
-		} catch {
-			return false;
-		}
+		return rows.length === 1;
+	} catch {
+		return false;
 	}
 }
 
