@@ -170,6 +170,37 @@ describe('public NFL research contracts (native Firecrawl SDK, loopback HTTP)', 
 		expect(injury.credits).toBe(5);
 	});
 
+	test('accepts the verified Half-PPR site URL while preserving the canonical HALF preset', async () => {
+		const weekly = weeklyData();
+		data['fantasy-sports-rankings/weekly_results'] = {
+			...weekly,
+			position: 'RB',
+			scoring: 'HALF',
+			source_url: 'https://startwho.com/api/week-results?week=5&format=Half-PPR&position=RB',
+			players: [{ ...weekly.players[0], name: 'Public Running Back', position: 'RB' }],
+		};
+		const result = await task()({ ...weeklyQuery, position: 'RB', scoring: 'HALF' });
+		expect(result.status).toBe('success');
+		expect(result.source?.scoring).toBe('HALF');
+		expect(result.records).toHaveLength(1);
+		expect(requests[1].call.options).toMatchObject({ position: 'RB', scoring: 'HALF' });
+	});
+
+	test.each([
+		{ scoring: 'HALF', format: 'PPR' },
+		{ scoring: 'PPR', format: 'Half-PPR' },
+	])('rejects a different scoring preset in the source URL: %j', async ({ scoring, format }) => {
+		data['fantasy-sports-rankings/weekly_results'] = {
+			...weeklyData(),
+			scoring,
+			source_url: `https://startwho.com/api/week-results?week=5&format=${format}&position=QB`,
+		};
+		const result = await task()({ ...weeklyQuery, scoring });
+		expect(result.status).toBe('invalid_response');
+		expect(result.records).toEqual([]);
+		expect(result.source).toBeNull();
+	});
+
 	test('denies private queries, arbitrary routes and unsupported player mapping before any upstream request', async () => {
 		const read = task();
 		for (const invalid of [

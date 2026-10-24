@@ -273,8 +273,9 @@ function normalize(data: unknown, input: NflResearchInput, output: NflResearchRe
 		throw new Error('Provenance scope mismatch');
 	if (input.operation === 'weekly-results') {
 		const source = new URL(url);
+		const format = input.scoring === 'HALF' ? 'Half-PPR' : input.scoring;
 		if (source.pathname !== '/api/week-results' || source.searchParams.get('week') !== String(input.week)
-			|| source.searchParams.get('format') !== input.scoring || source.searchParams.get('position') !== input.position) {
+			|| source.searchParams.get('format') !== format || source.searchParams.get('position') !== input.position) {
 			throw new Error('Provenance scope mismatch');
 		}
 	}
