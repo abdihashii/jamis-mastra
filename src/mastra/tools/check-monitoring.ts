@@ -5,7 +5,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getFantasyConfig } from '../../lib/fantasy/config';
 import { getFantasySql } from '../../lib/fantasy/recaps';
-import { listFantasyMonitoringRuns } from '../../lib/fantasy/runs';
+import { fantasyGenerationSummarySchema, listFantasyMonitoringRuns } from '../../lib/fantasy/runs';
 import { getLeague, getNflState, getWinnersBracket, isWeekComplete, withBracketRounds } from '../../lib/fantasy/sleeper';
 import { readFullDeploymentEvidence } from './deployment-evidence';
 import { deploymentMonitoringOutputSchema, listRecentWorkflowRuns, readDeploymentMonitoring, stageDeploymentSnapshot } from './deployment-monitoring';
@@ -28,7 +28,7 @@ const unavailableQuerySchema = z.enum([
 const monitoringInputSchema = z.object({
 	scope: z.enum(['application', 'fantasy', 'deployment']).default('application'),
 	hours: z.number().int().min(1).max(168).optional(),
-	week: z.number().int().min(1).max(18).optional(),
+	week: z.number().int().min(1).max(22).optional(),
 }).strict().superRefine((input, context) => {
 	if (input.scope === 'fantasy' && input.hours !== undefined)
 		context.addIssue({ code: 'custom', path: ['hours'], message: 'hours is only valid for application or Deployment monitoring' });
@@ -64,35 +64,34 @@ const applicationMonitoringOutputSchema = z.object({
 
 const fantasyFailureStageSchema = z.enum(['scheduled_job', 'model', 'application_storage', 'reply_delivery', 'unknown']);
 const fantasyFailureClassificationSchema = z.enum(['execution_failed', 'execution_interrupted', 'delivery_failed', 'unknown']);
+const fantasyRunBaseSchema = z.object({
+	fantasyWeek: z.number().int().min(1).max(22),
+	generationSummary: fantasyGenerationSummarySchema.optional(),
+});
 const fantasyRunSchema = z.discriminatedUnion('outcome', [
-	z.object({
-		fantasyWeek: z.number().int().min(1).max(18),
+	fantasyRunBaseSchema.extend({
 		outcome: z.literal('sent'),
 		sentAt: z.string().nullable(),
 		deliverySource: z.enum(['api', 'operator', 'unknown']),
 	}).strict(),
-	z.object({
-		fantasyWeek: z.number().int().min(1).max(18),
+	fantasyRunBaseSchema.extend({
 		outcome: z.literal('failed'),
 		failedAt: z.string(),
 		failureStage: fantasyFailureStageSchema,
 		failureClassification: fantasyFailureClassificationSchema,
 	}).strict(),
-	z.object({
-		fantasyWeek: z.number().int().min(1).max(18),
+	fantasyRunBaseSchema.extend({
 		outcome: z.literal('delivery_unknown'),
 		deliveryUnknownAt: z.string(),
 		sendAttemptAt: z.string().nullable(),
 		failureStage: fantasyFailureStageSchema,
 		failureClassification: fantasyFailureClassificationSchema,
 	}).strict(),
-	z.object({
-		fantasyWeek: z.number().int().min(1).max(18),
+	fantasyRunBaseSchema.extend({
 		outcome: z.literal('active'),
 		leaseExpiresAt: z.string().nullable(),
 	}).strict(),
-	z.object({
-		fantasyWeek: z.number().int().min(1).max(18),
+	fantasyRunBaseSchema.extend({
 		outcome: z.literal('expired_active'),
 		leaseExpiresAt: z.string(),
 	}).strict(),
@@ -116,7 +115,7 @@ const fantasyMonitoringOutputSchema = z.union([
 	z.object({
 		availability: z.literal('available'),
 		mode: z.literal('week'),
-		week: z.number().int().min(1).max(18),
+		week: z.number().int().min(1).max(22),
 		run: fantasyRunSchema.nullable(),
 		weekCompletion: fantasyWeekCompletionSchema,
 	}).strict(),
@@ -128,7 +127,7 @@ const fantasyMonitoringOutputSchema = z.union([
 	z.object({
 		availability: z.literal('unavailable'),
 		mode: z.literal('week'),
-		week: z.number().int().min(1).max(18),
+		week: z.number().int().min(1).max(22),
 		reason: fantasyUnavailableReasonSchema,
 	}).strict(),
 ]);
@@ -350,8 +349,11 @@ export async function readFantasyMonitoring(
 		return unavailable('storage');
 	}
 	const summaries = runs
-		.filter(run => run.fantasyWeek >= 1 && run.fantasyWeek <= 18 && (week === undefined || run.fantasyWeek === week))
-		.map(run => fantasyRunSummary(run, nowMs));
+		.filter(run => Number.isInteger(run.fantasyWeek) && run.fantasyWeek >= 1 && run.fantasyWeek <= 22 && (week === undefined || run.fantasyWeek === week))
+		.map((run) => {
+			const generationSummary = fantasyGenerationSummarySchema.safeParse(run.generationSummary);
+			return { ...fantasyRunSummary(run, nowMs), ...(generationSummary.success ? { generationSummary: generationSummary.data } : {}) };
+		});
 	if (week !== undefined) {
 		const run = summaries[0] ?? null;
 		const weekCompletion = run

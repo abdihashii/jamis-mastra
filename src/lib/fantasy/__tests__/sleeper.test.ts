@@ -1,11 +1,16 @@
 import type { BracketGame, SleeperLeague, SleeperState } from '../sleeper';
 
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { Buffer } from 'node:buffer';
+import { createHash } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
+import { resolveSleeperChatWindow } from '../chat-window';
 import {
 
 	championshipWeek,
 	getLeague,
 	getManagers,
+	getNflSchedule,
 	getNflState,
 	getPlayers,
 	getPlayerSnapshot,
@@ -610,6 +615,217 @@ describe('week completion', () => {
 		const older = { week: 18, season: '2025', seasonType: 'post' };
 		expect(isWeekComplete(2, older, league, bracket)).toBe(false);
 		expect(latestCompletedWeek(older, league, bracket)).toBeNull();
+	});
+});
+
+// Full public payloads captured by the Operator; gzip keeps these offline fixtures inside the authorized test file.
+const regularScheduleCapture = [
+	'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',
+].join('');
+const postseasonScheduleCapture = 'H4sIAAAAAAAC/52TXUvDMBSG/8rIlUILSbrWsrt+zU1kDreBICJhDbbYL2i1iOy/myLY45rGmsuenvTJec/Tx09UN6x5q9ECHVlx5BmPkYFi1nBRoZg6JiYmoaKWlHlX2/uheGg5f0ULYqAXlvPnNP5uti1MMBavWcs+RGl1d0AnAyLKvMq4+PYQgXtE4N2rEXaPuBW9OojVWo1wesS1P5lAesKN96AkEDCEf1jqIDaRkkAJjCnQIWz/iImCmHbTZwA6bdd7NcFV6TRurCs3lg4RFBrb9U6dwpXrJEU4esZe9Ygw2igRBOv55Ep9khGgT//5s8EQu8hTIiys8Gl02dQGMyyDWZi+p3VaFiybXbRpcfmDtIZIC25fenjimPAScFcyJtyVCF2DAIOUEWCQQ+FGkqQmBjZ4IowgYXklwqiTtDrLcj6kzs+zlByfNOvviwAtZVCoZRfL6ekLcEbc49UGAAA=';
+
+interface ScheduleRow { game_id: string; week: number; date: string; status: string; home: string; away: string }
+const scheduleRow: ScheduleRow = {
+	game_id: '202610105',
+	week: 1,
+	date: '2026-09-13',
+	status: 'complete',
+	home: 'CAR',
+	away: 'CHI',
+};
+const scheduleFailure = new SleeperDataError('Sleeper NFL schedule could not be retrieved');
+
+function capturedSchedule(encoded: string, sha256: string): ScheduleRow[] {
+	const bytes = gunzipSync(Buffer.from(encoded, 'base64'));
+	expect(createHash('sha256').update(bytes).digest('hex')).toBe(sha256);
+	return JSON.parse(bytes.toString('utf8'));
+}
+
+function stubSchedule(rows: unknown) {
+	stubFetch({ '/schedule/nfl/regular/2026': rows });
+}
+
+describe('NFL schedule', () => {
+	it('replays all 272 captured rows with original IDs, dates and statuses, using the non-v1 endpoint', async () => {
+		const raw = capturedSchedule(regularScheduleCapture, '64ed9b6a898d7c0e51ad1c8ce0759c5de5ccfb1d8dfd3a2c11ab1c4dbe853f9a');
+		expect(raw).toHaveLength(272);
+		expect(raw.filter(g => g.status === 'complete')).toHaveLength(93);
+		expect(raw.filter(g => g.status === 'pre_game')).toHaveLength(179);
+		stubSchedule(raw);
+		const before = Date.now();
+		const snapshot = await getNflSchedule('2026', 'regular');
+		expect(fetchSpy?.mock.calls[0]?.[0]).toBe('https://api.sleeper.app/schedule/nfl/regular/2026');
+		expect(snapshot.season).toBe('2026');
+		expect(snapshot.phase).toBe('regular');
+		expect(Date.parse(snapshot.retrievedAtUtc)).toBeGreaterThanOrEqual(before);
+		expect(Date.parse(snapshot.retrievedAtUtc)).toBeLessThanOrEqual(Date.now());
+		expect(snapshot.games).toEqual(raw.map(({ game_id, home, away, ...game }) => ({
+			id: game_id,
+			...game,
+			home: home === 'ARI' ? 'AZ' : home,
+			away: away === 'ARI' ? 'AZ' : away,
+		})));
+		expect(resolveSleeperChatWindow(snapshot, 6, new Date('2026-10-21T02:00:00Z'))).toEqual({
+			status: 'ready',
+			window: { startAtUtc: '2026-10-15T00:00:00.000Z', endAtUtc: '2026-10-21T02:00:00.000Z' },
+		});
+		expect(resolveSleeperChatWindow(snapshot, 7, new Date('2026-10-21T02:00:00Z')).status).toBe('blocked');
+	});
+
+	it('replays 17 postseason rows, retaining 4 canceled placeholders and all 13 completed actual games', async () => {
+		const raw = capturedSchedule(postseasonScheduleCapture, '945a718d14272ddc9db1cd5b39e2fe5c64551bfe4dae88f0cd378b1cb6a509d5');
+		expect(raw).toHaveLength(17);
+		expect(raw.filter(g => g.status === 'complete')).toHaveLength(13);
+		expect(raw.filter(g => g.status === 'canceled')).toHaveLength(4);
+		stubFetch({ '/schedule/nfl/post/2025': raw });
+		const snapshot = await getNflSchedule('2025', 'post');
+		expect(fetchSpy?.mock.calls[0]?.[0]).toBe('https://api.sleeper.app/schedule/nfl/post/2025');
+		expect(snapshot.games).toEqual(raw.map(({ game_id, home, away, ...game }) => ({
+			id: game_id,
+			...game,
+			home: home.includes('(win)') ? 'TBD' : home,
+			away: away.includes('(win)') ? 'TBD' : away,
+		})));
+		expect(resolveSleeperChatWindow(snapshot, 19, new Date('2026-02-10T12:00:00Z'))).toEqual({
+			status: 'ready',
+			window: { startAtUtc: '2026-01-10T00:00:00.000Z', endAtUtc: '2026-01-17T00:00:00.000Z' },
+		});
+		expect(resolveSleeperChatWindow(snapshot, 22, new Date('2026-02-10T12:00:00Z'))).toEqual({
+			status: 'ready',
+			window: { startAtUtc: '2026-02-08T00:00:00.000Z', endAtUtc: '2026-02-10T12:00:00.000Z' },
+		});
+	});
+
+	it.each([null, {}, { games: [] }, 'private 雪', [null], [{}]])('rejects malformed source envelopes: %#', async (rows) => {
+		stubSchedule(rows);
+		await expect(getNflSchedule('2026', 'regular')).rejects.toThrow(scheduleFailure);
+	});
+
+	it.each([
+		{ date: '2026-02-30' },
+		{ date: '2026-9-13' },
+		{ date: '2026-09-13T00:00:00Z' },
+		{ date: '2025-09-13' },
+		{ date: '2028-01-01' },
+		{ date: '２０２６-09-13' },
+		{ game_id: '202510105' },
+		{ game_id: '2026/private 雪' },
+		{ game_id: '' },
+		{ game_id: '202610105\n' },
+		{ week: 0 },
+		{ week: 19 },
+		{ week: 1.5 },
+		{ week: '1' },
+		{ status: '' },
+		{ status: 'complete\nprivate 雪' },
+		{ status: 'complete\n' },
+		{ status: null },
+		{ date: '2026-09-13\n' },
+		{ home: 'private 雪' },
+		{ away: 'UNKNOWN' },
+		{ home: 'NFC Divisional (win)' },
+	])('rejects malformed game rows without returning source text: %#', async (patch) => {
+		stubSchedule([{ ...scheduleRow, ...patch }]);
+		await expect(getNflSchedule('2026', 'regular')).rejects.toThrow(scheduleFailure);
+	});
+
+	it('accepts empty data distinctly, rejects duplicates and bounds the entire source at 400 rows', async () => {
+		stubSchedule([]);
+		expect((await getNflSchedule('2026', 'regular')).games).toEqual([]);
+		fetchSpy?.mockRestore();
+		stubSchedule([scheduleRow, { ...scheduleRow, status: 'pre_game' }]);
+		await expect(getNflSchedule('2026', 'regular')).rejects.toThrow(scheduleFailure);
+		fetchSpy?.mockRestore();
+		const rows = Array.from({ length: 400 }, (_, i) => ({ ...scheduleRow, game_id: `2026${i}` }));
+		stubSchedule(rows);
+		expect((await getNflSchedule('2026', 'regular')).games).toHaveLength(400);
+		fetchSpy?.mockRestore();
+		stubSchedule([...rows, { ...scheduleRow, game_id: '2026400' }]);
+		await expect(getNflSchedule('2026', 'regular')).rejects.toThrow(scheduleFailure);
+	});
+
+	it('preserves unknown safe statuses and maps known club aliases without completion inference', async () => {
+		stubSchedule([{ ...scheduleRow, status: 'new_status', home: 'ARI', away: 'JAC', date: '2027-01-01' }]);
+		expect((await getNflSchedule('2026', 'regular')).games).toEqual([{
+			id: scheduleRow.game_id,
+			week: 1,
+			date: '2027-01-01',
+			status: 'new_status',
+			home: 'AZ',
+			away: 'JAX',
+		}]);
+	});
+
+	it.each([0, 5, 19])('rejects out-of-phase postseason week %s', async (week) => {
+		stubFetch({ '/schedule/nfl/post/2026': [{ ...scheduleRow, week }] });
+		await expect(getNflSchedule('2026', 'post')).rejects.toThrow(scheduleFailure);
+	});
+
+	it.each(['', '../2026', '２０２６', '2026\nprivate 雪', '2026\n', '0000', '9999'])('rejects unsafe seasons before fetching: %#', async (season) => {
+		stubSchedule([]);
+		await expect(getNflSchedule(season, 'regular')).rejects.toThrow('Sleeper NFL schedule scope is invalid');
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it('rejects invalid runtime phases before fetching', async () => {
+		stubSchedule([]);
+		await expect(getNflSchedule('2026', 'pre' as 'regular')).rejects.toThrow('Sleeper NFL schedule scope is invalid');
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it('uses a 20-second timeout and supports caller aborts without leaking the reason or logging', async () => {
+		const timeout = spyOn(AbortSignal, 'timeout');
+		const log = spyOn(console, 'error').mockImplementation(() => {});
+		const controller = new AbortController();
+		let received: AbortSignal | null | undefined;
+		try {
+			fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (_input, init) => {
+				received = init?.signal;
+				return new Promise<Response>((_resolve, reject) => {
+					received?.addEventListener('abort', () => reject(received?.reason), { once: true });
+				});
+			}) as typeof fetch);
+			const pending = getNflSchedule('2026', 'regular', controller.signal);
+			expect(timeout).toHaveBeenCalledWith(20_000);
+			controller.abort(new Error('private 雪 token=secret'));
+			await expect(pending).rejects.toThrow(scheduleFailure);
+			expect(received?.aborted).toBe(true);
+			expect(log).not.toHaveBeenCalled();
+		} finally {
+			timeout.mockRestore();
+			log.mockRestore();
+		}
+	});
+
+	it('rejects already-aborted and timed-out calls without fetching or returning Unicode reasons', async () => {
+		stubSchedule([]);
+		await expect(getNflSchedule('2026', 'regular', AbortSignal.abort('private 雪'))).rejects.toThrow(scheduleFailure);
+		const timeout = spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort('private 雪 timeout'));
+		try {
+			await expect(getNflSchedule('2026', 'regular')).rejects.toThrow(scheduleFailure);
+			expect(fetchSpy).not.toHaveBeenCalled();
+		} finally {
+			timeout.mockRestore();
+		}
+	});
+
+	it('contains HTTP, JSON and transport failures with fixed safe errors and no raw log', async () => {
+		const log = spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(new Response('private 雪', { status: 503 }));
+			await expect(getNflSchedule('2026', 'regular')).rejects.toThrow(scheduleFailure);
+			fetchSpy.mockResolvedValue(new Response('private 雪'));
+			await expect(getNflSchedule('2026', 'regular')).rejects.toThrow(scheduleFailure);
+			fetchSpy.mockRejectedValue(new Error('private 雪 secret'));
+			await expect(getNflSchedule('2026', 'regular')).rejects.toThrow(scheduleFailure);
+			expect(log).not.toHaveBeenCalled();
+		} finally {
+			log.mockRestore();
+		}
 	});
 });
 

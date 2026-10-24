@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { fetchJson } from '../fetch';
+import { nflTeamCode } from './nfl-sources';
 
 /** Thrown for leagues outside V1's supported shape or incomplete Sleeper data. */
 export class SleeperDataError extends Error {}
@@ -12,6 +13,80 @@ export interface SleeperState {
 	season: string;
 	seasonType: string;
 	seasonStartDate?: string | null;
+}
+
+const scheduleScopeSchema = z.object({
+	season: z.string().regex(/^\d{4}$/).refine(value => Number(value) >= 1 && Number(value) <= 9998),
+	phase: z.enum(['regular', 'post']),
+});
+const scheduleTeam = z.string().max(3).refine(value => value === 'TBD' || nflTeamCode(value) === value);
+const scheduleGameSchema = z.object({
+	id: z.string().regex(/^\d{5,32}$/),
+	week: z.number().int().min(1).max(18),
+	date: z.iso.date(),
+	status: z.string().regex(/^[a-z][a-z_]{0,31}$/),
+	home: scheduleTeam,
+	away: scheduleTeam,
+});
+export const sleeperScheduleSchema = scheduleScopeSchema.extend({
+	retrievedAtUtc: z.iso.datetime({ precision: 3 }),
+	games: z.array(scheduleGameSchema).max(400),
+}).refine(snapshot => new Set(snapshot.games.map(game => game.id)).size === snapshot.games.length
+	&& snapshot.games.every(game => game.id.startsWith(snapshot.season)
+		&& game.week <= (snapshot.phase === 'regular' ? 18 : 4)
+		&& [Number(snapshot.season), Number(snapshot.season) + 1].includes(Number(game.date.slice(0, 4)))));
+
+export type SleeperGame = z.infer<typeof scheduleGameSchema>;
+export type SleeperScheduleSnapshot = z.infer<typeof sleeperScheduleSchema>;
+
+const scheduleRowsSchema = z.array(scheduleGameSchema.omit({ id: true, home: true, away: true }).extend({
+	game_id: z.string(),
+	home: z.string().max(80),
+	away: z.string().max(80),
+})).max(400);
+
+function normalizeScheduleTeam(value: string, status: string): string | null {
+	const club = nflTeamCode(value);
+	if (club || value === 'TBD')
+		return club ?? 'TBD';
+	// These named canceled bracket placeholders occur in the captured postseason payload.
+	return status === 'canceled'
+		&& ['NFC Divisional (win)', 'AFC Championship (win)', 'NFC Championship (win)'].includes(value)
+		? 'TBD'
+		: null;
+}
+
+/** Public, undocumented schedule endpoint, intentionally outside /v1; no timestamps are inferred. */
+export async function getNflSchedule(
+	season: string,
+	phase: 'regular' | 'post',
+	signal?: AbortSignal,
+): Promise<SleeperScheduleSnapshot> {
+	if (!scheduleScopeSchema.safeParse({ season, phase }).success)
+		throw new SleeperDataError('Sleeper NFL schedule scope is invalid');
+	try {
+		const timeout = AbortSignal.timeout(20_000);
+		const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+		requestSignal.throwIfAborted();
+		const { ok, json } = await fetchJson(`https://api.sleeper.app/schedule/nfl/${phase}/${season}`, requestSignal, undefined, false);
+		requestSignal.throwIfAborted();
+		if (!ok || !Array.isArray(json) || json.length > 400)
+			throw new SleeperDataError();
+		const rows = scheduleRowsSchema.parse(json);
+		return sleeperScheduleSchema.parse({
+			season,
+			phase,
+			retrievedAtUtc: new Date().toISOString(),
+			games: rows.map(({ game_id, home, away, ...game }) => ({
+				id: game_id,
+				...game,
+				home: normalizeScheduleTeam(home, game.status),
+				away: normalizeScheduleTeam(away, game.status),
+			})),
+		});
+	} catch {
+		throw new SleeperDataError('Sleeper NFL schedule could not be retrieved');
+	}
 }
 
 export interface SleeperLeague {

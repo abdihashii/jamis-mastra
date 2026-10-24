@@ -8,6 +8,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getFantasyConfig } from '../../lib/fantasy/config';
 import { getFantasySql } from '../../lib/fantasy/recaps';
+import { fantasyGenerationSummarySchema, listFantasyMonitoringRuns } from '../../lib/fantasy/runs';
 
 const socketPath = '/run/jamis-evidence/probe.sock';
 const utcTime = z.iso.datetime({ precision: 0 });
@@ -69,7 +70,8 @@ const tailscaleSchema = z.object({
 const traceId = z.string().regex(/^[a-f0-9]{32}$/);
 const spanId = z.string().regex(/^[a-f0-9]{16}$/);
 const fantasyRunSchema = z.object({
-	week: z.number().int().min(1).max(18),
+	week: z.number().int().min(1).max(22),
+	generationSummary: fantasyGenerationSummarySchema.optional(),
 	status: z.enum(['started', 'sent', 'failed', 'delivery_unknown']),
 	updatedAt: utcTime,
 	traceId: traceId.nullable(),
@@ -292,31 +294,16 @@ async function readPostgres(sqlFactory: () => SqlLike, leagueId: string | undefi
 		if (!leagueId)
 			return result;
 		try {
-			const rows = await sql`
-				SELECT
-					fantasy_week,
-					status,
-					latest_attempt_trace_id,
-					updated_at
-				FROM
-					fantasy_recap_runs
-				WHERE
-					league_id = ${leagueId}
-					AND fantasy_week BETWEEN 1 AND 18
-				ORDER BY
-					fantasy_week DESC
-				LIMIT
-					1
-			`;
-			const row = rows[0] as Record<string, unknown> | undefined;
+			const [row] = await listFantasyMonitoringRuns(leagueId, undefined, sql);
 			if (!row)
 				return result;
-			const updatedAt = row.updated_at instanceof Date ? utcSeconds(row.updated_at) : null;
+			const updatedAt = row.updatedAt instanceof Date ? utcSeconds(row.updatedAt) : null;
 			const parsed = fantasyRunSchema.safeParse({
-				week: row.fantasy_week,
+				week: row.fantasyWeek,
 				status: row.status,
 				updatedAt,
-				traceId: traceId.safeParse(row.latest_attempt_trace_id).success ? row.latest_attempt_trace_id : null,
+				traceId: row.latestAttemptTraceId ?? null,
+				...(row.generationSummary ? { generationSummary: row.generationSummary } : {}),
 			});
 			if (!parsed.success) {
 				result.gaps = ['fantasy_runs_unavailable'];

@@ -162,7 +162,8 @@ describe('check monitoring', () => {
 		expect(schema.parse({ scope: 'fantasy' })).toEqual({ scope: 'fantasy' });
 		expect(schema.parse({ scope: 'fantasy', week: 18 })).toEqual({ scope: 'fantasy', week: 18 });
 		expect(schema.safeParse({ scope: 'fantasy', week: 0 }).success).toBe(false);
-		expect(schema.safeParse({ scope: 'fantasy', week: 19 }).success).toBe(false);
+		expect(schema.safeParse({ scope: 'fantasy', week: 22 }).success).toBe(true);
+		expect(schema.safeParse({ scope: 'fantasy', week: 23 }).success).toBe(false);
 		expect(schema.safeParse({ scope: 'fantasy', week: 1.5 }).success).toBe(false);
 		expect(schema.safeParse({ scope: 'fantasy', hours: 24 }).success).toBe(false);
 		expect(schema.safeParse({ scope: 'application', week: 1 }).success).toBe(false);
@@ -177,7 +178,7 @@ describe('check monitoring', () => {
 		const serializedProviderSchema = JSON.stringify(providerSchema);
 		expect(serializedProviderSchema).toContain('"fantasy"');
 		expect(serializedProviderSchema).toContain('"application"');
-		expect(serializedProviderSchema).toContain('"maximum":18');
+		expect(serializedProviderSchema).toContain('"maximum":22');
 		expect(serializedProviderSchema).not.toContain('leagueId');
 		expect(serializedProviderSchema).not.toContain('season');
 	});
@@ -592,13 +593,13 @@ describe('Fantasy monitoring', () => {
 		expect(calls).toHaveLength(2);
 		expect(calls[0]!.values).toEqual(['configured-league']);
 		expect(calls[0]!.text).toContain('FROM fantasy_recap_runs');
-		expect(calls[0]!.text).toContain('WHERE league_id = ? AND fantasy_week BETWEEN 1 AND 18');
-		expect(calls[0]!.text).toContain('ORDER BY fantasy_week DESC LIMIT 18');
+		expect(calls[0]!.text).toContain('WHERE league_id = ? AND fantasy_week BETWEEN 1 AND 22');
+		expect(calls[0]!.text).toContain('ORDER BY fantasy_week DESC LIMIT 22');
 		expect(calls[1]!.values).toEqual(['configured-league', 2]);
 		expect(calls[1]!.text).toContain('WHERE league_id = ? AND fantasy_week = ? LIMIT 1');
 		for (const call of calls) {
 			expect(call.text).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|ALTER|CREATE)\b/i);
-			expect(call.text).not.toMatch(/final_text|last_error|message_handle|claim_token|latest_attempt_trace_id/i);
+			expect(call.text).not.toMatch(/final_text|last_error|message_handle|claim_token|debug|packetJson/i);
 			expect(call.text).not.toMatch(/metric|logs|traces|fantasy_recap_generations/i);
 		}
 	});

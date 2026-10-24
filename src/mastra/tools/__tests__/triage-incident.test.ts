@@ -246,7 +246,7 @@ describe('bounded incident reader', () => {
 		expect(jsonSchema.type).toBe('object');
 		expect(jsonSchema.properties?.humanDomainReference).toMatchObject({
 			anyOf: [
-				{ type: 'string', pattern: '^week\\s+([1-9]|1[0-8])$' },
+				{ type: 'string', pattern: '^week\\s+([1-9]|1\\d|2[0-2])$' },
 				{ type: 'null' },
 			],
 		});
@@ -262,7 +262,7 @@ describe('bounded incident reader', () => {
 			component: 'fantasy-weekly-recap',
 			humanDomainReference: 'Week 1',
 		});
-		for (const component of ['fantasy-football-pundit', 'fantasy-agent'])
+		for (const component of ['fantasy-football-pundit', 'fantasy-agent', 'fantasy-debug-maintenance'])
 			expect(schema.parse({ kind: 'application', component })).toEqual({ kind: 'application', component });
 		expect(schema.parse({ kind: 'application', component: 'docker' })).toEqual({ kind: 'application', component: 'docker' });
 		expect(schema.parse({ kind: 'application', component: 'docker', container: 'postgres' })).toEqual({ kind: 'application', component: 'docker', container: 'postgres' });

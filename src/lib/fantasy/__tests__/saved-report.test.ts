@@ -5,6 +5,7 @@ import type { SavedReport, SavedReportScope } from '../saved-report';
 import { describe, expect, it } from 'bun:test';
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { buildEditorialCandidate, EDITORIAL_VERSION } from '../editorial';
 import { runEditorialLoop } from '../editorial-loop';
 import { FANTASY_EDITORIAL_MODEL } from '../editorial-policy';
@@ -110,11 +111,24 @@ describe('saved editorial reports (off live path)', () => {
 			parts: outcome.candidate.parts,
 		});
 		expect(report.parts).toHaveLength(1);
+		expect(report.editorialVersion).toBe('fantasy-editorial-v2');
+		expect(report.parts[0]).not.toContain('Basis:');
 		const start = report.parts[0].indexOf(editorialFixtureQuote);
 		expect(start).toBeGreaterThan(-1);
 		expect(Buffer.from(report.parts[0].slice(start, start + editorialFixtureQuote.length)))
 			.toEqual(Buffer.from(editorialFixtureQuote));
 		expect(JSON.stringify(parseSavedReport(JSON.parse(JSON.stringify(report))))).toBe(JSON.stringify(report));
+	});
+
+	it('keeps historical editorial-v1 approved bytes and identity unchanged', async () => {
+		const input = JSON.parse(await readFile(new URL('./fixtures/saved-report-editorial-v1.fixture.json', import.meta.url), 'utf8'));
+		const before = JSON.stringify(input);
+		const parsed = parseSavedReport(input);
+		expect(parsed.editorialVersion).toBe('fantasy-editorial-v1');
+		expect(parsed.id).toBe('report-017dc2248a597e98b21092e50b7ac87adc2b282780c8b98f901e58faf0b8dd7c');
+		expect(parsed.parts[0]).toContain('Basis: weekly performance.');
+		expect(Buffer.from(parsed.parts[0])).toEqual(Buffer.from(input.parts[0]));
+		expect(JSON.stringify(parsed)).toBe(before);
 	});
 
 	it('preserves three ordered complete parts and stable versioned digests', async () => {
@@ -237,7 +251,7 @@ describe('saved editorial reports (off live path)', () => {
 
 	const shapeCases: Array<[string, (report: SavedReport) => void]> = [
 		['version', (report) => { Object.assign(report, { version: 'fantasy-saved-report-v2' }); }],
-		['editorial version', (report) => { Object.assign(report, { editorialVersion: 'fantasy-editorial-v2' }); }],
+		['editorial version', (report) => { Object.assign(report, { editorialVersion: 'fantasy-editorial-v3' }); }],
 		['writer model alias', (report) => { Object.assign(report.writer, { model: 'gpt-6-astra' }); }],
 		['reviewer model', (report) => { Object.assign(report.reviewer, { model: 'openai-codex/gpt-6-sol' }); }],
 		['writer effort', (report) => { Object.assign(report.writer, { effort: 'high' }); }],
@@ -366,7 +380,7 @@ describe('saved editorial reports (off live path)', () => {
 	const outcomeCases: Array<[string, (outcome: Approved) => void]> = [
 		['outcome evidence', (outcome) => { outcome.evidenceId = `evidence-${'a'.repeat(64)}`; }],
 		['candidate evidence', (outcome) => { outcome.candidate.evidenceId = `evidence-${'a'.repeat(64)}`; }],
-		['candidate version', (outcome) => { Object.assign(outcome.candidate, { version: 'fantasy-editorial-v2' }); }],
+		['candidate version', (outcome) => { Object.assign(outcome.candidate, { version: 'fantasy-editorial-v3' }); }],
 		['candidate id', (outcome) => {
 			outcome.candidate.id = `candidate-${'a'.repeat(64)}`;
 			outcome.review.candidateId = outcome.candidate.id;

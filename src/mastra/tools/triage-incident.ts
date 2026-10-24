@@ -1,6 +1,6 @@
 import type { RequestContext } from '@mastra/core/request-context';
 import type { GetStructureResponse, ObservabilityStorage } from '@mastra/core/storage';
-import type { RecapRun } from '../../lib/fantasy/runs';
+import type { FantasyMonitoringRun } from '../../lib/fantasy/runs';
 
 import type { DeploymentSnapshotFinding } from './deployment-monitoring';
 import { SpanType } from '@mastra/core/observability';
@@ -9,7 +9,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getFantasyConfig } from '../../lib/fantasy/config';
 import { getFantasySql } from '../../lib/fantasy/recaps';
-import { getRun, listActionableRuns } from '../../lib/fantasy/runs';
+import { fantasyGenerationSummarySchema, listFantasyMonitoringRuns } from '../../lib/fantasy/runs';
 import { resolveOperatorTimeZone } from '../../lib/operator-time-zone';
 
 import { dateTimeInstant } from '../../lib/time';
@@ -29,6 +29,7 @@ import {
 	consumeFailedDeploymentSnapshotReply,
 	deploymentFindingSelectorSchema,
 	deploymentMonitoringGapSchema,
+	fantasyWorkflowOutputRefsSchema,
 	getDeploymentSnapshot,
 } from './deployment-monitoring';
 
@@ -55,6 +56,7 @@ const incidentComponents = [
 	'fantasy-agent',
 	'fantasy-football-pundit',
 	'fantasy-football-editor',
+	'fantasy-debug-maintenance',
 	'invoke_fantasy_pundit',
 	'invoke_fantasy_editor',
 	'prepare_fantasy_recap',
@@ -106,7 +108,7 @@ const triageIncidentInputSchema = z.object({
 	component: incidentComponentSchema.nullish(),
 	container: z.enum(dockerContainers).nullish(),
 	window: incidentWindowInputSchema.nullish(),
-	humanDomainReference: z.string().trim().regex(/^week\s+([1-9]|1[0-8])$/i).nullish(),
+	humanDomainReference: z.string().trim().regex(/^week\s+([1-9]|1\d|2[0-2])$/i).nullish(),
 	finding: deploymentFindingSelectorSchema.nullish(),
 }).strict().superRefine((input, context) => {
 	if (input.kind === 'monitoring_finding' && (input.component || input.container || input.window || input.humanDomainReference))
@@ -216,6 +218,8 @@ type ApplicationIncidentTarget = Extract<IncidentTarget, { kind: 'application' }
 type DeploymentIncidentTarget = ApplicationIncidentTarget & { component: DeploymentIncidentComponent };
 
 interface IncidentCandidateBase {
+	generationSummary?: z.infer<typeof fantasyGenerationSummarySchema>;
+	outputRefs?: z.infer<typeof fantasyWorkflowOutputRefsSchema>;
 	component: IncidentComponent | 'unknown';
 	stage: IncidentFailureStage;
 	humanDomainReference?: string;
@@ -336,6 +340,8 @@ const incidentEvidenceGapSchema = z.enum([
 	'monitoring_finding_not_found',
 ]).or(deploymentMonitoringGapSchema);
 const incidentCandidateBaseSchema = z.object({
+	generationSummary: fantasyGenerationSummarySchema.optional(),
+	outputRefs: fantasyWorkflowOutputRefsSchema.optional(),
 	component: z.union([incidentComponentSchema, z.literal('unknown')]),
 	stage: incidentFailureStageSchema,
 	humanDomainReference: z.string().optional(),
@@ -403,7 +409,7 @@ interface IncidentReaderContext {
 	getStore: () => Promise<IncidentStore | undefined>;
 	requestContext?: RequestContext;
 	fantasyLeagueId?: string;
-	readFantasyRuns?: (leagueId: string, week: number | undefined, start: Date, end: Date) => Promise<RecapRun[]>;
+	readFantasyRuns?: (leagueId: string, week: number | undefined, start: Date, end: Date) => Promise<FantasyMonitoringRun[]>;
 	readDeploymentEvidence?: () => Promise<Awaited<ReturnType<typeof readFullDeploymentEvidence>>>;
 }
 
@@ -745,7 +751,9 @@ function snapshotCandidate(finding: DeploymentSnapshotFinding, observedAtUtc: st
 								: item.fact === 'container_not_running' && item.container
 									? dockerStages[item.container]
 									: 'unknown';
-	const base = { component, stage, ...(item.week ? { humanDomainReference: `week ${item.week}` } : {}) };
+	const generationSummary = fantasyGenerationSummarySchema.safeParse(item.generationSummary);
+	const outputRefs = fantasyWorkflowOutputRefsSchema.safeParse(item.outputRefs);
+	const base = { component, stage, ...(item.week ? { humanDomainReference: `week ${item.week}` } : {}), ...(generationSummary.success ? { generationSummary: generationSummary.data } : {}), ...(outputRefs.success ? { outputRefs: outputRefs.data } : {}) };
 	return item.boundary === 'current' || item.boundary === 'current_instance' || item.boundary === 'current_and_recent_5m' || !item.at
 		? { ...base, observedAtUtc: item.at ?? observedAtUtc }
 		: { ...base, occurrenceTimeUtc: item.at };
@@ -904,7 +912,7 @@ async function readApplicationIncident(
 	target: Extract<IncidentTarget, { kind: 'application' }>,
 	store: IncidentStore,
 	context: IncidentReaderContext,
-	fantasyRuns: RecapRun[] = [],
+	fantasyRuns: FantasyMonitoringRun[] = [],
 ): Promise<IncidentResult> {
 	const filters = { startedAt: { start: target.window.start, end: target.window.end } };
 	const traceLimit = QUERY_LIMIT - fantasyRuns.length;
@@ -975,7 +983,7 @@ async function readApplicationIncident(
 }
 
 function fantasyWeek(reference: string | undefined): number | undefined {
-	const match = reference?.trim().match(/^week\s+([1-9]|1[0-8])$/i);
+	const match = reference?.trim().match(/^week\s+([1-9]|1\d|2[0-2])$/i);
 	return match ? Number(match[1]) : undefined;
 }
 
@@ -991,8 +999,10 @@ function fantasyFailureClassification(value: unknown): IncidentClassification {
 		: 'unknown';
 }
 
-function fantasyCandidate(run: RecapRun): IncidentCandidate {
+function fantasyCandidate(run: FantasyMonitoringRun): IncidentCandidate {
+	const generationSummary = fantasyGenerationSummarySchema.safeParse(run.generationSummary);
 	return {
+		...(generationSummary.success ? { generationSummary: generationSummary.data } : {}),
 		component: 'fantasy-weekly-recap',
 		occurrenceTimeUtc: run.updatedAt.toISOString(),
 		stage: fantasyFailureStage(run.failureStage),
@@ -1002,7 +1012,7 @@ function fantasyCandidate(run: RecapRun): IncidentCandidate {
 
 async function foundFantasyIncident(
 	target: Extract<IncidentTarget, { kind: 'application' }>,
-	run: RecapRun,
+	run: FantasyMonitoringRun,
 	context: IncidentReaderContext,
 	exact: boolean,
 ): Promise<IncidentResult> {
@@ -1080,13 +1090,9 @@ async function readFantasyIncident(
 	if (!leagueId)
 		return unavailable(target, 'fantasy_configuration_unavailable');
 
-	let runs: RecapRun[];
+	let runs: FantasyMonitoringRun[];
 	try {
-		runs = context.readFantasyRuns
-			? await context.readFantasyRuns(leagueId, week, target.window.start, target.window.end)
-			: week === undefined
-				? await listActionableRuns(leagueId, target.window.start, target.window.end, QUERY_LIMIT, getFantasySql())
-				: [await getRun(leagueId, week, getFantasySql())].filter((run): run is RecapRun => run !== null);
+		runs = await (context.readFantasyRuns ?? readFantasyIncidentRuns)(leagueId, week, target.window.start, target.window.end);
 	} catch {
 		return unavailable(target, 'fantasy_storage_unavailable');
 	}
@@ -1101,10 +1107,18 @@ async function readFantasyIncident(
 	return foundFantasyIncident(target, actionable[0]!, context, week !== undefined);
 }
 
+async function readFantasyIncidentRuns(leagueId: string, week: number | undefined, start: Date, end: Date): Promise<FantasyMonitoringRun[]> {
+	return (await listFantasyMonitoringRuns(leagueId, week, getFantasySql()))
+		.filter(run => run.status === 'failed' || run.status === 'delivery_unknown')
+		.filter(run => week !== undefined || (run.updatedAt >= start && run.updatedAt <= end))
+		.sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime())
+		.slice(0, QUERY_LIMIT);
+}
+
 export async function readIncident(target: IncidentTarget, context: IncidentReaderContext): Promise<IncidentResult> {
 	if (target.kind === 'monitoring_finding')
 		return readMonitoringFinding(target, context);
-	let fantasyRuns: RecapRun[] = [];
+	let fantasyRuns: FantasyMonitoringRun[] = [];
 	if (target.kind === 'application') {
 		const startMs = target.window.start.getTime();
 		const endMs = target.window.end.getTime();
@@ -1223,9 +1237,7 @@ export const triageIncidentTool = createTool({
 			readDeploymentEvidence: async () => await readFullDeploymentEvidence(
 				async () => await context.mastra?.getStorage()?.getStore('observability'),
 			),
-			readFantasyRuns: async (leagueId, week, start, end) => week === undefined
-				? await listActionableRuns(leagueId, start, end, QUERY_LIMIT, getFantasySql())
-				: [await getRun(leagueId, week, getFantasySql())].filter((run): run is RecapRun => run !== null),
+			readFantasyRuns: readFantasyIncidentRuns,
 		});
 	},
 });

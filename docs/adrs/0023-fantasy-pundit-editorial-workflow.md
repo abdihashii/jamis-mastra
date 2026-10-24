@@ -1,8 +1,8 @@
 # Fantasy Football Pundit and the editorial recap workflow
 
-Status: accepted architectural decisions for documentation. Not implemented or runtime-verified. The Operator authorized this ADR and [plan 032](../plans/032-fantasy-pundit-editorial-workflow.md), not implementation, provider calls, database operations, publication, or deployment. Open implementation gates below remain open.
+Status: accepted and implemented through the Stage 6.2 cutover, with final commit/deployment and integrated live acceptance separately gated in [plan 032](../plans/032-fantasy-pundit-editorial-workflow.md). That plan records the resolved implementation policies, native fixture verification and earlier deployed no-send acceptance. This ADR grants no publication or cron-resumption authority; the production recap cron remains Operator-paused. Historical context and the original gate list below explain the decision, not current unresolved implementation status.
 
-## Context
+## Historical context at decision time
 
 Fantasy already has a Mastra agent, not just deterministic functions. `src/fantasy/generate.ts` constructs `fantasy-agent`; `src/mastra/index.ts` registers it as `fantasy`, without channels. The scheduled workflow calls `daily.ts` and `coordinator.ts`. Code selects high-score, low-score and closest-matchup awards; the agent supplies limited structured story prose. `week-facts.ts` also produces standings and retrospective player/bench comparisons. Those comparisons alone do not prove a manager made a bad decision with the information available before kickoff.
 
@@ -83,7 +83,7 @@ These decisions prospectively supersede [plan 030](../plans/030-fantasy-recap-st
 | Quote of the Week | An exact original message or one continuous excerpt, with known attribution and enough context. Select for humor, prophecy, hubris or timing, not reaction counts. Never stitch messages, fabricate wording or substitute a paraphrase as a quote. A genuinely empty week or an adequately reviewed window without a suitable quote says so explicitly. |
 | Stories of the Week | Editorially worthwhile stories with headline and body. No fixed quota, forced matchup rundown, every-manager coverage or repetition of award explanations. Supported NFL news belongs only when relevant. Omission beats filler. |
 
-The voice is dry and sharp in criticism **and** praise. Target fantasy decisions and performance, not personal circumstances. Keep reported facts distinct from editorial opinion; labeling a statement as opinion does not excuse a fabricated premise.
+The voice is dry and sharp in criticism **and** praise. Target fantasy decisions and performance, not personal circumstances. Keep reported facts distinct from editorial opinion; labeling a statement as opinion does not excuse a fabricated premise. Award basis remains explicit in the structured draft and checks, not a public “Basis” line or judging-policy disclaimer. An evidence-backed embarrassing performance can earn a sharp roast without inventing a bad management decision; proportionate harshness alone is not unfair.
 
 Selecting an exact full message by source ID is the simplest quote default. If excerpts are implemented, code must verify a contiguous range of one retained original message, with exact attribution and no rewritten spelling, punctuation or interior omissions. Do not derive “exact” quotes from lossy whitespace-normalized/paraphrased context. Sensitive or out-of-scope material is ineligible; do not silently redact it into a purported exact quote. Reactions/Tapbacks are excluded.
 

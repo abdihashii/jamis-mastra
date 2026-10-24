@@ -2,7 +2,10 @@ import type { MastraDBMessage } from '@mastra/core/memory';
 import type { MemoryStorage } from '@mastra/core/storage';
 import { describe, expect, it } from 'bun:test';
 import { Buffer } from 'node:buffer';
-import { readArchivedChat } from '../chat-archive';
+import { isPriorRecap, readArchivedChat } from '../chat-archive';
+import { buildEditorialCandidate } from '../editorial';
+import { toChatContext } from '../generate';
+import { frozenEditorialFixture, validEditorialDraft } from './fixtures/editorial.fixture';
 
 const config = {
 	sleeperLeagueId: '111',
@@ -47,7 +50,75 @@ function store(messages: MastraDBMessage[] = [], hasMore = false) {
 	return { memory, calls };
 }
 
+describe('isPriorRecap', () => {
+	it('recognizes canonical headers with a blank line and a nonblank report body', () => {
+		for (let week = 1; week <= 22; week++) {
+			for (const suffix of ['', ' (1/2)', ' (2/2)', ' (1/3)', ' (2/3)', ' (3/3)'])
+				expect(isPriorRecap(`Week ${week} Recap${suffix}\n\nAn arbitrary story headline\n\nReport body.`)).toBe(true);
+		}
+		expect(isPriorRecap('Forwarded report:\nWeek 22 Recap (3/3)\n\nA final story.')).toBe(true);
+	});
+
+	it.each([
+		'I enjoyed the week 1 recap yesterday.',
+		'Please post Week 1 Recap when ready.',
+		'Week 1 Recap',
+		'Week 1 Recap\n\n',
+		'Week 1 Recap\n\n \t\n',
+		'Week 1 Recap\nNo blank line.',
+		'Week 1 Recap tonight\n\nLet us discuss.',
+		'week 1 recap\n\nCasual lowercase chatter.',
+		'Week 0 Recap\n\nNot a week.',
+		'Week 23 Recap\n\nNot a week.',
+		'Week 01 Recap\n\nNot a canonical week.',
+		'Week 1 Recap (1/1)\n\nNot a rendered suffix.',
+		'Week 1 Recap (0/2)\n\nNot a part.',
+		'Week 1 Recap (3/2)\n\nNot a part.',
+		'Week 1 Recap (4/4)\n\nNot a part.',
+		'Week 1 Recap (2/3) extra\n\nNot an exact header.',
+	])('keeps ordinary or noncanonical chat: %s', (text) => {
+		expect(isPriorRecap(text)).toBe(false);
+	});
+
+	it('preserves legacy award-heading detection', () => {
+		expect(isPriorRecap('🏆 Manager of the Week: alpha\n\nLoser of the Week: bravo\nMatch of the Week: ours')).toBe(true);
+		expect(isPriorRecap('Manager of the Week: what do we think?')).toBe(false);
+	});
+});
+
 describe('readArchivedChat', () => {
+	it.each([1, 2, 3])('excludes every part of a real %i-part rendering without changing archive bytes', async (partCount) => {
+		const packet = await frozenEditorialFixture();
+		const draft = validEditorialDraft(packet);
+		if (partCount > 1) {
+			draft.stories = ['A surprising turn', 'The bench bites back', 'A final word'].slice(0, partCount).map((headline, index) => ({ headline, body: String.fromCharCode(65 + index).repeat(10_000), supportIds: ['score:1:1'] }));
+		}
+		const rendered = buildEditorialCandidate(packet, draft);
+		expect(rendered.status).toBe('candidate');
+		if (rendered.status !== 'candidate')
+			throw new Error('Fixture rendering failed');
+		const parts = rendered.candidate.parts;
+		expect(parts).toHaveLength(partCount);
+		for (let index = 1; index < parts.length; index++) {
+			expect(parts[index].startsWith(`Week 1 Recap (${index + 1}/${partCount})\n\n${draft.stories[index].headline}\n\n`)).toBe(true);
+			expect(parts[index]).not.toContain('Manager of the Week');
+		}
+		const ordinary = message('ordinary', '  I enjoyed the week 1 recap. 🏈 e\u0301\n\nWho is next?  ');
+		const messages = [...parts.map((part, index) => message(`repost-${index}`, part)), ordinary];
+		const before = structuredClone(messages);
+		const bytes = messages.map(row => Buffer.from((row.content.parts[0] as { text: string }).text));
+		const { memory } = store(messages);
+		const result = await readArchivedChat(memory, config, managers, window, now);
+		expect(result.status).toBe('complete');
+		expect(result.readCount).toBe(partCount + 1);
+		expect(result.excluded.recap).toBe(partCount);
+		expect(result.sources.map(source => source.id)).toEqual(['ordinary']);
+		expect(Buffer.from(result.sources[0].text)).toEqual(bytes[partCount]);
+		expect(toChatContext(messages, config, managers).map(source => source.id)).toEqual(['ordinary']);
+		expect(messages).toEqual(before);
+		expect(messages.map(row => Buffer.from((row.content.parts[0] as { text: string }).text))).toEqual(bytes);
+	});
+
 	it('retains exact original bytes, mapped attribution and UTC provenance without mutation', async () => {
 		const source = message();
 		const before = structuredClone(source);

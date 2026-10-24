@@ -6,6 +6,7 @@ import { SQL } from 'bun';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { runEditorialLoop } from '../editorial-loop';
 import { ensureFantasyRecapsTable, recordApprovedReport, recordClaimedGeneration, recordGeneration } from '../recaps';
 import {
@@ -28,7 +29,7 @@ import {
 	reserveSavedReportDelivery,
 	savedPartStatus,
 } from '../runs';
-import { buildSavedReport } from '../saved-report';
+import { buildSavedReport, parseSavedReport } from '../saved-report';
 import { dispatchSavedReport } from '../saved-report-delivery';
 import { editorialFixtureQuote, frozenEditorialFixture, validEditorialDraft } from './fixtures/editorial.fixture';
 
@@ -257,6 +258,17 @@ describe.skipIf(!databaseUrl)('saved-report native PG delivery gates (mock sende
 			generator_version: one.version,
 			facts: { version: one.version, report: one },
 		});
+	});
+
+	test('historical editorial-v1 delivery preserves reviewed basis labels and exact bytes', async () => {
+		const report = parseSavedReport(JSON.parse(await readFile(new URL('./fixtures/saved-report-editorial-v1.fixture.json', import.meta.url), 'utf8')));
+		const ref = await save(report);
+		const transport = sender([], report);
+		const result = await dispatchSavedReport(ref, token, sql, transport.send);
+		expect(result).toMatchObject({ status: 'sent', reportId: report.id, acceptedParts: 1 });
+		expect(transport.calls).toEqual([{ groupId: report.scope.groupId, text: report.parts[0] }]);
+		expect(transport.calls[0].text).toContain('Basis: weekly performance.');
+		expect((await state(ref)).report).toEqual(report);
 	});
 
 	test('wrong or expired save claims write neither artifact nor history', async () => {
