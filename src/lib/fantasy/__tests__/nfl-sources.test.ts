@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
-import { createNflResearchTask } from '../research';
+import { createNflSourceTask } from '../nfl-sources';
 
 const now = () => new Date('2026-10-17T18:10:00.000Z');
 const observed = Date.parse('2026-10-17T18:09:00Z');
@@ -121,7 +121,7 @@ function success(call: Call, payload: unknown, cost: number, extra: Record<strin
 	return Response.json({ success: true, data: { creditsCost: cost, alexandria: [item] } });
 }
 function task() {
-	return createNflResearchTask({ currentSeason: 2026, apiKey: 'fixture-only', apiUrl: server.url.origin, now });
+	return createNflSourceTask({ currentSeason: 2026, apiKey: 'fixture-only', apiUrl: server.url.origin, now });
 }
 beforeEach(() => {
 	requests = [];
@@ -139,7 +139,7 @@ beforeEach(() => {
 });
 afterEach(() => server.stop(true));
 
-describe('public NFL research contracts (native Firecrawl SDK, loopback HTTP)', () => {
+describe('public NFL sources (native Firecrawl SDK, loopback HTTP)', () => {
 	test('normalizes historical report dates and current-season results without inventing snapshots or Sleeper IDs', async () => {
 		const read = task();
 		const injury = await read(injuryQuery);

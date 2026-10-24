@@ -40,12 +40,12 @@ const season = z.number().int().min(1920).max(2100);
 const week = z.number().int().min(1).max(22);
 const position = z.enum(['QB', 'RB', 'WR', 'TE', 'K', 'DST', 'FLX', 'ALL']);
 const scoring = z.enum(['STD', 'HALF', 'PPR']);
-export const nflResearchInputSchema = z.discriminatedUnion('operation', [
+export const nflSourceInputSchema = z.discriminatedUnion('operation', [
 	z.object({ operation: z.literal('injuries'), season, week, team }).strict(),
 	z.object({ operation: z.literal('news'), team }).strict(),
 	z.object({ operation: z.literal('weekly-results'), season, week, position, scoring }).strict(),
 ]);
-export type NflResearchInput = z.infer<typeof nflResearchInputSchema>;
+export type NflSourceInput = z.infer<typeof nflSourceInputSchema>;
 const routes = {
 	'injuries': { provider: 'nfl-com', capability: 'sports-league-data/injury_report', key: '', field: 'reports' },
 	'news': { provider: 'nfl-com', capability: 'sports-league-data/news', key: '', field: 'articles' },
@@ -110,11 +110,11 @@ const resultRow = z.object({
 	game_kickoff_at: instant.nullable(),
 	status: z.enum(['final', 'dnp', 'scheduled', 'pending']),
 });
-export type NflRecord
+export type NflSourceRecord
 	= | { kind: 'injury'; sourceId: string; gsisId: string | null; name: string; position: string; team: string; sourceDate: string | null; designation: string | null; injuries: string[]; practiceInjuries: string[]; practiceStatus: string | null; practiceDays: Array<{ date: string; status: string }> }
 		| { kind: 'news-summary'; sourceId: string; title: string; description: string | null; summary: string | null; url: string; publishedAtUtc: string | null; updatedAtUtc: string | null }
 		| { kind: 'weekly-result'; sourceId: string; name: string; teamName: string; position: string; opponent: string; projectedPoints: number | null; actualPoints: number | null; actualStats: Record<string, number>; kickoffAtUtc: string | null; status: string };
-export interface NflResearchResult {
+export interface NflSourceResult {
 	status: 'success' | 'partial' | 'empty' | 'blocked' | 'terms_required' | 'access_denied'
 		| 'upstream_error' | 'unknown_outcome' | 'invalid_response';
 	trust: 'untrusted-source-data';
@@ -128,7 +128,7 @@ export interface NflResearchResult {
 	source: null | {
 		provider: string;
 		capability: string;
-		scope: NflResearchInput;
+		scope: NflSourceInput;
 		url: string;
 		retrievedAtUtc: string;
 		observedAtUtc: string;
@@ -139,9 +139,9 @@ export interface NflResearchResult {
 		scoring: 'STD' | 'HALF' | 'PPR' | null;
 		truncated: boolean;
 	};
-	records: NflRecord[];
+	records: NflSourceRecord[];
 }
-function empty(): NflResearchResult {
+function empty(): NflSourceResult {
 	return {
 		status: 'blocked',
 		trust: 'untrusted-source-data',
@@ -163,7 +163,7 @@ function sourceUrl(value: string, provider: string) {
 		throw new Error('Unsupported provenance');
 	return url.href;
 }
-function failure(error: unknown, output: NflResearchResult) {
+function failure(error: unknown, output: NflSourceResult) {
 	const details = z.object({
 		code: z.string().optional(),
 		status: z.number().optional(),
@@ -182,14 +182,14 @@ function failure(error: unknown, output: NflResearchResult) {
 		output.status = output.credits === null ? 'unknown_outcome' : 'upstream_error';
 	}
 }
-function optionsFor(input: NflResearchInput): Record<string, string | number> {
+function optionsFor(input: NflSourceInput): Record<string, string | number> {
 	if (input.operation === 'injuries')
 		return { season: input.season, season_type: 'REG', week: input.week, team: input.team };
 	if (input.operation === 'news')
 		return { tag: clubs[input.team], limit: 10 };
 	return { week: input.week, position: input.position, scoring: input.scoring, limit: 100 };
 }
-function admit(raw: unknown[], input: NflResearchInput) {
+function admit(raw: unknown[], input: NflSourceInput) {
 	const route = routes[input.operation];
 	const identity = z.object({ provider: z.literal(route.provider), capability: z.literal(route.capability) });
 	const matches = raw.filter(item => identity.safeParse(item).success);
@@ -226,7 +226,7 @@ function admit(raw: unknown[], input: NflResearchInput) {
 	}
 	return options;
 }
-function normalize(data: unknown, input: NflResearchInput, output: NflResearchResult, retrievedAtUtc: string) {
+function normalize(data: unknown, input: NflSourceInput, output: NflSourceResult, retrievedAtUtc: string) {
 	const route = routes[input.operation];
 	const envelope = z.object({
 		source_url: z.string().max(2048),
@@ -298,7 +298,7 @@ function normalize(data: unknown, input: NflResearchInput, output: NflResearchRe
 	let ambiguous = false;
 	for (const row of rows) {
 		try {
-			let record: NflRecord;
+			let record: NflSourceRecord;
 			if (input.operation === 'injuries') {
 				const item = injuryRow.parse(row);
 				if (item.report_date === null)
@@ -348,7 +348,7 @@ function normalize(data: unknown, input: NflResearchInput, output: NflResearchRe
 }
 
 /** One fresh public-NFL task: one catalogue, at most three distinct reads, no automatic retries. */
-export function createNflResearchTask(config: {
+export function createNflSourceTask(config: {
 	currentSeason: number;
 	apiKey: string;
 	apiUrl?: string;
@@ -361,14 +361,14 @@ export function createNflResearchTask(config: {
 	const now = config.now ?? (() => new Date());
 	let halted = false;
 	let catalogueId: string | null = null;
-	let contracts: Promise<unknown[] | NflResearchResult> | undefined;
-	const reads = new Map<string, Promise<NflResearchResult>>();
+	let contracts: Promise<unknown[] | NflSourceResult> | undefined;
+	const reads = new Map<string, Promise<NflSourceResult>>();
 	async function execute(
 		provider: string,
 		capability: string,
 		options: Record<string, unknown>,
 		price: number,
-		output: NflResearchResult,
+		output: NflSourceResult,
 	) {
 		output.requestId = crypto.randomUUID();
 		output.quotedCredits = price;
@@ -430,7 +430,7 @@ export function createNflResearchTask(config: {
 			return output;
 		}
 	}
-	async function run(input: NflResearchInput) {
+	async function run(input: NflSourceInput) {
 		const output = empty();
 		const inspected = await (contracts ??= inspect());
 		if (!Array.isArray(inspected))
@@ -464,8 +464,8 @@ export function createNflResearchTask(config: {
 		}
 		return output;
 	}
-	return async (raw: unknown): Promise<NflResearchResult> => {
-		const parsed = nflResearchInputSchema.safeParse(raw);
+	return async (raw: unknown): Promise<NflSourceResult> => {
+		const parsed = nflSourceInputSchema.safeParse(raw);
 		const output = empty();
 		if (!parsed.success) {
 			output.gaps.push('invalid_public_projection');
