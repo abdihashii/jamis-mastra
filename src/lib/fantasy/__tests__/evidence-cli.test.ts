@@ -121,7 +121,7 @@ describe('evidence CLI isolation', () => {
 		expect(missingWindow.code).toBe(1);
 		expect(missingWindow.stderr).toContain('--since');
 		const missingKey = await run([
-			'recap-evidence',
+			'evidence',
 			'--week',
 			'2',
 			'--since',
