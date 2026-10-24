@@ -35,6 +35,7 @@ export default antfu(
 		// Each rule configuration accepts one SQL tag.
 		plugins: { 'comment-length': commentLength, sql, 'sqlTx': sql },
 		rules: {
+			'perfectionist/sort-imports': ['error', { environment: 'bun' }],
 			'comment-length/limit-single-line-comments': ['error', commentFormatting],
 			'comment-length/limit-multi-line-comments': ['error', commentFormatting],
 			// shortcut: inline SQL loses nesting indentation; use multiline templates to enable formatting.
