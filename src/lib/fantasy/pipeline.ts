@@ -1,10 +1,10 @@
 import type { MemoryStorage } from '@mastra/core/storage';
 import type { FantasyEditorialObserver } from '../../mastra/workflows/prepare-fantasy-recap';
-import type { ChatWindow } from './chat-archive';
 import type { FantasyConfig } from './config';
 import type { CoordinatorResult } from './coordinator';
 import type { EditorialOutcome } from './editorial-loop';
 import type { GenerationAttemptRef } from './generation-state';
+import type { NflCalendarProof, NflReportingWindow } from './nfl-calendar';
 import type { EvidenceOptions, RecapEvidencePacket } from './recap-evidence';
 import type { SqlLike } from './recaps';
 import type { SavedReportReference } from './runs';
@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { createGenerationCapture } from './generation-capture';
 import { blockGenerationAttempt, claimGenerationAttempt, getGenerationRun, markGenerationNotified, recoverGenerationAttempt } from './generation-runs';
 import { GENERATION_LIMITS, GENERATION_VERSION, generationSummary } from './generation-state';
+import { parseNflCalendarProof } from './nfl-calendar';
 import { collectRecapEvidence } from './recap-evidence';
 import { ensureFantasyRecapsTable, recordApprovedReport } from './recaps';
 import { claimSavedReportRetry, ensureFantasyRunsTable, expireStaleLeases, getRun, getSavedReportState, markSavedReportNotified, pauseSavedReportDelivery, recoverSavedReport, savedPartStatus } from './runs';
@@ -41,12 +42,17 @@ export type PipelineResult = CoordinatorResult & {
 	counts?: { nfl: number; drafts: number; reviews: number };
 };
 
+function calendarIdentity(proof: NflCalendarProof): string {
+	// Provider ordering and a later verification time do not change the frozen reporting period.
+	return JSON.stringify({ ...proof, retrievedAtUtc: undefined, games: [...proof.games].sort((a, b) => a.id.localeCompare(b.id)) });
+}
+
 /** One production composition shared by schedule and the trusted local CLI. */
 export async function runRecapPipeline(request: {
 	config: FantasyConfig;
 	season: number;
 	week: number;
-	window: ChatWindow | (() => Promise<ChatWindow | null>);
+	window: NflReportingWindow | (() => Promise<NflReportingWindow>);
 	traceId?: string;
 	restartAttemptId?: string;
 }, deps: PipelineDeps): Promise<PipelineResult> {
@@ -143,13 +149,28 @@ export async function runRecapPipeline(request: {
 			await notice({ ...scope, attemptId: prior.generation.current.id });
 			return summary();
 		}
-		const window = request.restartAttemptId && prior?.generation.current.id === request.restartAttemptId
-			? prior.generation.current.window
-			: typeof request.window === 'function' ? await request.window() : request.window;
-		if (!window)
-			return safe('noop-no-completed-week', 'nfl_week_not_closed');
+		const restarting = request.restartAttemptId && prior?.generation.current.id === request.restartAttemptId
+			? prior.generation.current
+			: null;
+		if (restarting && !restarting.calendarProof)
+			return safe('failed', 'reporting_calendar_missing');
+		const reporting = typeof request.window === 'function' ? await request.window() : request.window;
+		if (reporting.status !== 'ready') {
+			const unclosed = ['calendar_period_unclosed', 'calendar_games_unclosed'].includes(reporting.reason);
+			return safe(unclosed ? 'noop-no-completed-week' : 'failed', reporting.reason);
+		}
+		const window = reporting.window;
+		let calendarProof = parseNflCalendarProof(reporting.source, scope.season, week, window);
+		if (restarting) {
+			const retained = parseNflCalendarProof(restarting.calendarProof, scope.season, week, restarting.window);
+			if (JSON.stringify(window) !== JSON.stringify(restarting.window)
+				|| calendarIdentity(calendarProof) !== calendarIdentity(retained)) {
+				return safe('failed', 'reporting_calendar_changed');
+			}
+			calendarProof = retained;
+		}
 		token = randomUUID();
-		reference = await claimGenerationAttempt(scope, window, token, request.traceId ?? null, sql, request.restartAttemptId);
+		reference = await claimGenerationAttempt(scope, window, token, request.traceId ?? null, sql, request.restartAttemptId, calendarProof);
 		if (!reference)
 			return safe('blocked-active-claim', 'generation_claim_unavailable');
 		const owned = await getGenerationRun(scope, sql);
@@ -162,7 +183,7 @@ export async function runRecapPipeline(request: {
 		const signal = AbortSignal.any([AbortSignal.timeout(remaining), ...(deps.signal ? [deps.signal] : [])]);
 		const capture = createGenerationCapture(reference, token, sql);
 		signal.throwIfAborted();
-		const packet = await collectRecapEvidence({ config, week, window }, {
+		const packet = await collectRecapEvidence({ config, week, window, calendarProof }, {
 			memory: deps.memory,
 			sleeper: deps.sleeper,
 			now: deps.now,

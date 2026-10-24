@@ -4,6 +4,7 @@ import type { EvidenceOptions, RecapEvidencePacket } from '../../recap-evidence'
 import type { SleeperScore } from '../../sleeper';
 import { buildEditorialCatalog } from '../../editorial';
 import { collectRecapEvidence } from '../../recap-evidence';
+import { reportingWindowFixture } from './reporting-window.fixture';
 
 export const editorialFixtureConfig = {
 	sendblueGroupId: 'fixture-group',
@@ -40,7 +41,7 @@ export async function frozenEditorialFixture() {
 			content: { format: 2, parts: [{ type: 'text', text: editorialFixtureQuote }], metadata: { channel: 'sendblue', groupId: editorialFixtureConfig.sendblueGroupId, senderNumber: '+15550000001', sentAt: '2026-09-02T01:00:00Z' } },
 		}] }),
 	};
-	return collectRecapEvidence({ config: editorialFixtureConfig, week: 1, window: editorialFixtureWindow }, { memory, sleeper: editorialFixtureSleeper, now: editorialFixtureNow });
+	return collectRecapEvidence({ config: editorialFixtureConfig, week: 1, window: editorialFixtureWindow, calendarProof: reportingWindowFixture(editorialFixtureWindow).source }, { memory, sleeper: editorialFixtureSleeper, now: editorialFixtureNow });
 }
 export function validEditorialDraft(packet: RecapEvidencePacket): EditorialDraft {
 	const match = buildEditorialCatalog(packet).sources.find(source => source.kind === 'matchup')!.id;

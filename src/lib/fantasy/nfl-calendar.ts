@@ -54,6 +54,59 @@ export type NflReportingWindow = { status: 'ready'; window: ChatWindow; source: 
 	| { status: 'blocked'; reason: BlockReason };
 
 const calendarUrl = (scope: Scope) => `${CORE}/seasons/${scope.season}/types/${scope.type}/weeks/${scope.week}?lang=en&region=us`;
+const proofInstant = z.iso.datetime({ precision: 3 }).refine(value => new Date(value).toISOString() === value);
+const proofPeriod = z.object({
+	url: z.url().max(2048),
+	providerWeek: z.number().int(),
+	label: z.string().max(100),
+	startAtUtc: proofInstant,
+	lastMinuteAtUtc: proofInstant,
+}).strict();
+export const nflCalendarProofSchema: z.ZodType<NflCalendarProof> = z.object({
+	provider: z.literal('espn'),
+	retrievedAtUtc: proofInstant,
+	current: proofPeriod,
+	next: proofPeriod,
+	games: z.array(z.object({
+		id: z.string().regex(/^\d{1,30}$/),
+		kickoffAtUtc: proofInstant,
+		home: z.string().refine(value => nflTeamCode(value) === value),
+		away: z.string().refine(value => nflTeamCode(value) === value),
+		final: z.literal(true),
+	}).strict()).min(1).max(20),
+}).strict();
+
+/** Historical proof parsing grants no execution authority and never re-queries or changes its timestamps. */
+export function parseNflCalendarProof(value: unknown, season: number, fantasyWeek: number, window: ChatWindow): NflCalendarProof {
+	try {
+		const source = nflCalendarProofSchema.parse(value);
+		const regular = season >= 2021 ? 18 : 17;
+		requireValue(Number.isInteger(season) && season >= 1920 && season <= 2100
+			&& Number.isInteger(fantasyWeek) && fantasyWeek > 0 && fantasyWeek <= regular + 4, 'calendar_scope_invalid');
+		const type = fantasyWeek <= regular ? 2 : 3;
+		const local = type === 2 ? fantasyWeek : fantasyWeek - regular;
+		const current: Scope = { season, type, week: type === 3 && local === 4 ? 5 : local };
+		const next: Scope = type === 2 && local === regular ? { season, type: 3, week: 1 } : { ...current, week: current.week + 1 };
+		for (const [actual, expected] of [[source.current, current], [source.next, next]] as const) {
+			const label = expected.type === 2
+				? `Week ${expected.week}`
+				: ({ 1: 'Wild Card', 2: 'Divisional Round', 3: 'Conference Championship', 4: 'Pro Bowl', 5: 'Super Bowl' } as Record<number, string>)[expected.week];
+			requireValue(actual.url === calendarUrl(expected) && actual.providerWeek === expected.week && actual.label === label
+				&& actual.startAtUtc < actual.lastMinuteAtUtc
+				&& [actual.startAtUtc, actual.lastMinuteAtUtc].every(date => date.endsWith(':00.000Z')
+					&& [season, season + 1].includes(Number(date.slice(0, 4)))), 'calendar_source_invalid');
+		}
+		requireValue(source.current.startAtUtc === window.startAtUtc && source.next.startAtUtc === window.endAtUtc
+			&& Date.parse(source.current.lastMinuteAtUtc) + 60_000 === Date.parse(source.next.startAtUtc), 'calendar_boundary_conflict');
+		requireValue(new Set(source.games.map(game => game.id)).size === source.games.length
+			&& new Set(source.games.map(game => `${game.home}:${game.away}`)).size === source.games.length
+			&& source.games.every(game => game.home !== game.away && game.kickoffAtUtc >= window.startAtUtc
+				&& game.kickoffAtUtc < window.endAtUtc), 'calendar_schedule_mismatch');
+		return source;
+	} catch {
+		throw new Error('invalid_reporting_calendar');
+	}
+}
 
 async function readJson(url: string, signal: AbortSignal, next = false): Promise<unknown> {
 	signal.throwIfAborted();
@@ -140,7 +193,7 @@ function gamesInWindow(raw: unknown, scope: Scope, snapshot: SleeperScheduleSnap
 	});
 }
 
-/** Off-path, queried calendar periods, not final-whistle timestamps. Week is local to the supplied Sleeper phase. */
+/** Queried calendar periods, not final-whistle timestamps. Week is local to the supplied Sleeper phase. */
 export async function readNflReportingWindow(snapshot: SleeperScheduleSnapshot, week: number, now: Date, signal?: AbortSignal): Promise<NflReportingWindow> {
 	const parsed = sleeperScheduleSchema.safeParse(snapshot);
 	const year = parsed.success ? Number(parsed.data.season) : Number.NaN;

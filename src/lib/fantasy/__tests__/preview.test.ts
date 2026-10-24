@@ -23,7 +23,9 @@ import {
 	validEditorialDraft,
 	editorialFixtureWindow as window,
 } from './fixtures/editorial.fixture';
+import { reportingWindowFixture } from './fixtures/reporting-window.fixture';
 
+const readWindow = async () => reportingWindowFixture(window);
 let preview: typeof PreviewCandidate;
 let createProcedure: typeof CreateProcedure;
 let readonlyUrl: typeof ReadonlyUrl;
@@ -73,10 +75,10 @@ test('invalid scope blocks before any native model call or database access', asy
 		{ config: { ...config, sleeperLeagueId: '' } },
 		{ config: { ...config, sendblueGroupId: '' } },
 	]) {
-		const result = await preview({ config, week: 1, window, databaseUrl: 'not-a-url', ...change }, { sleeper, now, prepare: fixture.prepare });
+		const result = await preview({ config, week: 1, window, databaseUrl: 'not-a-url', ...change }, { sleeper, now, readWindow, prepare: fixture.prepare });
 		expect(result).toEqual({ status: 'blocked', reason: 'invalid_preview_scope', packet: null, outcome: null, counts: { drafts: 0, reviews: 0 }, databaseUnchanged: false });
 	}
-	const result = await preview({ config, week: 1, window, databaseUrl: 'not-a-url' }, { sleeper, now, prepare: fixture.prepare, schemaName: 'invalid-schema' });
+	const result = await preview({ config, week: 1, window, databaseUrl: 'not-a-url' }, { sleeper, now, readWindow, prepare: fixture.prepare, schemaName: 'invalid-schema' });
 	expect(result.reason).toBe('invalid_preview_scope');
 	expect(fixture.calls).toHaveLength(0);
 	expect(fixture.resolved).toHaveLength(0);
@@ -84,11 +86,23 @@ test('invalid scope blocks before any native model call or database access', asy
 
 test('invalid database URLs are redacted and never reach a model', async () => {
 	const fixture = unusedNativeProcedure();
+	let calendarReads = 0;
 	for (const databaseUrl of ['PRIVATE_INVALID_DATABASE_URL', 'https://example.invalid/jamis_sessions_test']) {
-		const result = await preview({ config, week: 1, window, databaseUrl }, { sleeper, now, prepare: fixture.prepare });
-		expect(result).toEqual({ status: 'blocked', reason: 'invalid_preview_database_url', packet: null, outcome: null, counts: { drafts: 0, reviews: 0 }, databaseUnchanged: false });
-		expect(JSON.stringify(result)).not.toContain(databaseUrl);
+		for (const assertion of [undefined, window]) {
+			const result = await preview({ config, week: 1, window: assertion, databaseUrl }, {
+				sleeper,
+				now,
+				prepare: fixture.prepare,
+				readWindow: async () => {
+					calendarReads++;
+					return reportingWindowFixture(window);
+				},
+			});
+			expect(result).toEqual({ status: 'blocked', reason: 'invalid_preview_database_url', packet: null, outcome: null, counts: { drafts: 0, reviews: 0 }, databaseUnchanged: false });
+			expect(JSON.stringify(result)).not.toContain(databaseUrl);
+		}
 	}
+	expect(calendarReads).toBe(0);
 	expect(fixture.calls).toHaveLength(0);
 	expect(fixture.resolved).toHaveLength(0);
 });
@@ -123,7 +137,7 @@ describe.skipIf(!available)('candidate preview on disposable read-only PG', () =
 	let storage: PostgresStore;
 	let snapshotGuards: Array<ReturnType<typeof spyOn>> = [];
 	const request = () => ({ config, week: 1, window, databaseUrl: databaseUrl! });
-	const options = () => ({ sleeper, now, schemaName: schema });
+	const options = () => ({ sleeper, now, readWindow, schemaName: schema });
 
 	beforeAll(async () => {
 		root = new SQL(databaseUrl!);
@@ -257,6 +271,51 @@ describe.skipIf(!available)('candidate preview on disposable read-only PG', () =
 		expect(fixture.outcomes).toEqual([result.outcome]);
 		expect(await snapshot()).toEqual(before);
 		expect((await sql`SELECT saved_text FROM fantasy_recap_generations`)[0].saved_text).toBe('Saved recap must stay exact');
+	});
+
+	test('week-only candidate retains queried bounds and proof through native writer/reviewer', async () => {
+		const before = await snapshot();
+		const fixture = nativeFixture();
+		let queries = 0;
+		const result = await preview({ config, week: 1, databaseUrl: databaseUrl! }, {
+			...options(),
+			prepare: fixture.prepare,
+			readWindow: async (season, week) => {
+				queries++;
+				expect([season, week]).toEqual(['2026', 1]);
+				return reportingWindowFixture(window);
+			},
+		});
+		expect(queries).toBe(1);
+		expect(result).toMatchObject({ status: 'approved', counts: { drafts: 1, reviews: 1 }, databaseUnchanged: true });
+		expect(result.packet?.scope).toMatchObject({ chatWindow: window, calendarProof: reportingWindowFixture(window).source });
+		expect(fixture.calls.map(call => call.role)).toEqual(['writer', 'reviewer']);
+		expect(await snapshot()).toEqual(before);
+	});
+
+	test('mismatched assertion blocks paid NFL reads and native models without altering DB state', async () => {
+		const before = await snapshot();
+		const fixture = nativeFixture();
+		let calendarReads = 0;
+		const result = await preview({
+			...request(),
+			window: { ...window, endAtUtc: '2026-09-07T00:00:00.000Z' },
+			firecrawlApiKey: 'synthetic-only',
+		}, {
+			...options(),
+			prepare: fixture.prepare,
+			readWindow: async () => {
+				calendarReads++;
+				return reportingWindowFixture(window);
+			},
+		});
+		expect(calendarReads).toBe(1);
+		expect(result).toMatchObject({ status: 'blocked', reason: 'evidence_blocked', outcome: null, counts: { drafts: 0, reviews: 0 }, databaseUnchanged: true });
+		expect(result.packet?.gaps).toContainEqual({ source: 'calendar', code: 'reporting_window_mismatch', blocking: true });
+		expect(result.packet?.nfl).toEqual([]);
+		expect(fixture.calls).toHaveLength(0);
+		expect(fixture.resolved).toHaveLength(0);
+		expect(await snapshot()).toEqual(before);
 	});
 
 	test.each([

@@ -28,7 +28,6 @@ export async function previewRecapCandidate(
 	request: Parameters<typeof previewRecapEvidence>[0],
 	fixture: Parameters<typeof previewRecapEvidence>[1] & {
 		prepare?: typeof prepareCandidate;
-		abortSignal?: AbortSignal;
 	} = {},
 ): Promise<CandidatePreviewResult> {
 	const work: { outcome: EditorialOutcome | null } = { outcome: null };

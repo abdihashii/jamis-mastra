@@ -21,7 +21,7 @@ import { MastraLanguageModelV2Mock } from '@mastra/core/test-utils/llm-mock';
 import { runWeeklyRecap } from '../coordinator';
 import { buildEditorialCandidate } from '../editorial';
 import { getGenerationRun, readGenerationDebug } from '../generation-runs';
-import { parseGenerationState } from '../generation-state';
+import { initialGenerationState, parseGenerationState } from '../generation-state';
 import { runRecapPipeline } from '../pipeline';
 import { ensureFantasyRecapsTable, recordApprovedReport } from '../recaps';
 import {
@@ -48,8 +48,9 @@ import {
 	frozenEditorialFixture,
 	validEditorialDraft,
 } from './fixtures/editorial.fixture';
+import { reportingWindowFixture } from './fixtures/reporting-window.fixture';
 
-const request = { config: editorialFixtureConfig, season: 2026, week: 1, window: editorialFixtureWindow };
+const request = { config: editorialFixtureConfig, season: 2026, week: 1, window: reportingWindowFixture(editorialFixtureWindow) };
 const scope = {
 	leagueId: editorialFixtureConfig.sleeperLeagueId,
 	groupId: editorialFixtureConfig.sendblueGroupId,
@@ -488,6 +489,84 @@ describe.skipIf(!databaseUrl)('pipeline native PostgreSQL + scripted private Ast
 		expect(h.sent).toEqual([]);
 		expect(h.luna.calls).toEqual([]);
 	}
+
+	test('an unclosed queried period cannot create a generation attempt or spend', async () => {
+		const h = harness();
+		expect(await runRecapPipeline({ ...request, window: { status: 'blocked', reason: 'calendar_period_unclosed' } }, h.deps))
+			.toMatchObject({ outcome: 'noop-no-completed-week', reason: 'calendar_period_unclosed' });
+		noEffects(h);
+		expect((await snapshot()).runs).toEqual([]);
+	});
+
+	test('a supplied moving bound cannot override the queried proof before a claim or paid work', async () => {
+		const h = harness();
+		const reporting = structuredClone(request.window);
+		reporting.window.endAtUtc = editorialFixtureNow().toISOString();
+		expect(await runRecapPipeline({ ...request, window: reporting }, h.deps)).toMatchObject({ outcome: 'failed' });
+		noEffects(h);
+		expect((await snapshot()).runs).toEqual([]);
+	});
+
+	test('a proofless pre-fix held attempt cannot be retrofitted or even resolve a replacement calendar', async () => {
+		const old = initialGenerationState(scope, editorialFixtureWindow, randomUUID(), new Date().toISOString());
+		old.current.phase = 'blocked';
+		old.current.reasonCode = 'legacy_hold';
+		await sql`INSERT INTO fantasy_recap_runs (league_id, fantasy_week, status, editorial_attempt) VALUES (${scope.leagueId}, ${scope.week}, 'failed', ${old})`;
+		const before = await snapshot();
+		let calendars = 0;
+		const h = harness();
+		const result = await runRecapPipeline({ ...request, restartAttemptId: old.current.id, window: async () => {
+			calendars++;
+			return request.window;
+		} }, h.deps);
+		expect(result).toMatchObject({ outcome: 'failed', reason: 'reporting_calendar_missing' });
+		expect(calendars).toBe(0);
+		noEffects(h);
+		expect(await snapshot()).toEqual(before);
+	});
+
+	test('a held verified attempt cannot silently restart under a changed calendar', async () => {
+		const first = harness({ respond: async () => ({ case: 'blocked', reason: 'fixture_stop', progress: null }) });
+		const held = await runRecapPipeline(request, first.deps);
+		expect(held).toMatchObject({ outcome: 'failed', reason: 'editorial_blocked' });
+		const before = await snapshot();
+		const h = harness();
+		const changed = reportingWindowFixture({ ...editorialFixtureWindow, startAtUtc: '2026-09-02T00:00:00.000Z' });
+		expect(await runRecapPipeline({ ...request, window: changed, restartAttemptId: held.attemptId }, h.deps))
+			.toMatchObject({ outcome: 'failed', reason: 'reporting_calendar_changed' });
+		noEffects(h);
+		expect(await snapshot()).toEqual(before);
+	});
+
+	test('reordered identical games permit restart without rewriting the retained proof', async () => {
+		const original = structuredClone(request.window);
+		original.source.games.push({ ...original.source.games[0]!, id: '401000002', home: 'KC', away: 'DEN' });
+		const first = harness({ respond: async () => ({ case: 'blocked', reason: 'fixture_stop', progress: null }) });
+		const held = await runRecapPipeline({ ...request, window: original }, first.deps);
+		const retained = structuredClone((await state()).generation.current.calendarProof);
+		const reordered = structuredClone(original);
+		reordered.source.games.reverse();
+		const h = harness();
+		expect(await runRecapPipeline({ ...request, window: reordered, restartAttemptId: held.attemptId }, h.deps))
+			.toMatchObject({ outcome: 'sent' });
+		expect((await state()).generation.current.calendarProof).toEqual(retained);
+		expect(h.packet()?.scope.calendarProof).toEqual(retained);
+	});
+
+	test('a fresh verification timestamp does not replace the retained proof on explicit restart', async () => {
+		const first = harness({ respond: async () => ({ case: 'blocked', reason: 'fixture_stop', progress: null }) });
+		const held = await runRecapPipeline(request, first.deps);
+		const retained = (await state()).generation.current.calendarProof;
+		const fresh = structuredClone(request.window);
+		fresh.source.retrievedAtUtc = '2026-09-09T01:00:00.000Z';
+		const h = harness();
+		expect(await runRecapPipeline({ ...request, window: fresh, restartAttemptId: held.attemptId }, h.deps))
+			.toMatchObject({ outcome: 'sent' });
+		const next = await state();
+		expect(next.generation.current.calendarProof).toEqual(retained);
+		expect(next.generation.prior[0]!.calendarProof).toEqual(retained);
+		expect(h.packet()?.scope.calendarProof).toEqual(retained);
+	});
 
 	test.each([false, true])('real collection, native typed Astra/Luna, atomic approval and exact sent bytes (multipart=%s)', async (multipart) => {
 		const h = harness({ multipart });

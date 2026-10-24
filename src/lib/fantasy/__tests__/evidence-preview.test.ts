@@ -9,6 +9,7 @@ import { noopLogger } from '@mastra/core/logger';
 import { PostgresStore } from '@mastra/pg';
 import { evidenceReadOnlyDatabaseUrl, previewRecapEvidence } from '../evidence-preview';
 import { resolveChatSource } from '../recap-evidence';
+import { reportingWindowFixture } from './fixtures/reporting-window.fixture';
 
 const config = {
 	sendblueGroupId: 'fixture-group',
@@ -18,6 +19,7 @@ const config = {
 };
 const window = { startAtUtc: '2026-09-01T00:00:00.000Z', endAtUtc: '2026-09-08T00:00:00.000Z' };
 const now = () => new Date('2026-09-09T00:00:00.000Z');
+const readWindow: NonNullable<EvidenceOptions['readWindow']> = async () => reportingWindowFixture(window);
 const sourceText = '  Exact original “banter”.\nNo trimming.  ';
 const sleeper: NonNullable<EvidenceOptions['sleeper']> = {
 	getNflState: async () => ({ season: '2026', week: 2, seasonType: 'regular' }),
@@ -77,12 +79,26 @@ test('read-only URL appends last and preserves existing options without environm
 
 test('invalid scope/window blocks before database or paid/public source reads', async () => {
 	for (const change of [{ week: 0 }, { window: null }, { window: { ...window, endAtUtc: '2027-01-01T00:00:00Z' } }, { config: { ...config, sleeperLeagueId: '' } }]) {
-		const result = await previewRecapEvidence({ config, week: 1, window, databaseUrl: 'not-a-url', firecrawlApiKey: 'synthetic-only', ...change }, { sleeper, now });
+		const result = await previewRecapEvidence({ config, week: 1, window, databaseUrl: 'not-a-url', firecrawlApiKey: 'synthetic-only', ...change }, { sleeper, now, readWindow });
 		expect(result).toEqual({ status: 'blocked', packet: null, reason: 'invalid_preview_scope', databaseUnchanged: false });
 	}
-	const result = await previewRecapEvidence({ config, week: 1, window, databaseUrl: 'private-invalid-url' }, { sleeper, now });
-	expect(result.reason).toBe('invalid_preview_database_url');
-	expect(JSON.stringify(result)).not.toContain('private-invalid-url');
+	let reads = 0;
+	for (const assertion of [undefined, window]) {
+		const result = await previewRecapEvidence({ config, week: 1, window: assertion, databaseUrl: 'private-invalid-url' }, {
+			sleeper: { ...sleeper, getNflState: async () => {
+				reads++;
+				return sleeper.getNflState();
+			} },
+			now,
+			readWindow: async () => {
+				reads++;
+				return reportingWindowFixture(window);
+			},
+		});
+		expect(result.reason).toBe('invalid_preview_database_url');
+		expect(JSON.stringify(result)).not.toContain('private-invalid-url');
+	}
+	expect(reads).toBe(0);
 });
 
 test('composition dependency files contain no local model, channel, send, or persistence imports', async () => {
@@ -128,7 +144,7 @@ describe.skipIf(!available)('real read-only PG evidence composition (disposable 
 	let writer: PostgresStore;
 	let memory: MemoryStorage;
 	const request = () => ({ config, week: 1, window, databaseUrl: databaseUrl! });
-	const options = () => ({ sleeper, now, schemaName: schema });
+	const options = () => ({ sleeper, now, readWindow, schemaName: schema });
 	beforeAll(async () => {
 		root = new SQL(databaseUrl!);
 		await root.unsafe(`CREATE SCHEMA "${schema}"`);
@@ -189,6 +205,119 @@ describe.skipIf(!available)('real read-only PG evidence composition (disposable 
 		expect(result.packet!.gaps).toContainEqual({ source: 'nfl', code: 'research_not_requested', blocking: false });
 		expect(await snapshot()).toEqual(before);
 		expect((await sql`SELECT saved_text FROM fantasy_recap_generations`)[0].saved_text).toBe('Saved recap must stay exact');
+	});
+
+	test('week-only preview queries a verified window before scores and retains its proof', async () => {
+		const before = await snapshot();
+		const calls: string[] = [];
+		const result = await previewRecapEvidence({ config, week: 1, databaseUrl: databaseUrl! }, {
+			...options(),
+			readWindow: async (season, week, instant, signal) => {
+				calls.push('calendar');
+				expect([season, week, instant.toISOString()]).toEqual(['2026', 1, now().toISOString()]);
+				expect(signal).toBeInstanceOf(AbortSignal);
+				return reportingWindowFixture(window);
+			},
+			sleeper: { ...sleeper, getScores: async (...args) => {
+				calls.push('scores');
+				return sleeper.getScores(...args);
+			} },
+		});
+		expect(result.status).toBe('partial');
+		expect(calls).toEqual(['calendar', 'scores', 'scores']);
+		expect(result.packet?.scope).toMatchObject({ chatWindow: window, calendarProof: reportingWindowFixture(window).source });
+		expect(resolveChatSource(result.packet!, 'exact-source')?.text).toBe(sourceText);
+		expect(result.databaseUnchanged).toBe(true);
+		expect(await snapshot()).toEqual(before);
+	});
+
+	test('mismatched assertion blocks before scores, NFL or candidate preparation', async () => {
+		let calendarReads = 0;
+		let scoreReads = 0;
+		let preparations = 0;
+		const before = await snapshot();
+		const result = await previewRecapEvidence({
+			...request(),
+			window: { ...window, startAtUtc: '2026-09-02T00:00:00.000Z' },
+			firecrawlApiKey: 'synthetic-only',
+		}, {
+			...options(),
+			readWindow: async () => {
+				calendarReads++;
+				return reportingWindowFixture(window);
+			},
+			sleeper: { ...sleeper, getScores: async (...args) => {
+				scoreReads++;
+				return sleeper.getScores(...args);
+			} },
+		}, async () => { preparations++; });
+		expect(result).toMatchObject({ status: 'blocked', reason: 'evidence_blocked', databaseUnchanged: true });
+		expect(result.packet?.gaps).toContainEqual({ source: 'calendar', code: 'reporting_window_mismatch', blocking: true });
+		expect(result.packet?.nfl).toEqual([]);
+		expect([calendarReads, scoreReads, preparations]).toEqual([1, 0, 0]);
+		expect(await snapshot()).toEqual(before);
+	});
+
+	test('abort signal reaches calendar collection and safely stops further reads', async () => {
+		const abort = new AbortController();
+		let signalReceived = false;
+		let scores = 0;
+		const result = await previewRecapEvidence(request(), {
+			...options(),
+			abortSignal: abort.signal,
+			readWindow: async (_season, _week, _instant, signal) => {
+				abort.abort(new Error('PRIVATE_ABORT_REASON'));
+				signalReceived = signal?.aborted === true;
+				return reportingWindowFixture(window);
+			},
+			sleeper: { ...sleeper, getScores: async (...args) => {
+				scores++;
+				return sleeper.getScores(...args);
+			} },
+		});
+		expect(signalReceived).toBe(true);
+		expect(scores).toBe(0);
+		expect(result).toEqual({ status: 'blocked', packet: null, reason: 'preview_collection_failed', databaseUnchanged: true });
+		expect(JSON.stringify(result)).not.toContain('PRIVATE_ABORT_REASON');
+	});
+
+	test('native PG applies the queried half-open window and preserves exclusion counts', async () => {
+		const threadId = `fantasy-group-${config.sendblueGroupId}`;
+		const rows = [
+			['before', '2026-08-31T23:59:59.999Z', 'Before window', '+15550000001'],
+			['start', window.startAtUtc, 'At inclusive start', '+15550000001'],
+			['end', window.endAtUtc, 'At exclusive end', '+15550000001'],
+			['after', '2026-09-08T00:00:00.001Z', 'After window', '+15550000001'],
+			['recap', '2026-09-03T01:00:00.000Z', 'Week 1 Recap\n\nPrior report', '+15550000001'],
+			['reaction', '2026-09-03T01:00:00.000Z', 'Liked “Banter”', '+15550000001'],
+			['private', '2026-09-03T01:00:00.000Z', 'Email private@example.invalid', '+15550000001'],
+			['unmapped', '2026-09-03T01:00:00.000Z', 'Unknown sender', '+15550000003'],
+			['blank', '2026-09-03T01:00:00.000Z', '  ', '+15550000001'],
+		];
+		await memory.saveMessages({ messages: rows.map(([id, sentAt, text, senderNumber]) => ({
+			id,
+			threadId,
+			resourceId: threadId,
+			role: 'user',
+			type: 'text',
+			createdAt: new Date(sentAt),
+			content: { format: 2, parts: [{ type: 'text', text }], metadata: { channel: 'sendblue', groupId: config.sendblueGroupId, senderNumber, sentAt } },
+		})) });
+		const result = await previewRecapEvidence({ config, week: 1, databaseUrl: databaseUrl! }, options());
+		expect(result.packet?.chat).toMatchObject({
+			status: 'complete',
+			window,
+			readCount: 7,
+			gaps: [],
+			excluded: { unmapped: 1, privateContact: 1, recap: 1, reaction: 1, nonText: 1 },
+		});
+		expect(result.packet?.chat?.sources.map(source => source.id)).toEqual(['start', 'exact-source']);
+		expect(result.databaseUnchanged).toBe(true);
+		await sql`DELETE FROM mastra_messages WHERE id NOT IN ('before', 'end', 'after')`;
+		const empty = await previewRecapEvidence({ config, week: 1, databaseUrl: databaseUrl! }, options());
+		expect(empty.packet?.chat).toMatchObject({ status: 'empty', window, readCount: 0, sources: [] });
+		expect(empty.packet?.scope.chatWindow).toEqual(window);
+		expect(empty.databaseUnchanged).toBe(true);
 	});
 
 	test('native archive pagination exposes a 1,001-message window as truncated, not complete', async () => {

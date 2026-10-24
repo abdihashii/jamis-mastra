@@ -6,8 +6,10 @@ import type { EvidenceOptions } from '../recap-evidence';
 import type { BracketGame, SleeperLeague, SleeperPlayerDetails, SleeperScore, SleeperTransaction } from '../sleeper';
 import { describe, expect, it, spyOn } from 'bun:test';
 import { Buffer } from 'node:buffer';
+import { buildEditorialCatalog } from '../editorial';
 import { nflTeamCode } from '../nfl-sources';
 import { collectRecapEvidence, resolveChatSource } from '../recap-evidence';
+import { reportingWindowFixture } from './fixtures/reporting-window.fixture';
 
 const now = new Date('2026-09-23T12:00:00Z');
 const window = { startAtUtc: '2026-09-15T12:00:00.000Z', endAtUtc: '2026-09-22T12:00:00.000Z' };
@@ -155,6 +157,7 @@ function fixture() {
 	const options: EvidenceOptions = {
 		memory,
 		now: () => now,
+		readWindow: async (season, week) => reportingWindowFixture(window, Number(season), week),
 		sleeper: {
 			getNflState: async () => ({ week: 3, season: '2026', seasonType: 'regular', seasonStartDate: '2026-09-10' }),
 			getLeague: async () => league,
@@ -313,16 +316,165 @@ describe('frozen recap evidence', () => {
 		expect(f.calls).toEqual([]);
 	});
 
-	it('retains unknown transaction timing instead of treating retrieval time as completion', async () => {
+	it.each([
+		['inclusive start', window.startAtUtc, window.startAtUtc, null],
+		['just before end', window.startAtUtc, '2026-09-22T11:59:59.999Z', null],
+		['offset start', '2026-09-15T07:00:00-05:00', '2026-09-15T14:00:00+02:00', null],
+		['unknown creation', null, window.startAtUtc, 'transaction_time_unverified'],
+		['unknown update', window.startAtUtc, null, 'transaction_time_unverified'],
+		['invalid creation', 'PRIVATE_INVALID_TIME', window.startAtUtc, 'transaction_time_unverified'],
+		['invalid update', window.startAtUtc, 'PRIVATE_INVALID_TIME', 'transaction_time_unverified'],
+		['inverted times', '2026-09-18T00:00:00Z', window.startAtUtc, 'transaction_time_unverified'],
+		['creation before window', '2026-09-15T11:59:59.999Z', '2026-09-16T00:00:00Z', 'transaction_time_unverified'],
+		['update at start', '2026-09-15T11:59:59.999Z', window.startAtUtc, 'transaction_time_unverified'],
+		['update at end', window.startAtUtc, window.endAtUtc, 'transaction_time_unverified'],
+		['update after end', window.startAtUtc, '2026-09-22T12:00:00.001Z', 'transaction_time_unverified'],
+		['wholly before window', '2026-09-14T00:00:00Z', '2026-09-15T11:59:59.999Z', 'reporting_window_exclusion'],
+		['creation at end', window.endAtUtc, window.endAtUtc, 'reporting_window_exclusion'],
+		['wholly after window', '2026-09-22T12:00:00.001Z', now.toISOString(), 'reporting_window_exclusion'],
+		['offset end', '2026-09-22T07:00:00-05:00', '2026-09-22T14:00:00+02:00', 'reporting_window_exclusion'],
+	] as const)('admits transaction claims only within the window: %s', async (_label, created, updated, code) => {
+		const f = fixture();
+		Object.assign(f.transactions[0], {
+			id: 'WINDOW_TRANSACTION_SENTINEL',
+			createdAtUtc: created,
+			statusUpdatedAtUtc: updated,
+			adds: [{ playerId: 'TRANSACTION_ONLY_PLAYER', rosterId: 1 }],
+		});
+		const requestedPlayers: string[] = [];
+		const getPlayers = f.options.sleeper!.getPlayerSnapshot;
+		f.options.sleeper!.getPlayerSnapshot = async (ids, signal) => {
+			requestedPlayers.push(...ids);
+			return getPlayers(ids, signal);
+		};
+		const packet = await collectRecapEvidence(request, f.options);
+		expect(packet.transactions.completed).toHaveLength(code ? 0 : 1);
+		expect(packet.acquisitions).toHaveLength(code ? 0 : 1);
+		expect(requestedPlayers.includes('TRANSACTION_ONLY_PLAYER')).toBe(!code);
+		expect(packet.transactions.excludedNonComplete).toBe(1);
+		expect(packet.gaps.filter(gap => gap.source === 'transactions')).toEqual(code ? [{ source: 'transactions', code, blocking: false }] : []);
+		expect(packet.admission.canDraft).toBe(true);
+		if (code) {
+			expect(packet.status).toBe('partial');
+			expect(JSON.stringify(packet)).not.toContain('WINDOW_TRANSACTION_SENTINEL');
+			expect(JSON.stringify(packet)).not.toContain('PRIVATE_INVALID_TIME');
+			expect(buildEditorialCatalog(packet).sources.some(source => ['transaction', 'acquisition'].includes(source.kind))).toBe(false);
+		}
+	});
+
+	it.each(['malformed', 'wrong-week', 'unknown-roster', 'unknown-pick-owner', 'unknown-faab-receiver'])('keeps %s transaction defects distinct from time exclusions', async (fault) => {
 		const f = fixture();
 		f.transactions[0].statusUpdatedAtUtc = null;
+		const defective = { ...transaction(), id: 'defective' };
+		if (fault === 'wrong-week')
+			defective.week = 1;
+		if (fault === 'unknown-roster')
+			defective.rosterIds = [999];
+		if (fault === 'unknown-pick-owner')
+			defective.draftPicks = [{ season: '2027', round: 1, rosterId: 1, previousOwnerId: 1, ownerId: 999 }];
+		if (fault === 'unknown-faab-receiver')
+			defective.faabTransfers = [{ sender: 1, receiver: 999, amount: 10 }];
+		if (fault !== 'malformed')
+			f.transactions.push(defective);
+		f.options.sleeper!.getTransactions = async () => ({ transactions: f.transactions, retrievedAtUtc: now.toISOString(), malformedCount: fault === 'malformed' ? 1 : 0 });
 		const packet = await collectRecapEvidence(request, f.options);
-		expect(packet.acquisitions[0]).toMatchObject({
-			statusUpdatedAtUtc: null,
-			knownCompleteBeforeKickoff: null,
-			decisionQuality: 'not-established',
+		expect(packet.transactions.completed).toEqual([]);
+		expect(packet.transactions.excludedNonComplete).toBe(1);
+		expect(packet.gaps.filter(gap => gap.source === 'transactions')).toEqual(expect.arrayContaining([
+			{ source: 'transactions', code: 'partial_transaction_history', blocking: false },
+			{ source: 'transactions', code: 'transaction_time_unverified', blocking: false },
+		]));
+	});
+
+	it.each([
+		['inclusive start', window.startAtUtc, window.startAtUtc, null],
+		['just before end', window.startAtUtc, '2026-09-22T11:59:59.999Z', null],
+		['offset start', '2026-09-15T07:00:00-05:00', '2026-09-15T14:00:00+02:00', null],
+		['unknown publication', null, window.startAtUtc, 'news_time_unverified'],
+		['unknown version', window.startAtUtc, null, 'news_time_unverified'],
+		['invalid publication', 'PRIVATE_INVALID_TIME', window.startAtUtc, 'news_time_unverified'],
+		['invalid version', window.startAtUtc, 'PRIVATE_INVALID_TIME', 'news_time_unverified'],
+		['inverted version', '2026-09-18T00:00:00Z', window.startAtUtc, 'news_time_unverified'],
+		['publication before window', '2026-09-15T11:59:59.999Z', window.startAtUtc, 'reporting_window_exclusion'],
+		['update at end', window.startAtUtc, window.endAtUtc, 'reporting_window_exclusion'],
+		['update after end', window.startAtUtc, '2026-09-22T12:00:00.001Z', 'reporting_window_exclusion'],
+		['publication at end', window.endAtUtc, window.endAtUtc, 'reporting_window_exclusion'],
+		['offset end', window.startAtUtc, '2026-09-22T07:00:00-05:00', 'reporting_window_exclusion'],
+	] as const)('admits only the in-window news version: %s', async (_label, published, updated, code) => {
+		const f = fixture();
+		const original = nflResult({ operation: 'news', team: 'KC' });
+		Object.assign(original.records[0], {
+			title: 'NEWS_TITLE_SENTINEL',
+			description: 'NEWS_DESCRIPTION_SENTINEL',
+			summary: 'NEWS_SUMMARY_SENTINEL',
+			publishedAtUtc: published,
+			updatedAtUtc: updated,
 		});
-		expect(packet.gaps.map(gap => gap.code)).toContain('transaction_time_unverified');
+		original.gaps = ['provider_coverage_gap'];
+		const before = structuredClone(original);
+		f.options.readNfl = async input => input.operation === 'news' ? original : nflResult(input);
+		const packet = await collectRecapEvidence(request, f.options);
+		const news = packet.nfl.find(source => source.input.operation === 'news')!;
+		expect(news.findings).toHaveLength(code ? 0 : 1);
+		expect(news.excludedRecords).toBe(code ? 1 : 0);
+		expect(news).toMatchObject({
+			status: original.status,
+			requestId: original.requestId,
+			catalogueRequestId: original.catalogueRequestId,
+			credits: original.credits,
+			quotedCredits: original.quotedCredits,
+			chargeIdPresent: original.chargeIdPresent,
+			adminActionUrl: original.adminActionUrl,
+			source: original.source,
+			gaps: original.gaps,
+		});
+		expect(original).toEqual(before);
+		expect(Object.isFrozen(original.records[0])).toBe(false);
+		expect(packet.gaps.filter(gap => gap.source === 'nfl')).toEqual(code ? [{ source: 'nfl', code, blocking: false }] : []);
+		expect(packet.admission.canDraft).toBe(true);
+		if (code) {
+			expect(packet.status).toBe('partial');
+			for (const sentinel of ['NEWS_TITLE_SENTINEL', 'NEWS_DESCRIPTION_SENTINEL', 'NEWS_SUMMARY_SENTINEL', 'PRIVATE_INVALID_TIME']) {
+				expect(JSON.stringify(packet)).not.toContain(sentinel);
+				expect(JSON.stringify(buildEditorialCatalog(packet))).not.toContain(sentinel);
+			}
+		} else {
+			expect(news.findings[0].record).toEqual(original.records[0]);
+		}
+	});
+
+	it('distinguishes an empty news feed from a feed excluded by time admission', async () => {
+		const f = fixture();
+		f.options.readNfl = async input => input.operation === 'news' ? { ...nflResult(input), status: 'empty', records: [] } : nflResult(input);
+		const packet = await collectRecapEvidence(request, f.options);
+		expect(packet.nfl.find(source => source.input.operation === 'news')).toMatchObject({ status: 'empty', findings: [], excludedRecords: 0 });
+		expect(packet.gaps.filter(gap => gap.source === 'nfl')).toEqual([]);
+		expect(packet.status).toBe('ready');
+	});
+
+	it('keeps corrected requested-week scores, lineups and injury/results records retrieved after the cutoff', async () => {
+		const f = fixture();
+		f.weeks.get(2)![0].points = 121.5;
+		f.weeks.get(2)![0].playerPoints.p1 = 31.5;
+		f.options.readNfl = async (input) => {
+			const result = nflResult(input);
+			if (input.operation === 'injuries') {
+				(result.records[0] as Extract<NflSourceRecord, { kind: 'injury' }>).sourceDate = '2026-09-23';
+				result.source!.sourceDate = '2026-09-23';
+			}
+			if (input.operation === 'news')
+				(result.records[0] as Extract<NflSourceRecord, { kind: 'news-summary' }>).updatedAtUtc = now.toISOString();
+			return result;
+		};
+		const packet = await collectRecapEvidence(request, f.options);
+		expect(packet.facts!.results[0].aPoints).toBe(121.5);
+		expect(packet.scores.find(snapshot => snapshot.week === 2)!.retrievedAtUtc).toBe(now.toISOString());
+		expect(packet.lineups[0]).toMatchObject({ points: 31.5, kickoffAtUtc: '2026-09-20T17:00:00.000Z' });
+		expect(packet.nfl[0].findings).toHaveLength(1);
+		expect(packet.nfl[1].findings).toHaveLength(1);
+		expect(packet.nfl[2]).toMatchObject({ findings: [], excludedRecords: 1 });
+		expect(buildEditorialCatalog(packet).facts).toContainEqual({ id: 'score:2:1:points', sourceId: 'score:2:1', value: 121.5 });
+		expect(packet.admission.canDraft).toBe(true);
 	});
 
 	it('does not force ties into wins, losses or editorial award choices', async () => {

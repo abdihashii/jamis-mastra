@@ -1,12 +1,15 @@
 import type { MemoryStorage } from '@mastra/core/storage';
 import type { ArchivedChatEvidence, ChatSource, ChatWindow } from './chat-archive';
 import type { FantasyConfig } from './config';
+import type { NflCalendarProof } from './nfl-calendar';
 import type { NflSourceInput } from './nfl-sources.schema';
 import type { NflSourceRecord, NflSourceResult } from './nfl-sources.types';
 import type { BracketGame, SleeperLeague, SleeperManager, SleeperPlayerDetails, SleeperScore, SleeperState, SleeperTransaction } from './sleeper';
 import type { WeekFacts, WeekFactsInput } from './week-facts';
 import { createHash } from 'node:crypto';
 import { chatWindowSchema, readArchivedChat } from './chat-archive';
+import { readReportingWindow } from './chat-window';
+import { parseNflCalendarProof } from './nfl-calendar';
 import { nflTeamCode } from './nfl-sources';
 import {
 	getLeague,
@@ -36,6 +39,7 @@ export interface EvidenceOptions {
 	now?: () => Date;
 	sleeper?: typeof sleeperReads;
 	abortSignal?: AbortSignal;
+	readWindow?: typeof readReportingWindow;
 }
 export interface EvidenceGap { source: string; code: string; blocking: boolean }
 export interface NflFinding {
@@ -85,7 +89,7 @@ export interface RecapEvidencePacket {
 	version: 'fantasy-evidence-v1';
 	collectionStartedAtUtc: string;
 	frozenAtUtc: string;
-	scope: { leagueId: string; groupId: string; season: string | null; week: number; chatWindow: ChatWindow | null };
+	scope: { leagueId: string; groupId: string; season: string | null; week: number; chatWindow: ChatWindow | null; calendarProof?: NflCalendarProof };
 	status: 'ready' | 'partial' | 'blocked';
 	/** Evidence admission only, never publication authority or editorial/privacy approval. */
 	admission: { canDraft: boolean; blockers: string[] };
@@ -237,9 +241,9 @@ function acquisitionsFor(packet: RecapEvidencePacket, scores: SleeperScore[]): A
 	}));
 }
 
-/** One collector for candidate previews and the future claimed scheduled path. No persistence, models or sends. */
+/** One collector for candidate previews and the claimed scheduled path. No persistence, models or sends. */
 export async function collectRecapEvidence(
-	request: { config: FantasyConfig; week: number; window: ChatWindow | null },
+	request: { config: FantasyConfig; week: number; window?: ChatWindow | null; calendarProof?: NflCalendarProof },
 	options: EvidenceOptions,
 ): Promise<RecapEvidencePacket> {
 	const config = structuredClone(request.config);
@@ -269,7 +273,7 @@ export async function collectRecapEvidence(
 		observations: [],
 		gaps: [],
 		limitations: [
-			'Archive coverage describes stored messages within the caller-supplied UTC window, not the entire iMessage conversation.',
+			'One queried provider calendar period governs chat, news and transaction admission; it is not a final-whistle timestamp or the entire iMessage conversation.',
 			'All chat sources require contextual privacy/relevance review before any quote can be published.',
 			'Lineups and bench comparisons are retrospective; current catalog eligibility does not establish pre-kickoff availability.',
 			'No immutable pre-kickoff projection/injury or lineup snapshot is available; withhold claims that require it.',
@@ -281,12 +285,35 @@ export async function collectRecapEvidence(
 		return freezePacket(value);
 	}
 	const gap = (source: string, code: string, blocking = false) => packet.gaps.push({ source, code, blocking });
-	const window = chatWindowSchema.safeParse(request.window);
-	if (!Number.isSafeInteger(week) || week < 1 || week > 22 || !window.success || window.data.endAtUtc > startedAt) {
+	const assertedWindow = chatWindowSchema.safeParse(request.window);
+	if (!Number.isSafeInteger(week) || week < 1 || week > 22 || (request.window !== undefined
+		&& (!assertedWindow.success || Date.parse(assertedWindow.data.endAtUtc) > Date.parse(startedAt)))) {
 		gap('scope', 'invalid_or_unclosed_evidence_window', true);
 		return finish(packet);
 	}
-	packet.scope.chatWindow = window.data;
+	if (assertedWindow.success)
+		packet.scope.chatWindow = assertedWindow.data;
+	function admitCalendar(proof: NflCalendarProof, season?: number, offeredWindow?: ChatWindow): boolean {
+		try {
+			const bounds = offeredWindow ?? { startAtUtc: proof.current.startAtUtc, endAtUtc: proof.next.startAtUtc };
+			const year = season ?? Number(new URL(proof.current.url).pathname.match(/\/seasons\/(\d{4})\//)?.[1]);
+			const checked = parseNflCalendarProof(proof, year, week, bounds);
+			if (Date.parse(bounds.endAtUtc) > Date.parse(startedAt) || (assertedWindow.success
+				&& (Date.parse(assertedWindow.data.startAtUtc) !== Date.parse(bounds.startAtUtc)
+					|| Date.parse(assertedWindow.data.endAtUtc) !== Date.parse(bounds.endAtUtc)))) {
+				gap('calendar', 'reporting_window_mismatch', true);
+				return false;
+			}
+			packet.scope.chatWindow = bounds;
+			packet.scope.calendarProof = checked;
+			return true;
+		} catch {
+			gap('calendar', 'invalid_reporting_calendar', true);
+			return false;
+		}
+	}
+	if (request.calendarProof && !admitCalendar(request.calendarProof))
+		return finish(packet);
 	const source = options.sleeper ?? sleeperReads;
 	const deadline = () => AbortSignal.any([AbortSignal.timeout(20_000), ...(options.abortSignal ? [options.abortSignal] : [])]);
 	async function read<T>(name: string, operation: () => Promise<T>): Promise<T | null> {
@@ -316,8 +343,8 @@ export async function collectRecapEvidence(
 		|| !Number.isSafeInteger(state.week) || managers.length !== rawLeague.totalRosters
 		|| new Set(managers.map(manager => manager.rosterId)).size !== managers.length
 		|| new Set(managers.map(manager => manager.userId)).size !== managers.length
-		|| Number(window.data.startAtUtc.slice(0, 4)) < Number(rawLeague.season)
-		|| Number(window.data.endAtUtc.slice(0, 4)) > Number(rawLeague.season) + 1) {
+		|| (assertedWindow.success && (Number(assertedWindow.data.startAtUtc.slice(0, 4)) < Number(rawLeague.season)
+			|| Number(assertedWindow.data.endAtUtc.slice(0, 4)) > Number(rawLeague.season) + 1))) {
 		gap('league', 'scope_or_identity_invalid', true);
 		return finish(packet);
 	}
@@ -330,6 +357,23 @@ export async function collectRecapEvidence(
 	if ((state.season === league.season && !['regular', 'post'].includes(state.seasonType))
 		|| !isWeekComplete(week, state, league, bracket)) {
 		gap('league', 'week_not_complete', true);
+		return finish(packet);
+	}
+	if (packet.scope.calendarProof) {
+		if (!admitCalendar(packet.scope.calendarProof, Number(league.season)))
+			return finish(packet);
+	} else {
+		const reporting = await read('calendar', () => (options.readWindow ?? readReportingWindow)(league.season, week, now(), deadline()));
+		if (!reporting || reporting.status !== 'ready') {
+			gap('calendar', reporting?.reason ?? 'calendar_source_unavailable', true);
+			return finish(packet);
+		}
+		if (!admitCalendar(reporting.source, Number(league.season), reporting.window))
+			return finish(packet);
+	}
+	const window = chatWindowSchema.safeParse(packet.scope.chatWindow);
+	if (!window.success) {
+		gap('calendar', 'invalid_reporting_calendar', true);
 		return finish(packet);
 	}
 	const historyWeeks = week < league.playoffWeekStart ? Array.from({ length: week }, (_, index) => index + 1) : [week];
@@ -361,21 +405,36 @@ export async function collectRecapEvidence(
 		: undefined;
 	if (next === null)
 		gap('league', 'upcoming_unavailable');
+	const windowStart = Date.parse(window.data.startAtUtc);
+	const windowEnd = Date.parse(window.data.endAtUtc);
 	const transactions = await read('transactions', () => source.getTransactions(league.id, week, deadline()));
 	if (transactions) {
 		packet.transactions.retrievedAtUtc = transactions.retrievedAtUtc;
 		packet.transactions.excludedNonComplete = transactions.transactions.filter(t => t.status !== 'complete').length;
-		packet.transactions.completed = transactions.transactions.filter(t => t.status === 'complete' && t.week === week
+		const candidates = transactions.transactions.filter(t => t.status === 'complete' && t.week === week
 			&& [...t.rosterIds, ...t.draftPicks.flatMap(pick => [pick.rosterId, pick.previousOwnerId, pick.ownerId]), ...t.faabTransfers.flatMap(transfer => [transfer.sender, transfer.receiver])].every(id => knownRosters.has(id)));
 		if (transactions.malformedCount
-			|| packet.transactions.completed.length + packet.transactions.excludedNonComplete !== transactions.transactions.length) {
+			|| candidates.length + packet.transactions.excludedNonComplete !== transactions.transactions.length) {
 			gap('transactions', 'partial_transaction_history');
 		}
-		if (packet.transactions.completed.some(t => !t.createdAtUtc || !t.statusUpdatedAtUtc
-			|| t.createdAtUtc > t.statusUpdatedAtUtc || t.statusUpdatedAtUtc > now().toISOString()
-			|| Number(t.statusUpdatedAtUtc.slice(0, 4)) < Number(league.season) - 1)) {
-			gap('transactions', 'transaction_time_unverified');
-		}
+		packet.transactions.completed = candidates.filter((transaction) => {
+			const created = Date.parse(transaction.createdAtUtc ?? '');
+			const updated = Date.parse(transaction.statusUpdatedAtUtc ?? '');
+			if (!Number.isFinite(created) || !Number.isFinite(updated) || created > updated) {
+				gap('transactions', 'transaction_time_unverified');
+				return false;
+			}
+			if (updated < windowStart || created >= windowEnd) {
+				gap('transactions', 'reporting_window_exclusion');
+				return false;
+			}
+			// Completion lies within these bounds; status_updated is not its exact timestamp.
+			if (created < windowStart || updated >= windowEnd) {
+				gap('transactions', 'transaction_time_unverified');
+				return false;
+			}
+			return true;
+		});
 	} else {
 		gap('transactions', 'transaction_history_unavailable');
 	}
@@ -451,6 +510,18 @@ export async function collectRecapEvidence(
 			for (const query of inputs) {
 				const result = await read(`nfl-${query.operation}`, () => options.readNfl!(query, Number(state.season)));
 				const mapped = result?.records.flatMap((record) => {
+					if (record.kind === 'news-summary') {
+						const published = Date.parse(record.publishedAtUtc ?? '');
+						const updated = Date.parse(record.updatedAtUtc ?? '');
+						if (!Number.isFinite(published) || !Number.isFinite(updated) || published > updated) {
+							gap('nfl', 'news_time_unverified');
+							return [];
+						}
+						if (published < windowStart || updated >= windowEnd) {
+							gap('nfl', 'reporting_window_exclusion');
+							return [];
+						}
+					}
 					const finding = mapFinding(record, rosteredPlayers);
 					return finding ? [finding] : [];
 				}) ?? [];

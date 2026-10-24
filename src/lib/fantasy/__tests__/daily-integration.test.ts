@@ -4,12 +4,14 @@ import type { NflSourceResult } from '../nfl-sources.types';
 import { SQL } from 'bun';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createFantasyEditorialProcedure } from '../../../mastra/workflows/prepare-fantasy-recap';
 import { runDailyRecap } from '../daily';
 import { claimRun, ensureFantasyRunsTable, markDeliveryUnknown, recordAttemptText } from '../runs';
 import { dispatchSavedReport } from '../saved-report-delivery';
 import { editorialFixtureRuntime, passingEditorialReview } from './fixtures/editorial-runtime.fixture';
 import { editorialFixtureConfig as config, editorialFixtureNow, editorialFixtureSleeper, frozenEditorialFixture, validEditorialDraft } from './fixtures/editorial.fixture';
+import { reportingWindowFixture } from './fixtures/reporting-window.fixture';
 
 const databaseUrl = process.env.JAMIS_TEST_DATABASE_URL;
 if (databaseUrl) {
@@ -18,7 +20,7 @@ if (databaseUrl) {
 		throw new Error('Disposable loopback database required');
 }
 
-describe.skipIf(!databaseUrl)('daily native entrypoint with Sleeper game-date windows', () => {
+describe.skipIf(!databaseUrl)('daily native entrypoint with queried reporting windows', () => {
 	const schema = `daily_pipeline_${randomUUID().replaceAll('-', '')}`;
 	let root: SQL;
 	let sql: SQL;
@@ -29,6 +31,8 @@ describe.skipIf(!databaseUrl)('daily native entrypoint with Sleeper game-date wi
 	let sends: string[];
 	let notices: string[];
 	let pending: boolean;
+	let expectedFetches: number;
+	const queriedWindow = { startAtUtc: '2026-09-03T00:00:00.000Z', endAtUtc: '2026-09-10T00:00:00.000Z' };
 
 	beforeAll(async () => {
 		root = new SQL(databaseUrl!);
@@ -47,6 +51,7 @@ describe.skipIf(!databaseUrl)('daily native entrypoint with Sleeper game-date wi
 		sends = [];
 		notices = [];
 		pending = false;
+		expectedFetches = 0;
 		const packet = await frozenEditorialFixture();
 		const source = {
 			...editorialFixtureSleeper,
@@ -63,7 +68,11 @@ describe.skipIf(!databaseUrl)('daily native entrypoint with Sleeper game-date wi
 		options = {
 			sql,
 			sleeper: source,
-			now: editorialFixtureNow,
+			now: () => new Date('2026-09-11T00:00:00.000Z'),
+			readWindow: async (season, week, _now, signal, getSchedule) => {
+				await getSchedule!(season, week <= 18 ? 'regular' : 'post', signal);
+				return pending ? { status: 'blocked', reason: 'calendar_games_unclosed' } : reportingWindowFixture(queriedWindow, Number(season), week);
+			},
 			memory: {
 				getThreadById: async () => ({ id: `fantasy-group-${config.sendblueGroupId}`, resourceId: `fantasy-group-${config.sendblueGroupId}`, title: 'fixture', createdAt: new Date(), updatedAt: new Date() }),
 				listMessages: async () => ({ messages: packet.chat!.sources.map(message => ({
@@ -98,7 +107,7 @@ describe.skipIf(!databaseUrl)('daily native entrypoint with Sleeper game-date wi
 	});
 	afterEach(() => {
 		try {
-			expect(guard).not.toHaveBeenCalled();
+			expect(guard).toHaveBeenCalledTimes(expectedFetches);
 		} finally {
 			guard.mockRestore();
 		}
@@ -115,14 +124,15 @@ describe.skipIf(!databaseUrl)('daily native entrypoint with Sleeper game-date wi
 		}
 	});
 
-	test('uses Sleeper completion including a Tuesday game, then saves and publishes exact reviewed bytes', async () => {
+	test('uses a fixed queried period instead of collection time, then saves and publishes exact reviewed bytes', async () => {
 		const result = await runDailyRecap(config, {} as Mastra, options);
 		expect(result).toMatchObject({ outcome: 'sent', week: 1, generatorVersion: 'fantasy-recap-v13' });
 		expect(calendarCalls).toBe(1);
 		expect(writerCalls).toBe(1);
 		expect(sends).toHaveLength(1);
 		const [row] = await sql`SELECT editorial_attempt, saved_report FROM fantasy_recap_runs`;
-		expect(row.editorial_attempt.current.window).toEqual({ startAtUtc: '2026-09-03T00:00:00.000Z', endAtUtc: editorialFixtureNow().toISOString() });
+		expect(row.editorial_attempt.current.window).toEqual(queriedWindow);
+		expect(row.editorial_attempt.current.calendarProof).toEqual(reportingWindowFixture(queriedWindow).source);
 		expect(row.saved_report.parts).toEqual(sends);
 		expect(notices).toEqual([]);
 	});
@@ -150,8 +160,15 @@ describe.skipIf(!databaseUrl)('daily native entrypoint with Sleeper game-date wi
 		expect((await runDailyRecap(config, {} as Mastra, options)).outcome).toBe('noop-already-sent');
 		expect({ writers: writerCalls, calendar: calendarCalls, sends: sends.length }).toEqual(calls);
 	});
-	test('week 18 daily wiring fetches the same-season postseason boundary before collection', async () => {
+	test('week 18 daily wiring queries the adjacent postseason calendar before collection', async () => {
 		const phases: string[] = [];
+		const captured = JSON.parse(readFileSync(new URL('./fixtures/nfl-calendar.fixture.json', import.meta.url), 'utf8')).transition;
+		expectedFetches = 3;
+		guard.mockImplementation(Object.assign(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			return Response.json(url.includes('/scoreboard?') ? captured.scoreboard : url.includes('/types/2/weeks/18?') ? captured.current : captured.next);
+		}, { preconnect: () => { throw new Error('Unexpected preconnect'); } }));
+		options.readWindow = undefined;
 		options.now = () => new Date('2026-01-20T00:00:00.000Z');
 		options.sleeper = {
 			...editorialFixtureSleeper,
@@ -160,14 +177,7 @@ describe.skipIf(!databaseUrl)('daily native entrypoint with Sleeper game-date wi
 			getWinnersBracket: async () => (await editorialFixtureSleeper.getWinnersBracket(config.sleeperLeagueId)).map(game => ({ ...game, winner: 1, loser: 2 })),
 			getNflSchedule: async (season, phase) => {
 				phases.push(phase);
-				return { season, phase, retrievedAtUtc: options.now!().toISOString(), games: [{
-					id: `${season}10001`,
-					week: phase === 'regular' ? 18 : 1,
-					date: phase === 'regular' ? '2026-01-04' : '2026-01-10',
-					status: phase === 'regular' ? 'complete' : 'pre_game',
-					home: 'NE',
-					away: 'BUF',
-				}] };
+				return structuredClone(captured.sleeper);
 			},
 		};
 		options.memory!.listMessages = async () => ({ messages: [], total: 0, page: 0, perPage: 1000, hasMore: false });
@@ -177,8 +187,8 @@ describe.skipIf(!databaseUrl)('daily native entrypoint with Sleeper game-date wi
 			return { status: 'blocked', evidenceId: packet.id, candidateId: null, reason: 'fixture_stop', counts: { drafts: 0, reviews: 0 }, issues: [] };
 		};
 		expect(await runDailyRecap(config, {} as Mastra, options)).toMatchObject({ outcome: 'failed', reason: 'editorial_blocked', week: 18 });
-		expect(phases).toEqual(['regular', 'post']);
-		expect(observed).toEqual({ startAtUtc: '2026-01-04T00:00:00.000Z', endAtUtc: '2026-01-10T00:00:00.000Z' });
+		expect(phases).toEqual(['regular']);
+		expect(observed).toEqual({ startAtUtc: new Date(captured.current.startDate).toISOString(), endAtUtc: new Date(captured.next.startDate).toISOString() });
 		expect(sends).toEqual([]);
 	});
 

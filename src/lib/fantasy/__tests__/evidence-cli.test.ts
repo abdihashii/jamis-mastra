@@ -116,10 +116,12 @@ describe('evidence CLI isolation', () => {
 		expect(result.stderr).toBe('');
 	});
 
-	it('does not silently invent a missing UTC window or opt into paid NFL reads', async () => {
-		const missingWindow = await run(['evidence', '--week', '2']);
-		expect(missingWindow.code).toBe(1);
-		expect(missingWindow.stderr).toContain('--since');
+	it('accepts week-only evidence and validates DB before any queried source without opting into paid reads', async () => {
+		const queriedWindow = await run(['evidence', '--week', '2']);
+		expect(queriedWindow.code).toBe(1);
+		expect(queriedWindow.stdout).toContain('Evidence preview: blocked (invalid_preview_database_url)');
+		expect(queriedWindow.stdout).toContain('model calls: 0; sends: 0');
+		expect(queriedWindow.stderr).toBe('');
 		const missingKey = await run([
 			'evidence',
 			'--week',
@@ -135,31 +137,48 @@ describe('evidence CLI isolation', () => {
 		expect(missingKey.stdout).not.toContain('Evidence preview:');
 	});
 
-	for (const command of ['preview-candidate', 'preview']) {
+	for (const command of ['evidence', 'preview-candidate', 'preview']) {
 		it(`${command} fails safely before model loading when its read-only database is invalid`, async () => {
-			const result = await run([command, ...windowFlags]);
-			expect(result.code).toBe(1);
-			expect(result.stdout).toContain('Candidate preview: blocked (invalid_preview_database_url)');
-			expect(result.stdout).toContain('writer calls: 0; reviewer calls: 0; sends: 0');
-			expect(result.stderr).toBe('');
+			for (const flags of [['--week', '2'], windowFlags]) {
+				const result = await run([command, ...flags]);
+				expect(result.code).toBe(1);
+				expect(result.stdout).toContain(`${command === 'evidence' ? 'Evidence' : 'Candidate'} preview: blocked (invalid_preview_database_url)`);
+				expect(result.stdout).toContain(command === 'evidence' ? 'model calls: 0; sends: 0' : 'writer calls: 0; reviewer calls: 0; sends: 0');
+				expect(result.stderr).toBe('');
+			}
 		});
 
-		it(`${command} refuses legacy options, duplicate flags and implicit evidence windows before effects`, async () => {
-			for (const extra of [['--chat', '/PRIVATE_CHAT_SENTINEL'], ['--model', 'PRIVATE_MODEL_SENTINEL'], ['--send'], ['--week', '3'], ['--allow-incomplete'], ['--nfl', '--nfl']]) {
+		it(`${command} refuses unsafe options, duplicate flags and unpaired assertions before effects`, async () => {
+			for (const extra of [['--chat', '/PRIVATE_CHAT_SENTINEL'], ['--model', 'PRIVATE_MODEL_SENTINEL'], ['--send'], ['--week', '3'], ['--since', windowFlags[3]], ['--until', windowFlags[5]], ['--unknown'], ['--allow-incomplete'], ['--nfl', '--nfl']]) {
 				const result = await run([command, ...windowFlags, ...extra]);
 				expect(result.code).toBe(1);
 				expect(result.stdout).toBe('');
 				expect(result.stderr).toContain('bun run fantasy:recap');
 			}
-			for (const flags of [[], ['--week', '2'], [...windowFlags.slice(0, -1)], ['--since', windowFlags[3], '--until', windowFlags[5]]]) {
+			for (const flags of [[], ...['0', '23', '2.0', '2e0', 'bad'].map(week => ['--week', week]), ['--week', '2', '--since', windowFlags[3]], ['--week', '2', '--until', windowFlags[5]], [...windowFlags.slice(0, -1)], ['--since', windowFlags[3], '--until', windowFlags[5]]]) {
 				const missing = await run([command, ...flags]);
 				expect(missing.code).toBe(1);
 				expect(missing.stdout).toBe('');
 			}
-			const paid = await run([command, ...windowFlags, '--nfl']);
+			const paid = await run([command, '--week', '2', '--nfl']);
 			expect(paid.stderr).toContain('FIRECRAWL_API_KEY is required');
 			expect(paid.stdout).toBe('');
 		}, 30_000);
+
+		it(`${command} rejects malformed, future and inverted assertions before database access`, async () => {
+			for (const [since, until] of [
+				['null', windowFlags[5]],
+				[windowFlags[3], 'not-an-instant'],
+				[windowFlags[3], '2999-01-01T00:00:00Z'],
+				[windowFlags[5], windowFlags[3]],
+			]) {
+				const result = await run([command, '--week', '2', '--since', since, '--until', until]);
+				expect(result.code).toBe(1);
+				expect(result.stdout).toContain('blocked (invalid_preview_scope)');
+				expect(result.stdout).not.toContain('invalid_preview_database_url');
+				expect(result.stderr).toBe('');
+			}
+		});
 	}
 
 	it('debug export fails privately without initializing storage, models or delivery', async () => {

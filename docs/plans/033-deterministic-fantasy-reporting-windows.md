@@ -1,6 +1,6 @@
 # 033: Deterministic Fantasy reporting windows
 
-**Status:** Step 1 implemented and verified; the Operator approved commit only and will push/deploy. Step 2 not started. The production recap cron remains Operator-paused.
+**Status:** Steps 1–2 committed (`2fd4867`, `517a31a`) and Operator-confirmed deployed. Corrected editorial-only preview and one explicitly authorized saved Week 6 group publication passed, including Operator-observed receipt. The production recap cron remains Operator-paused.
 
 ## Goal and constraints
 
@@ -14,7 +14,7 @@ ESPN's calendar is a provider-defined period, not a final-whistle timestamp. Tue
 
 **Goal:** validate the source contract before production depends on it.
 
-**Critical files:** proposed `src/lib/fantasy/nfl-calendar.ts`, its tests and public-response fixtures. Do not change `daily.ts`, existing window selection, evidence admission, saved-report schemas or delivery.
+**Critical files:** `src/lib/fantasy/nfl-calendar.ts`, its tests and public-response fixtures. Do not change `daily.ts`, existing window selection, evidence admission, saved-report schemas or delivery.
 
 - Query the requested and adjacent ESPN calendar periods plus the requested week's ESPN scoreboard through fixed public HTTPS routes, bounded deadlines and no retries/redirects. No credentials or new dependency.
 - Validate source identity, season, phase, week, ordered dates and calendar adjacency. Preserve the provider's minute-resolution end explicitly; use the queried next start as the exclusive cutoff, never a guessed extra interval.
@@ -33,7 +33,7 @@ The actual reader was also exercised against anonymous public endpoints on both 
 
 These checks verify a local off-path reader and observed public contracts, not VPS/application deployment, historical provider revision timing, actual final-whistle timestamps or source-admission cutover. Existing production composition, schemas, report bytes and model/transport settings remain unchanged. The prior plan-032 sample's technical acceptance record is carried as documentation, explicitly noting that its coverage was rejected.
 
-**Approved commit:** `feat: validate queried NFL reporting calendar boundaries` (commit only; the Operator will push and deploy).
+**Commit:** `2fd4867` (`feat: validate queried NFL reporting calendar boundaries`), with commit-only approval. The Operator subsequently held deployment for Step 2.
 
 Step 1 commit approval does not authorize an assistant push or deployment. Step 2 remains a separate implementation/review/commit boundary.
 
@@ -53,6 +53,28 @@ Step 1 commit approval does not authorize an assistant push or deployment. Step 
 
 **Demo:** a separately authorized source-pinned Week 6 no-send run, preserving both existing private artifacts and retaining any new approved sample at a distinct private path. Show queried bounds, admitted source counts, exact approved parts and zero real sends. A failed application deployment is not repaired or certified merely by mounted-source execution.
 
-**Proposed commit:** `fix: enforce one queried fantasy reporting window across evidence`.
+**Implementation:** `chat-window.ts` now loads the requested Sleeper phase and queried calendar, with no moving-date fallback. The pipeline resolves it only for new work, stores optional non-defaulted proof on the existing attempt and frozen packet, and requires that proof before paid reservations/new approval. Historical proofless state remains readable without backfill or CAS changes, but proofless held restarts are denied before any calendar/paid work. Verified restarts retain original proof/bounds; changed coverage blocks. News/transaction admission precedes editorial catalog construction. The read-only CLI accepts `preview-candidate --week 6 [--nfl]` with no manual dates; paired dates only assert the query. It invokes the writer/editor, not Broadcaster.
 
-Stop for explicit commit approval. Paid/model preview, publication and cron resumption remain separate gates.
+**Verification result (2026-10-21 UTC):** full suite 1,476 passed, one Linux-only skip, zero failures (1,477 tests across 79 files; 13,998 assertions). Full typecheck, lint (zero errors, 334 line-length warnings), standard production Mastra/Studio Docker build, four infra tests and whitespace checks passed. Native disposable PostgreSQL and scripted model fixtures exercised persistence, exact saved retries, read-only previews, source filtering and restart holds. Four fresh read-only correctness/contracts/security/Ponytail reviews found one concrete integration defect: equivalent games in a different response order falsely blocked restart. It was reproduced first (60 passed/one failed), fixed by sorting copies only for comparison, and independently rechecked with no remaining findings. Original stored proof and packet bytes are never reordered or rewritten.
+
+During implementation verification, no live model, paid NFL read, production DB/SSH access, report regeneration, real message, deployment or cron change occurred. Both prior retained Week 6 artifacts remain unchanged and held; previous protocol/voice acceptance does not approve their old coverage.
+
+**Commit:** `517a31a` (`fix: enforce one queried fantasy reporting window across evidence`), with commit-only approval. The Operator pushed and reported deployment.
+
+**Operator-run editorial-only acceptance (2026-10-21 UTC):** `preview-candidate --week 6 --nfl` returned `approved` with the fixed interval `[2026-10-14T07:00:00.000Z, 2026-10-21T07:00:00.000Z)`. Evidence `evidence-917cfdf760647a85a8b8bc8df3ae99c9fcd1ebe162449d4bbd8176b57520ba3a` admitted 66 chat sources and three NFL reads. The result had fourteen `transactions:transaction_time_unverified` gaps plus `nfl:source_player_mapping_unavailable`, `nfl:reporting_window_exclusion` and `nfl:source_partial`; unavailable temporal/player claims were not guessed. Actual credit totals are not printed by this CLI result.
+
+One writer and one reviewer approved `fantasy-editorial-v2` candidate `candidate-8421ce2a1a7afa478ac151e0bb05fc7049ecfce9e8e14f5ffdcb59ddbb1dfb8b` as one 2,378-UTF-16-unit part, without the generated public Basis label. Database state was verified unchanged, Broadcaster was not invoked, and sends were zero. No private report/quote text is copied into this record.
+
+This is an Operator-run read-only editorial sample, not a source-checksummed full-pipeline run, scheduled tick, durable production save/retry, provider acceptance or handset receipt. The CLI does not retain a new SavedReport; printed approval is not saved delivery authority. Recording that sample granted no further commit/push, publication or cron resumption. The separately authorized preparation and publication below used a new saved artifact, not reconstructed preview text.
+
+## 3. Controlled first official Week 6 publication
+
+**Operator-confirmed acceptance (2026-10-21 UTC):** the Operator chose save/review first rather than immediate generation-and-send. A read-only preflight confirmed season 2026, latest completed week 6 and no existing configured-league Week 6 run. A source-checked temporary operator runner then used the canonical durable pipeline with the exact queried window above, three NFL reads, one Astra writer and one reviewer. Its 173-file source proof matched the code at `517a31a` (the later `872d3ea` changes only acceptance documentation).
+
+The new approved editorial-v2 artifact is `report-50efe9712a16aea0be67cf9956756d1c3927ee08584d3e77bb0b4a3faf10846c`, one 2,591-UTF-16-unit part, retained at `data/fantasy-publish-review/fantasy-week6-official-held-report.json` (0600). Approval/history and a manual recovery hold committed atomically through the existing owners before any publication callback. The report was durably held with zero send attempts; alerts were suppressed. Native disposable-PostgreSQL self-checks on macOS and Linux/Bun 1.3.14 covered hold failure rollback, lost commit acknowledgment, visible paid intents, duplicate-budget refusal and automatic-retry denial; four fresh read-only reviews found no issues. No rejected earlier artifact was edited or published.
+
+The actual Luna/max Broadcaster then exercised these exact saved bytes with a mocked sender in a disposable isolated schema. It made two HTTP 200 model calls and one mock send; exact bytes and replay blocking passed. Production stayed held, ordinary rows and the private artifact were unchanged, and the temporary schema was removed. Real Sendblue calls were zero. Two fresh read-only reviews and native offline checks covered the mock runner's isolation and protocol.
+
+After reviewing the text and mock result, the Operator explicitly authorized one real send of this saved report. The trusted CLI `retry --week 6 --report-id <exact ID above>` resumed only its pending part through the existing checked Broadcaster and exact sender, with no new writer, editor, research or regeneration. The receipt reported `status: sent`, `acceptedParts: 1`, `totalParts: 1`, `recoveryRequired: false` and `unresolved: null`. The Operator also confirmed seeing the report in the group chat.
+
+This proves one controlled saved-report delivery and Operator-observed group receipt, not an automatic scheduled tick, recurring cron resumption, universal editorial quality or physical exactly-once guarantees. No schedule-run POST was used. The recurring cron remains Operator-paused; no further send, regeneration, commit/push or resumption is authorized by recording this acceptance.

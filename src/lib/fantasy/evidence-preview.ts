@@ -38,11 +38,11 @@ export async function previewRecapEvidence(
 	request: {
 		config: FantasyConfig;
 		week: number;
-		window: ChatWindow | null;
+		window?: ChatWindow | null;
 		databaseUrl: string;
 		firecrawlApiKey?: string;
 	},
-	fixture: Pick<EvidenceOptions, 'sleeper' | 'now'> & { schemaName?: string } = {},
+	fixture: Pick<EvidenceOptions, 'sleeper' | 'now' | 'readWindow' | 'abortSignal'> & { schemaName?: string } = {},
 	afterCollection?: (packet: RecapEvidencePacket) => Promise<void>,
 ): Promise<EvidencePreviewResult> {
 	const blocked = (reason: string, databaseUnchanged = false): EvidencePreviewResult => ({
@@ -61,7 +61,8 @@ export async function previewRecapEvidence(
 		const window = chatWindowSchema.safeParse(request.window);
 		const schema = fixture.schemaName ?? 'public';
 		if (!Number.isSafeInteger(request.week) || request.week < 1 || request.week > 22
-			|| !window.success || !Number.isFinite(instant.getTime()) || window.data.endAtUtc > instant.toISOString()
+			|| !Number.isFinite(instant.getTime()) || (request.window !== undefined
+				&& (!window.success || window.data.endAtUtc > instant.toISOString()))
 			|| !request.config.sleeperLeagueId?.trim() || !request.config.sendblueGroupId?.trim()
 			|| !/^[a-z_]\w*$/i.test(schema)) {
 			return blocked('invalid_preview_scope');
@@ -86,13 +87,15 @@ export async function previewRecapEvidence(
 		let packet: RecapEvidencePacket | null = null;
 		let candidateFailed = false;
 		try {
-			packet = await collectRecapEvidence({ config: request.config, week: request.week, window: window.data }, {
+			packet = await collectRecapEvidence({ config: request.config, week: request.week, window: window.success ? window.data : undefined }, {
 				memory: {
 					getThreadById: input => memory.getThreadById(input),
 					listMessages: input => memory.listMessages(input),
 				},
 				sleeper: fixture.sleeper,
 				now,
+				readWindow: fixture.readWindow,
+				abortSignal: fixture.abortSignal,
 				readNfl: apiKey?.trim()
 					? async (input, currentSeason) => {
 						task ??= createNflSourceTask({ apiKey, currentSeason });

@@ -1,4 +1,5 @@
 import type { ChatWindow } from './chat-archive';
+import type { NflCalendarProof } from './nfl-calendar';
 import type { NflSourceResult } from './nfl-sources.types';
 import type { SavedReportScope } from './saved-report';
 import { createHash } from 'node:crypto';
@@ -7,6 +8,7 @@ import { chatWindowSchema } from './chat-archive';
 import { editorialDraftSchema } from './editorial';
 import { editorialReviewSchema } from './editorial-loop';
 import { FANTASY_EDITORIAL_LIMITS } from './editorial-policy';
+import { nflCalendarProofSchema, parseNflCalendarProof } from './nfl-calendar';
 import { nflSourceInputSchema } from './nfl-sources.schema';
 
 export const GENERATION_VERSION = 'fantasy-recap-v13';
@@ -33,6 +35,7 @@ export interface GenerationAttempt {
 	id: string;
 	scope: SavedReportScope;
 	window: ChatWindow;
+	calendarProof?: NflCalendarProof;
 	generatorVersion: typeof GENERATION_VERSION;
 	phase: 'collecting' | 'editorial' | 'source_retryable' | 'blocked' | 'approved';
 	startedAtUtc: string;
@@ -96,6 +99,7 @@ const attemptSchema: z.ZodType<GenerationAttempt> = z.object({
 	id: uuid,
 	scope: scopeSchema,
 	window: chatWindowSchema,
+	calendarProof: nflCalendarProofSchema.optional(),
 	generatorVersion: z.literal(GENERATION_VERSION),
 	phase: z.enum(['collecting', 'editorial', 'source_retryable', 'blocked', 'approved']),
 	startedAtUtc: instant,
@@ -140,6 +144,7 @@ const packetBindingSchema = z.object({
 		season: z.string().nullable(),
 		week: z.number(),
 		chatWindow: chatWindowSchema,
+		calendarProof: nflCalendarProofSchema.optional(),
 	}),
 	status: z.enum(['ready', 'partial', 'blocked']),
 	league: z.object({}).nullable(),
@@ -219,6 +224,8 @@ function check(condition: unknown): asserts condition {
 }
 
 function checkAttempt(attempt: GenerationAttempt, callIds: Set<string>) {
+	if (attempt.calendarProof !== undefined)
+		parseNflCalendarProof(attempt.calendarProof, attempt.scope.season, attempt.scope.week, attempt.window);
 	const start = Date.parse(attempt.startedAtUtc);
 	const work = Date.parse(attempt.workDeadlineAtUtc);
 	check(start < work && work <= start + GENERATION_LIMITS.workMs);
@@ -268,6 +275,22 @@ function checkBundle(attempt: GenerationAttempt, bundle: GenerationDebugBundle) 
 			&& packet.scope.chatWindow.endAtUtc === attempt.window.endAtUtc);
 		check(packet.scope.season === String(attempt.scope.season)
 			|| (packet.scope.season === null && packet.status === 'blocked' && packet.league === null));
+		check((attempt.calendarProof === undefined) === (packet.scope.calendarProof === undefined));
+		if (attempt.calendarProof !== undefined) {
+			const ownerProof = parseNflCalendarProof(
+				attempt.calendarProof,
+				attempt.scope.season,
+				attempt.scope.week,
+				attempt.window,
+			);
+			const packetProof = parseNflCalendarProof(
+				packet.scope.calendarProof,
+				attempt.scope.season,
+				attempt.scope.week,
+				attempt.window,
+			);
+			check(JSON.stringify(ownerProof) === JSON.stringify(packetProof));
+		}
 	}
 	const outputIds = new Set<string>();
 	for (const output of bundle.outputs) {
@@ -328,6 +351,7 @@ export function initialGenerationState(
 	window: ChatWindow,
 	attemptId: string,
 	nowUtc: string,
+	calendarProof?: NflCalendarProof,
 ): GenerationState {
 	const now = nowMilliseconds(nowUtc);
 	return parseGenerationState({
@@ -336,6 +360,7 @@ export function initialGenerationState(
 			id: attemptId,
 			scope,
 			window,
+			...(calendarProof === undefined ? {} : { calendarProof }),
 			generatorVersion: GENERATION_VERSION,
 			phase: 'collecting',
 			startedAtUtc: new Date(now).toISOString(),

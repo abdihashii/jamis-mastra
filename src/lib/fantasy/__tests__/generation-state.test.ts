@@ -14,12 +14,15 @@ import {
 	retainedGenerationDebug,
 } from '../generation-state';
 import { editorialFixtureQuote, editorialFixtureWindow, frozenEditorialFixture, validEditorialDraft } from './fixtures/editorial.fixture';
+import { reportingWindowFixture } from './fixtures/reporting-window.fixture';
 
 const now = '2026-09-09T00:00:00.000Z';
 const scope = { leagueId: 'fixture-league', groupId: 'fixture-group', season: 2026, week: 1 };
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const at = (milliseconds: number) => new Date(Date.parse(now) + milliseconds).toISOString();
+const proof = reportingWindowFixture(editorialFixtureWindow).source;
 const fresh = () => initialGenerationState(scope, editorialFixtureWindow, id(1), now);
+const verified = () => initialGenerationState(scope, editorialFixtureWindow, id(1), now, proof);
 const digest = (prefix: string) => `${prefix}-${'a'.repeat(64)}`;
 
 type Mutation = (state: GenerationState) => void;
@@ -58,8 +61,8 @@ function addCall(state: GenerationState, kind: GenerationCallKind = 'writer') {
 	return call;
 }
 
-function withCalls() {
-	const state = fresh();
+function withCalls(verifiedProof = false) {
+	const state = verifiedProof ? verified() : fresh();
 	addCall(state, 'nfl');
 	addCall(state, 'writer');
 	addCall(state, 'reviewer');
@@ -169,6 +172,50 @@ describe('checked generation data', () => {
 		expect(inputScope).toEqual(scope);
 		expect(inputWindow).toEqual(editorialFixtureWindow);
 		expect(Object.isFrozen(inputScope)).toBe(false);
+	});
+
+	it('round-trips legacy proof absence without adding a default, including prior history', () => {
+		const legacy = withCalls();
+		const parsed = parseGenerationState(jsonbEquivalent(JSON.parse(JSON.stringify(legacy))));
+		expect(parsed).toEqual(legacy);
+		expect(Object.hasOwn(parsed.current, 'calendarProof')).toBe(false);
+		const current = verified();
+		legacy.current.id = id(2);
+		current.prior.push(legacy.current);
+		const checked = parseGenerationState(current);
+		expect(Object.hasOwn(checked.prior[0], 'calendarProof')).toBe(false);
+		expect(checked.current.calendarProof).toEqual(proof);
+		const nullProof = fresh();
+		Object.assign(nullProof.current, { calendarProof: null });
+		invalid(nullProof);
+	});
+
+	it('persists a detached checked proof without imposing a wall-clock or start-time condition', () => {
+		const source = structuredClone(proof);
+		const state = initialGenerationState(scope, editorialFixtureWindow, id(1), '2000-01-01T00:00:00.000Z', source);
+		expect(state.current.calendarProof).toEqual(proof);
+		expect(state.current.calendarProof).not.toBe(source);
+		expect(parseGenerationState(jsonbEquivalent(state))).toEqual(state);
+		source.games[0].home = 'NYJ';
+		expect(state.current.calendarProof).toEqual(proof);
+	});
+
+	it('rejects proof scope, window, final-game and strict-shape violations', () => {
+		const mutations: Mutation[] = [
+			s => s.current.scope.season++,
+			s => s.current.scope.week++,
+			s => s.current.window.startAtUtc = '2026-08-31T00:00:00.000Z',
+			s => s.current.window.endAtUtc = '2026-09-07T00:00:00.000Z',
+			s => s.current.calendarProof!.next.startAtUtc = '2026-09-09T00:00:00.000Z',
+			s => Object.assign(s.current.calendarProof!.games[0], { final: false }),
+			s => Object.assign(s.current.calendarProof!, { token: 'PRIVATE' }),
+			s => Object.assign(s.current.calendarProof!.current, { token: 'PRIVATE' }),
+		];
+		for (const mutate of mutations) {
+			const state = verified();
+			mutate(state);
+			invalid(state);
+		}
 	});
 
 	it('normalizes the supplied ChatWindow into canonical UTC', () => {
@@ -364,7 +411,7 @@ describe('checked generation data', () => {
 describe('private generation debug data', () => {
 	it('preserves exact serialized packet bytes through JSONB-equivalent key ordering', async () => {
 		const packet = await frozenEditorialFixture();
-		const state = fresh();
+		const state = verified();
 		state.current.evidenceId = packet.id;
 		const packetJson = JSON.stringify(packet);
 		state.debug[id(1)].packetJson = packetJson;
@@ -381,9 +428,32 @@ describe('private generation debug data', () => {
 		invalid(parsed);
 	});
 
+	it('requires matching canonical packet/attempt proofs, or proof absence on both', async () => {
+		const packet = await frozenEditorialFixture();
+		for (const mismatch of ['attempt-absent', 'packet-absent', 'different-proof', 'invalid-proof', 'both-absent'] as const) {
+			const state = verified();
+			const changed = structuredClone(packet);
+			if (mismatch === 'attempt-absent' || mismatch === 'both-absent')
+				delete state.current.calendarProof;
+			if (mismatch === 'packet-absent' || mismatch === 'both-absent')
+				delete changed.scope.calendarProof;
+			if (mismatch === 'different-proof')
+				changed.scope.calendarProof!.retrievedAtUtc = at(1_000);
+			if (mismatch === 'invalid-proof')
+				changed.scope.calendarProof!.current.providerWeek++;
+			changed.id = '';
+			changed.id = `evidence-${createHash('sha256').update(JSON.stringify(changed)).digest('hex')}`;
+			state.current.evidenceId = changed.id;
+			state.debug[id(1)].packetJson = JSON.stringify(changed);
+			if (mismatch === 'both-absent')
+				expect(parseGenerationState(state)).toEqual(state);
+			else invalid(state);
+		}
+	});
+
 	it('checks packet identity, version, scope and the blocked unknown-season exception', async () => {
 		const packet = await frozenEditorialFixture();
-		const state = fresh();
+		const state = verified();
 		state.current.evidenceId = packet.id;
 		const mutations = [
 			(p: typeof packet) => p.id = digest('evidence'),
@@ -524,8 +594,8 @@ describe('private generation debug data', () => {
 	});
 
 	it('purges only expired payloads and returns detached exact-attempt reads with exclusive expiry', () => {
-		const prior = fresh();
-		const state = initialGenerationState(scope, editorialFixtureWindow, id(2), at(24 * 60 * 60_000));
+		const prior = verified();
+		const state = initialGenerationState(scope, editorialFixtureWindow, id(2), at(24 * 60 * 60_000), proof);
 		state.prior.push(prior.current);
 		state.debug[id(1)] = { packetJson: null, outputs: [], notes: ['prior_note'] };
 		state.current.phase = 'blocked';
@@ -555,7 +625,7 @@ describe('private generation debug data', () => {
 
 	it('returns only safe summary fields, excluding scope, group, calls, packet and quote', async () => {
 		const packet = await frozenEditorialFixture();
-		const state = withCalls();
+		const state = withCalls(true);
 		state.current.evidenceId = packet.id;
 		state.debug[id(1)].packetJson = JSON.stringify(packet);
 		const reference = generationReference(state);

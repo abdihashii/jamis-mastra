@@ -47,7 +47,7 @@ async function fixture(start = now) {
 		season: Number(packet.scope.season),
 		week: packet.scope.week,
 	};
-	const state = initialGenerationState(scope, editorialFixtureWindow, randomUUID(), start);
+	const state = initialGenerationState(scope, editorialFixtureWindow, randomUUID(), start, packet.scope.calendarProof);
 	const attempt = state.current;
 	attempt.phase = 'blocked';
 	attempt.reasonCode = 'review_rejected';

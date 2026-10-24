@@ -46,6 +46,14 @@ export function editorialProjection(packet: RecapEvidencePacket) {
 	return {
 		evidenceId: packet.id,
 		frozenAtUtc: packet.frozenAtUtc,
+		reportingWindow: packet.scope.calendarProof
+			? {
+					window: packet.scope.chatWindow,
+					provider: packet.scope.calendarProof.provider,
+					period: packet.scope.calendarProof.current.label,
+					nextPeriod: packet.scope.calendarProof.next.label,
+				}
+			: null,
 		trust: 'untrusted-source-data',
 		managers: catalog.managers,
 		players: catalog.players,
