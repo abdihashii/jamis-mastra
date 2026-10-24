@@ -1,9 +1,8 @@
 import type { EditorialDraft, EditorialIssue } from '../editorial';
-import type { RecapEvidencePacket } from '../evidence';
+import type { RecapEvidencePacket } from '../recap-evidence';
 import type { SleeperLeague, SleeperManager, SleeperScore } from '../sleeper';
 import { describe, expect, it } from 'bun:test';
 import { Buffer } from 'node:buffer';
-import { buildWeekFacts } from '../analysis';
 import {
 	buildEditorialCandidate,
 	buildEditorialCatalog,
@@ -11,6 +10,7 @@ import {
 	EDITORIAL_PART_MAX_LENGTH,
 	editorialDraftSchema,
 } from '../editorial';
+import { buildWeekFacts } from '../week-facts';
 
 const now = '2026-09-23T12:00:00.000Z';
 const quoteText = '  Watch this. 🏈 e\u0301 **exact**\r\n\n{fact:scope:week} stays literal.  ';

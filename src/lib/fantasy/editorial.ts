@@ -1,7 +1,7 @@
-import type { RecapEvidencePacket } from './evidence';
+import type { RecapEvidencePacket } from './recap-evidence';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { resolveChatSource } from './evidence';
+import { resolveChatSource } from './recap-evidence';
 
 export const EDITORIAL_VERSION = 'fantasy-editorial-v1';
 // Sendblue documents a less-than-18,996-character limit; count UTF-16 units conservatively.
