@@ -8,7 +8,7 @@ Replace collection-time archive bounds with queried NFL calendar periods. One fr
 
 This corrects [plan 032](032-fantasy-pundit-editorial-workflow.md)'s reporting-window behavior. The source-pinned editorial-v2 Week 6 mock run passed transport/control-flow checks, but the Operator rejected its moving cutoff. Neither retained Week 6 artifact is publication authority. Preserve both without edits or regeneration.
 
-ESPN's calendar is a provider-defined period, not a final-whistle timestamp. Tuesday may legitimately belong to the preceding period. No manually chosen closing hour, `now` fallback, silent calendar extension, automatic provider failover or invented actual-finish time is permitted.
+ESPN's calendar is a provider-defined period, not a final-whistle timestamp. The period may remain open after all games have finished. No manually chosen closing hour, `now` fallback, silent calendar extension, automatic provider failover or invented actual-finish time is permitted.
 
 ## 1. Prove and implement the off-path calendar reader
 

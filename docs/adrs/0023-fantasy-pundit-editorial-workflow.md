@@ -56,6 +56,10 @@ Scheduled trigger
 
 The existing schedule is a wake-up signal, not proof that a week completed or authority to bypass a claim. Preserve completion semantics, configured scheduling time zone and newest-completed-week recovery after downtime. Evidence and stored timestamps use UTC. Manual run/retry paths must reach the same enforced owners; preview remains nonpublishing and must not mutate recap/run state.
 
+### Calendar closure and recap timing
+
+The recap becomes eligible after ESPN's reporting period closes and all games are complete. Boundaries are queried from ESPN and stored in UTC. The daily scheduled run checks eligibility.
+
 ### Evidence and research
 
 The evidence packet keeps distinct:

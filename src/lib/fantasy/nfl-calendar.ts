@@ -251,6 +251,7 @@ export async function readNflReportingWindow(
 		const next = period(nextRaw, nextScope);
 		// ESPN reports the last included minute; the queried next start supplies the exact exclusive bound.
 		requireValue(Date.parse(current.lastMinuteAtUtc) + 60_000 === Date.parse(next.startAtUtc), 'calendar_boundary_conflict');
+		// Calendar closure: docs/adrs/0023-fantasy-pundit-editorial-workflow.md#calendar-closure-and-recap-timing.
 		requireValue(now.toISOString() >= next.startAtUtc, 'calendar_period_unclosed');
 		const window = { startAtUtc: current.startAtUtc, endAtUtc: next.startAtUtc };
 		const games = gamesInWindow(scoreboard, currentScope, parsed.data, week, window, now);
