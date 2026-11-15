@@ -53,6 +53,10 @@ if (!valid) {
 install -d -m 0755 /usr/local/libexec
 install -m 0755 infra/host_evidence_probe.py /usr/local/libexec/jamis-host-evidence-probe
 install -m 0644 infra/jamis-evidence.socket infra/jamis-evidence@.service /etc/systemd/system/
+# Install only. First enablement follows credential/readiness verification in
+# docs/setup-host-watchdog.md; deployment must not start sending new alerts.
+install -m 0755 infra/host_watchdog.py /usr/local/libexec/jamis-watchdog
+install -m 0644 infra/jamis-watchdog.service infra/jamis-watchdog.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now jamis-evidence.socket
 systemctl restart jamis-evidence.socket

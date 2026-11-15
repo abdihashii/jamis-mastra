@@ -1,10 +1,11 @@
 # Host watchdog setup
 
 Stage 1 provides a standalone test sender; Stage 2 adds app PostgreSQL readiness.
-No timer or persisted notification state is installed yet. Requires host Python 3 on Linux;
+Stage 3 adds persistent host checks and timer units, enabled only after the gates below.
+Requires host Python 3 on Linux;
 the sender uses SIGALRM in the main thread for a 15-second total HTTPS deadline,
 including DNS, TLS, and response consumption. TLS certificate verification remains
-on. There are no redirects or automatic retries, and response reads stop at 16 KiB
+on. Each send has no redirects or HTTP retries, and response reads stop at 16 KiB
 plus one overflow byte.
 
 ## Installation (requires separate approval)
@@ -64,7 +65,7 @@ contradictory success fields. A success requires a nonempty message handle,
 provider bodies, handles, credentials, or phone numbers. Invalid configuration
 exits 2 before sending.
 
-There is no automatic retry in Stage 1. An unknown result may already have sent
+The explicit test mode never retries. An unknown result may already have sent
 a DM. Obtain approval before another test because it can duplicate the message.
 Do not infer production monitoring from a successful smoke.
 
@@ -128,8 +129,113 @@ an Operator, perform one command at a time and wait for its result.
 
 After separately approved app deployment, repeat only the authenticated healthy
 loopback smoke on the VPS using its actual API token in a root-only curl config.
-Do not stop production PostgreSQL. The host timer remains a later stage.
+Do not stop production PostgreSQL. Enable the host timer only after this succeeds and deployment/message authorization is granted.
 
 API contracts checked against installed Mastra 1.71.0 and PostgresStore 1.27.1,
 plus official [Mastra custom route authentication](https://mastra.ai/docs/server/custom-api-routes#authentication)
 and [node-postgres checkout/release documentation](https://node-postgres.com/apis/pool#releasing-clients).
+
+## Persistent host checks (Stage 3)
+
+Deployment installs the script and units but does not enable a new timer. An
+already enabled timer retains its schedule across deployments. Before the first
+enablement, verify authenticated production readiness and the five credentials
+in `/etc/jamis/watchdog.env`. The file must be regular, root-owned, mode 0600;
+`--check-config` validates its permissions and the supplied values without sending:
+
+```sh
+rtk sudo systemd-run --wait --pipe --collect --unit=jamis-watchdog-config --property=EnvironmentFile=/etc/jamis/watchdog.env /usr/bin/python3 -B /usr/local/libexec/jamis-watchdog --check-config
+```
+
+Expected: `watchdog: configuration valid`. This checks shape, not credential
+validity with the providers. Use the already received Stage 1 DM as transport
+proof. Rotate all copied credentials alongside their application equivalents.
+
+Before enabling, confirm `/`, Docker data, and PostgreSQL/ClickHouse volume
+mountpoints are on the same filesystem using `docker info --format
+'{{.DockerRootDir}}'`, `docker volume inspect` for the actual database volumes,
+and `findmnt -T <path>` on each reported path. If they differ, stop: this watchdog
+only monitors `/` and the plan must be revised for that layout.
+
+Keep the separate retention proposal (`docker-compose.prod.yml` and
+`clickhouse/log-retention.xml`) in its own fix/PR. Validate it against disposable
+ClickHouse matching production before enabling production monitoring. Check
+existing versus newly created diagnostic tables; do not assume the XML reclaims
+historical log space. This recommendation does not authorize retention changes.
+
+After separate deployment and notification authorization, install via the normal
+deployment path, or install just these files from the approved checkout:
+
+```sh
+rtk sudo install -o root -g root -m 0755 infra/host_watchdog.py /usr/local/libexec/jamis-watchdog
+rtk sudo install -o root -g root -m 0644 infra/jamis-watchdog.service infra/jamis-watchdog.timer /etc/systemd/system/
+rtk sudo systemctl daemon-reload
+rtk sudo systemd-analyze verify /etc/systemd/system/jamis-watchdog.service /etc/systemd/system/jamis-watchdog.timer
+```
+
+After the credential, filesystem, and readiness gates above:
+
+```sh
+rtk sudo systemctl enable --now jamis-watchdog.timer
+```
+
+This authorizes periodic real alert/recovery sends. Do not run during an isolated
+smoke. The timer runs every 60 seconds with one-second accuracy, without app or
+Docker unit dependencies. Each oneshot has a 45-second start deadline and a
+five-second stop deadline. No overlapping timer invocations; a host file lock
+also excludes simultaneous manual `--check` runs.
+
+Inspect after at least two ticks:
+
+```sh
+rtk sudo systemctl list-timers jamis-watchdog.timer
+rtk sudo journalctl -u jamis-watchdog.service -n 20 --no-pager
+rtk sudo cat /var/lib/jamis-watchdog/state.json
+```
+
+Healthy startup sends nothing. Readiness successes saturate at two, failures at
+three. Disk alerts at unrounded 85% and recovers strictly below 80%; unavailable
+disk evidence never recovers or retries a disk notice. Readiness requires HTTP
+200 with the small ready response within five seconds, including body reading.
+
+State directory mode is 0700; state and lock files are 0600. The versioned state
+contains only current checks, streaks, incident UTC epoch times, and the latest
+notice outcome/retry time. Writes use a same-directory temporary file, fsync,
+atomic replacement, and directory fsync. Corrupt, oversized, unsafe, or unwritable
+state fails closed with a sanitized journal error. Do not delete/reset state to
+clear errors: preserve it for diagnosis, stop the timer, and repair the cause.
+A full disk can prevent state writes and suppress alerts.
+
+Accepted notifications stay silent. Rejected notices retry after five minutes;
+unknown acceptance waits 30 minutes, labeled as a possible repeat. Send intent
+is persisted before POST, so a crash cannot cause an immediate blind retry.
+Unknown attempts can still duplicate a DM. Recovery cancels stale alert retries;
+only accepted or possibly accepted alerts need recovery. A new incident replaces
+an obsolete recovery retry. Both checks share at most one POST per invocation.
+Acceptance is not proof of handset receipt. No reminders or automatic remediation.
+
+### Isolated smoke and rollback
+
+Use disposable local Linux with systemd, fake credentials, a loopback readiness
+and Sendblue stub, and disposable state. Keep production thresholds and unit
+timeouts unchanged. A test-only ExecStart wrapper may substitute stub transport,
+filesystem observations, and a fake clock; do not add production endpoint overrides.
+Exercise three failures, two successes, 85/80 hysteresis, rejected/unknown cooldowns
+across new processes, and a stalled HTTP request. Confirm an unresponsive process
+is killed within the 45-second start plus five-second stop bounds. Inspect the
+stub's captured messages, never a real phone. Guide each manual command separately.
+
+Rollback stops future ticks, then any current invocation:
+
+```sh
+rtk sudo systemctl disable --now jamis-watchdog.timer
+rtk sudo systemctl stop jamis-watchdog.service
+```
+
+An in-flight POST may already have been accepted. Keep the state file when
+stopping or reinstalling; its unknown outcome/cooldown prevents immediate retries.
+Do not roll back to Stage 1 while leaving the timer enabled (`--check` is new).
+
+Timer and timeout contracts follow official
+[systemd.timer](https://manpages.debian.org/bookworm/systemd/systemd.timer.5.en.html)
+and [systemd.service](https://manpages.debian.org/bookworm/systemd/systemd.service.5.en.html).

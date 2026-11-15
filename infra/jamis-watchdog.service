@@ -1,0 +1,18 @@
+[Unit]
+Description=Jamis host disk and PostgreSQL readiness watchdog
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/jamis/watchdog.env
+ExecStart=/usr/bin/python3 -B /usr/local/libexec/jamis-watchdog --check
+TimeoutStartSec=45s
+TimeoutStopSec=5s
+StateDirectory=jamis-watchdog
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/jamis-watchdog
