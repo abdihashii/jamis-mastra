@@ -1,6 +1,6 @@
 # 036: ClickHouse diagnostic retention
 
-Status (2026-11-16 UTC): Final three-day/seven-day policy validated locally; repository gate and independent review passed. Commit approved by the Operator. Operator confirmed production version and completed the separately approved two-table diagnostic cleanup. Retention deployment and push remain unapproved. Keep this work separate from watchdog PR #61.
+Status (2026-11-16 UTC): Complete. Final configuration was reviewed, committed as `cfb72d9`, pushed, and squash-merged separately in [PR #62](https://github.com/abdihashii/jamis-mastra/pull/62) as `e32f523`. Operator deployed through the standard script and verified all 12 active TTLs plus warning-level text logging. The separately approved two-table cleanup restored disk headroom. Further archived-log cleanup remains unapproved.
 
 ## 1. Validate the proposed configuration
 
@@ -25,7 +25,7 @@ expire as intended. Compose overlay must render with the expected read-only moun
 using only synthetic environment values. No claim that adding XML immediately
 reclaims historical disk space.
 
-**Proposed commit:** `fix: bound ClickHouse diagnostic log retention`
+**Committed:** `cfb72d9` `fix: bound ClickHouse diagnostic log retention`; squash-merged as `e32f523`.
 
 ## 2. Separate review and production gate
 
@@ -110,8 +110,8 @@ code or the proposed configuration.
 - Seven days bounds age, not bytes. Check current production disk headroom and
   growth rate before rollout. Leave the watchdog enablement gate separate.
 - Production version and disk headroom were confirmed by the Operator below.
-  Production architecture was not inspected. No retention configuration has
-  been deployed; the only production deletion was the separately approved
+  Production architecture was not inspected. Production retention was deployed
+  and verified below; the only production deletion was the separately approved
   diagnostic cleanup recorded below.
 
 ## Operator production checks and approved cleanup
@@ -140,9 +140,9 @@ No `default.mastra_*` table was targeted. This permanently removed those two
 ClickHouse diagnostic histories; it did not install retention or disable logging.
 No further production cleanup is authorized by this record.
 
-**Next:** Verify the final three-day/seven-day configuration, review it, then
-request a separate retention commit. Push and deployment require their own
-approval. Do not include these changes in watchdog PR #61.
+**Remaining follow-up:** Inventory archived diagnostic tables if additional
+reclamation is needed. Any further production cleanup requires separate approval.
+Retention and watchdog changes were delivered in separate PRs.
 
 
 ## Final policy verification (2026-11-16 UTC)
@@ -186,7 +186,20 @@ tests/contracts, data integrity, and deployment integration. No verified finding
 the disposable PostgreSQL container and its test volume were also removed.
 No unrelated container or volume was changed.
 
-**Commit gate:** Operator approved
-`fix: bound ClickHouse diagnostic log retention`. Only the XML, its Compose mount,
-and this plan belong in that commit. Push/PR and production TTL deployment remain
-separate approval gates.
+## Production verification (2026-11-16 UTC)
+
+After the standard deployment script completed, the Operator confirmed all six
+Compose services were running. Active table DDL showed three days for
+`asynchronous_insert_log` and seven days for the other 11 configured logs.
+`query_metric_log` and `query_views_log` initially retained their old definitions;
+`SYSTEM FLUSH LOGS` caused the configured seven-day tables to be prepared, and
+both were then rechecked successfully. No truncation was used for that check.
+
+Extraction from the server's preprocessed configuration returned
+`text_log.level = warning`. All retention prerequisites passed before enabling
+the watchdog. At 18:38:33 and 18:47:35 UTC, root usage was stable at 53% with
+17 GB available. See plan 035 for the successful watchdog baseline comparison.
+
+Archived originals retain their old policies and are not automatically reclaimed
+by this configuration. No additional historical deletion was performed or
+approved after the two-table cleanup above.

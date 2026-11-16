@@ -1,12 +1,12 @@
 # 035: Host watchdog
 
-Status (2026-11-14 UTC): Stages 1 and 2 implemented, verified, committed, and pushed to `feat/host-watchdog-stage-1` in [PR #61](https://github.com/abdihashii/jamis-mastra/pull/61). Stage 1 is installed on the VPS and its real test DM was received. Stage 2 is verified locally but not deployed. Stage 3 implementation, review, and automated/guided local smoke are complete; commit and push were authorized after the review fix; no production watchdog timer is enabled. Implementation, commits, pushes, and the Stage 1 host smoke were separately authorized in conversation; this document grants no additional deployment or message authorization.
+Status (2026-11-16 UTC): All three stages complete, squash-merged in [PR #61](https://github.com/abdihashii/jamis-mastra/pull/61) as `3301789`, deployed, and verified by the Operator on the VPS. The production timer is enabled and repeated healthy checks passed. Retention was delivered separately in PR #62 and verified before timer enablement. The Stage 1 labeled DM remains the real transport proof; no production failure was induced for this rollout.
 
 ## Goal and scope
 
 Warn the Operator before the existing VPS root filesystem fills, or after the app cannot complete a PostgreSQL readiness query. Send failure and recovery DMs directly through Sendblue from the host, without depending on Jamis, Docker, PostgreSQL, ClickHouse, or an LLM to send them.
 
-The November 11 incident exhausted the approximately 38 GB root filesystem, leaving about 36 MB free. ClickHouse diagnostic logs occupied roughly 20 GB, PostgreSQL reported `PANIC: No space left on device`, and the scheduler ran 8 hours 37 minutes late. Removing unused build cache recovered about 2.6 GB. Alerting does not correct that retention problem. Preserve the separately prepared, unapproved `clickhouse/log-retention.xml` and Compose mount; do not include them in watchdog commits.
+The November 11 incident exhausted the approximately 38 GB root filesystem, leaving about 36 MB free. ClickHouse diagnostic logs occupied roughly 20 GB, PostgreSQL reported `PANIC: No space left on device`, and the scheduler ran 8 hours 37 minutes late. Removing unused build cache recovered about 2.6 GB. Alerting does not correct that retention problem. The separate `clickhouse/log-retention.xml` and Compose mount were delivered in PR #62; their production verification and remaining archived-log considerations are recorded in plan 036.
 
 This introduces notification transport, an app readiness contract, and host scheduling/state. Deliver three independently committable slices. Prove the highest-risk dependency first: a real host-to-Sendblue DM before readiness or periodic checks depend on it.
 
@@ -68,7 +68,7 @@ Observe a sanitized accepted result and the Operator's receipt of the labeled DM
 
 ## 2. Add authenticated PostgreSQL readiness
 
-**Status:** Implementation and local verification complete. Commit `a07f9e1` (`feat: add authenticated PostgreSQL readiness`), pushed to the same PR. Production deployment and authenticated VPS readiness smoke remain pending.
+**Status:** Complete. Original commit `a07f9e1` (`feat: add authenticated PostgreSQL readiness`), included in squash `3301789`. Operator verified production HTTP 401 without credentials and successful authenticated readiness on 2026-11-16 UTC (84 ms systemd smoke runtime, exit 0).
 
 **Implementation recorded:** The existing PostgresStore is named and reused by both composite storage and `/readyz`. The route explicitly preserves SimpleAuth protection for `/api/*` and adds `/readyz`, retaining existing public exceptions. Each success requires fresh `SELECT 1`; responses disable caching and expose only readiness status. A four-second total checkout/query deadline leaves margin inside the host's five-second deadline. Failed or timed-out checked-out clients are destroyed with `release(true)`; application pool settings are unchanged.
 
@@ -92,7 +92,7 @@ Observe a sanitized accepted result and the Operator's receipt of the labeled DM
 
 ## 3. Enable host checks and persistent alert transitions
 
-**Status (2026-11-14 UTC):** Implementation and local verification complete. Automated repository gate and isolated Linux protocol/timer/timeout checks, including guided Operator smoke, passed. The review fix was explicitly authorized and verified; commit and push were authorized conditionally on a clean review. Deployment, production readiness, and production timer enablement remain separate gates. No real DMs sent in Stage 3. The separate retention proposal remains unchanged, uncommitted, and unapplied.
+**Status (2026-11-16 UTC):** Complete. Original Stage 3 commit `f42d506`, included in squash `3301789`. Automated and guided isolated checks passed; final PR review found no issues. Operator deployed through the standard script, completed production prerequisites, enabled the timer, and confirmed the before/after comparison below. No production failure/recovery was induced; healthy checks showed no notification pending.
 
 **Implementation:** Standard-library disk/readiness checks, strict 85/80 hysteresis and 3/2 readiness streaks, versioned bounded root-only state, atomic fsynced writes, durable send intent, per-check current notices and retry cooldowns, and a nonblocking host lock. Unknown attempts retain possible-repeat labeling even if a later retry is rejected. One combined POST per invocation. Deployment installs the script and units without first enabling the timer; setup documents credential/readiness/filesystem checks, explicit enablement, status, rotation, and rollback.
 
@@ -102,7 +102,7 @@ Observe a sanitized accepted result and the Operator's receipt of the labeled DM
 
 **Isolated smoke:** Disposable local Debian 12/systemd 252, fake credentials, loopback readiness/Sendblue stubs, temporary state, and test-only ExecStart transport/filesystem substitution. Installed unit verification passed. The unchanged 60-second timer produced one accepted stub alert after three failures, with incident/observation UTC `2026-11-14T21:36:52Z`. Two automatic healthy ticks produced one recovery at `2026-11-14T21:38:54Z`. Fresh service processes verified healthy silence, failure/recovery streaks, exact 85/80 hysteresis, rejected-alert cancellation, five/30-minute cooldowns, and possible-repeat labeling. A stalled POST ended in 15.1 seconds. An intentionally unresponsive wrapper ignoring SIGTERM was killed by systemd in 50.2 seconds, confirming the 45-second start plus five-second stop deadlines with scheduling overhead. Operator repeated all six guided smoke steps and confirmed: healthy startup with zero stub messages; one alert after three failures and silence on the fourth; one recovery after two successes; exact 85/80 disk hysteresis; restart-safe five/30-minute cooldowns with a stalled POST ending in 15.1 seconds and possible-repeat labeling; systemd termination of the unresponsive process in 50.3 seconds. No VPS access or production service changes. The disposable PostgreSQL fixture was removed after verification. The disposable Linux machine `jamis-watchdog-stage3` was removed after guided verification. Its journal was saved to `/private/tmp/jamis-watchdog-stage3-systemd-smoke.log`; source harness remains at `/private/tmp/jamis-watchdog-stage3-smoke/` on the Mac. No production timer was enabled.
 
-**Retention follow-up:** Keep `docker-compose.prod.yml` and `clickhouse/log-retention.xml` together in a separate fix/PR outside watchdog PR #61. Recommend validating against disposable ClickHouse matching production before enabling production monitoring, including existing versus newly created diagnostic tables. Do not assume immediate historical-space reclamation. No retention validation, application, or diagnostic deletion is authorized by this stage.
+**Retention follow-up:** Delivered separately in PR #62 (`e32f523`) after disposable ClickHouse verification. Operator separately approved and performed truncation of only `system.trace_log` and `system.text_log`, then verified production TTLs and warning logging before watchdog enablement. Remaining archived diagnostic data retains its old policies; further cleanup requires separate approval. See plan 036.
 
 **Goal:** Deliver disk and readiness failure/recovery DMs from the existing VPS with bounded retries across process restarts.
 
@@ -114,7 +114,7 @@ Observe a sanitized accepted result and the Operator's receipt of the labeled DM
 
 **Demo:** First exercise the installed timer against an isolated local readiness/Sendblue stub harness and temporary state, with no production threshold changes. Observe one alert after three failures, one recovery after two successes, disk hysteresis, retry cooldown surviving a new process, and an interrupted request ending within the service timeout. Then, after deployment and message authorization, observe `rtk sudo systemctl list-timers jamis-watchdog.timer`, `rtk sudo journalctl -u jamis-watchdog.service -n 20 --no-pager`, and a root-only state file showing two healthy observations. Use the Stage 1 labeled DM for the real transport proof. Do not fill the production disk or stop production PostgreSQL to test alerts.
 
-**Proposed commit:** `feat: schedule persistent host watchdog alerts`
+**Committed:** `f42d506` `feat: schedule persistent host watchdog alerts`; squash-merged in `3301789`.
 
 ## Verification and approval discipline
 
@@ -131,7 +131,43 @@ rtk git diff --check
 
 Use the repository's existing local database setup for integration tests. Complete one stage, report checks, diff summary, and proposed commit message, then wait for explicit approval before committing. Push and deployment need their own approval. When the Operator enters credentials or runs a smoke, guide one command at a time and wait for its result. Finish with the full repository gate, totals, final commit list, timer status, and verified notification outcome.
 
-No unresolved product decision blocks Stage 3. Stage 1 established host credential/transport viability; Stage 2 verified bounded readiness behavior and documented the uncancellable-checkout limit. Production readiness and timer verification remain deployment gates.
+No unresolved product decision blocks Stage 3. Stage 1 established host credential/transport viability; Stage 2 verified bounded readiness behavior and documented the uncancellable-checkout limit. Production readiness and timer verification passed on 2026-11-16 UTC.
+
+## Production verification (2026-11-16 UTC)
+
+Evidence below was supplied by the Operator from the VPS after running the
+standard deployment script. All six Compose services were running.
+
+- `--check-config` returned `watchdog: configuration valid`, exit 0 (111 ms),
+  validating credential format and protected file permissions.
+- Unauthenticated `/readyz` returned HTTP 401. The installed Python readiness
+  function, invoked with the root-owned EnvironmentFile, returned
+  `readiness: ready`, exit 0 (84 ms). This uses the same five-second probe and
+  requires the app's live PostgreSQL query.
+- `/`, Docker root `/var/lib/docker`, `jamis_pgdata`, and `jamis_chdata` all
+  resolved to `/dev/sda1`, mount `/`, filesystem ext4.
+- Installed service/timer verification exited 0. The only warnings concerned
+  obsolete `CPUAccounting` options in system-provided XFS units.
+
+| Observation | Baseline, 18:38:33 UTC | After enablement, 18:47:35 UTC |
+| --- | --- | --- |
+| Root filesystem | 53% used, 17 GB available | 53% used, 17 GB available |
+| Timer | inactive, disabled, no last trigger | active, enabled; last trigger 18:47:07 UTC |
+| State | absent | version 1; root:root directory 0700, file 0600 |
+| Incidents | no saved state | disk and readiness both inactive; incident/notice null |
+| Readiness streak | no saved state | failures 0, successes 2 |
+
+Operator enabled `jamis-watchdog.timer` explicitly between the two observations.
+Journal entries at 18:43:03, 18:44:04, 18:45:05, 18:46:06, and 18:47:07 UTC each
+showed `watchdog: checked` and successful oneshot completion. Inactive service
+status between ticks is expected. Disk streak counters remain zero by design;
+disk decisions use immediate thresholds, not consecutive-observation counts.
+
+Baseline and comparison files on the VPS:
+`/root/jamis-watchdog-baseline.txt` and `/root/jamis-watchdog-after.txt`.
+The observed healthy period required no notification. Stage 1's received labeled
+DM establishes real transport delivery; failure/recovery, retries, and timeouts
+were exercised with isolated stubs rather than disrupting production.
 
 ## Evidence and limits
 
