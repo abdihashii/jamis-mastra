@@ -1,6 +1,5 @@
 import { ObservabilityStorageClickhouseVNext } from '@mastra/clickhouse';
 import { Mastra } from '@mastra/core';
-import { SimpleAuth } from '@mastra/core/server';
 import { MastraCompositeStore } from '@mastra/core/storage';
 import {
 	MastraStorageExporter,
@@ -19,12 +18,18 @@ import { registerLinearReplyProcedure, SENDBLUE_CORRELATION_KEY } from './channe
 import { requireEnv, requireOperatorTimeZone } from './env';
 import { openAICodexGateway } from './gateways/openai-codex-gateway.js';
 import { createProjectLogger, filterProjectTrace, protectProjectSignals, spanOutputProcessors } from './observability';
+import { createReadinessServer } from './readiness';
 import { deploymentEvidenceTool } from './tools/deployment-evidence';
 import { fantasyApiAdmission } from './workflows/fantasy-api-admission';
 import { fantasyWeeklyRecapWorkflow } from './workflows/fantasy-weekly-recap';
 import { linearReplyApiAdmission } from './workflows/linear-reply';
 
 requireOperatorTimeZone();
+
+const postgres = new PostgresStore({
+	id: 'mastra-storage',
+	connectionString: requireEnv('DATABASE_URL'),
+});
 
 export const mastra = new Mastra({
 	logger: createProjectLogger(),
@@ -40,19 +45,11 @@ export const mastra = new Mastra({
 	})],
 	server: {
 		middleware: [linearReplyApiAdmission, fantasyApiAdmission],
-		// One token, one operator. SimpleAuth checks Authorization and
-		// X-Playground-Access by default, so Studio authenticates with an
-		// `Authorization: Bearer` header. No public path exceptions.
-		auth: new SimpleAuth({
-			tokens: { [requireEnv('API_TOKEN')]: { id: 'admin', name: 'admin' } },
-		}),
+		...createReadinessServer(postgres, requireEnv('API_TOKEN')),
 	},
 	storage: new MastraCompositeStore({
 		id: 'composite-storage',
-		default: new PostgresStore({
-			id: 'mastra-storage',
-			connectionString: requireEnv('DATABASE_URL'),
-		}),
+		default: postgres,
 		domains: {
 			observability: new ObservabilityStorageClickhouseVNext({
 				url: requireEnv('CLICKHOUSE_URL'),
