@@ -346,7 +346,7 @@ export function buildEditorialCandidate(packet: RecapEvidencePacket, raw: unknow
 			|| !support.some(item => item.id === `chat:${source.id}`)) {
 			issue('quote.messageId', 'unsupported_quote');
 		}
-		blocks.set('quote', `Quote of the Week: ${source?.sender ?? ''}\n\n${source?.text ?? ''}\n\n${text(draft.quote.body, draft.quote.supportIds, 'quote.body')}`);
+		blocks.set('quote', `Quote of the Week: ${source?.sender ?? ''}\n\n"${source?.text ?? ''}"\n\n${text(draft.quote.body, draft.quote.supportIds, 'quote.body')}`);
 	} else {
 		blocks.set('quote', 'Quote of the Week\n\nNo suitable quote earned the award this week.');
 	}

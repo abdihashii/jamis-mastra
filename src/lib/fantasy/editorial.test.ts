@@ -158,7 +158,7 @@ describe('deterministic editorial candidates (off live path)', () => {
 		expect(text).toContain('Loser of the Week: Delta');
 		expect(text).toContain('Match of the Week: Alpha 120 vs. Bravo 80 (margin 40)');
 		expect(text).toContain('Alpha made a convincing case with 120 points, including Runner One at 30.');
-		expect(text).toContain(`Quote of the Week: Alpha\n\n${quoteText}`);
+		expect(text).toContain(`Quote of the Week: Alpha\n\n"${quoteText}"`);
 		expect(text).toContain('Stories of the Week\n\nHelp that arrived on time');
 		expect(packet.facts!.high!.teams[0].rosterId).toBe(3);
 		expect(packet.facts!.low!.teams[0].rosterId).toBe(2);
@@ -187,7 +187,7 @@ describe('deterministic editorial candidates (off live path)', () => {
 		const source = 'Basis: weekly performance.\nA league message, not a generated label.';
 		packet.chat!.sources[0].text = source;
 		const text = candidate(packet).parts.join('\n\n');
-		expect(text).toContain(`Quote of the Week: Alpha\n\n${source}\n\n`);
+		expect(text).toContain(`Quote of the Week: Alpha\n\n"${source}"\n\n`);
 		expect(text.match(/Basis: weekly performance\./g)).toHaveLength(1);
 		expect(packet.chat!.sources[0].text).toBe(source);
 	});
