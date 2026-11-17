@@ -1,5 +1,5 @@
 import type { SendOutcome } from './deliver';
-import type { QuoteRange } from './editorial';
+import type { EditorialTextRange } from './editorial-formatting.schema';
 import type { SqlLike } from './recaps';
 import type { SavedReportReference } from './runs';
 
@@ -48,7 +48,12 @@ export async function dispatchSavedReport(
 	reference: SavedReportReference,
 	claimToken: string,
 	sql: SqlLike,
-	sendExact: (groupId: string, text: string, quoteRange?: QuoteRange) => Promise<SendOutcome>,
+	sendExact: (
+		groupId: string,
+		text: string,
+		quoteRange?: EditorialTextRange,
+		boldRanges?: EditorialTextRange[],
+	) => Promise<SendOutcome>,
 	signal?: AbortSignal,
 ): Promise<SavedReportReceipt> {
 	let operationId: string | null = null;
@@ -77,7 +82,7 @@ export async function dispatchSavedReport(
 			let outcome: SendOutcome;
 			try {
 				transportAttempted = true;
-				outcome = await sendExact(reference.groupId, part.text, part.quoteRange);
+				outcome = await sendExact(reference.groupId, part.text, part.quoteRange, part.boldRanges);
 			} catch {
 				outcome = { kind: 'unknown', error: 'saved_part_transport_unobservable' };
 			}

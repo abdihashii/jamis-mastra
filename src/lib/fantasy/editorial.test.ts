@@ -147,6 +147,35 @@ function codes(packet: RecapEvidencePacket, input: unknown): string[] {
 }
 
 describe('deterministic editorial candidates (off live path)', () => {
+	it.each([false, true])('bolds only title and headings, including fallback sections: %s', (fallback) => {
+		const packet = fixture();
+		const input = draft(packet);
+		packet.chat!.sources[0].text = 'Awards\n\nManager of the Week: 🏈';
+		input.stories[0].headline = '🏈 Help that arrived on time';
+		if (fallback) {
+			input.quote = null;
+			input.stories = [];
+		}
+		const out = candidate(packet, input);
+		const boldText = out.boldRanges!.map(range =>
+			out.parts[range.part].slice(range.start, range.start + range.length));
+		expect(boldText).toEqual([
+			'Week 2 Recap',
+			'Awards',
+			'Manager of the Week:',
+			'Loser of the Week:',
+			'Match of the Week:',
+			fallback ? 'Quote of the Week' : 'Quote of the Week:',
+			'Stories of the Week',
+			...(fallback ? [] : ['🏈 Help that arrived on time']),
+		]);
+		if (out.quoteRange) {
+			const quote = out.quoteRange;
+			expect(out.boldRanges!.every(range => range.part !== quote.part
+				|| range.start + range.length <= quote.start || range.start >= quote.start + quote.length)).toBe(true);
+		}
+	});
+
 	it('renders the complete report with Pundit-selected awards, not high/low/closest defaults', () => {
 		const packet = fixture();
 		const out = candidate(packet);
@@ -490,6 +519,12 @@ describe('deterministic editorial candidates (off live path)', () => {
 		expect(out.parts[2][range.start]).toBe('"');
 		expect(out.parts[2][range.start + range.length - 1]).toBe('"');
 		expect(out.parts[2]).toContain(input.stories[0].body);
+		expect(out.parts.map((part, index) => out.boldRanges!.filter(range => range.part === index)
+			.map(range => part.slice(range.start, range.start + range.length)))).toEqual([
+			['Week 2 Recap (1/3)', 'Awards', 'Manager of the Week:'],
+			['Week 2 Recap (2/3)', 'Loser of the Week:'],
+			['Week 2 Recap (3/3)', 'Match of the Week:', 'Quote of the Week:', 'Stories of the Week', 'Help that arrived on time'],
+		]);
 	});
 
 	it('rejects a fourth part and oversized indivisible Unicode quotes, retaining every source byte', () => {

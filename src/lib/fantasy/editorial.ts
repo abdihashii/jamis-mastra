@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
+import type { EditorialTextRange } from './editorial-formatting.schema';
 import type { RecapEvidencePacket } from './recap-evidence';
 
 import { resolveChatSource } from './recap-evidence';
@@ -47,19 +48,14 @@ export interface EditorialCatalog {
 	limitations: string[];
 }
 export interface EditorialIssue { path: string; code: string }
-export const quoteRangeSchema = z.object({
-	part: z.number().int().min(0).max(EDITORIAL_MAX_PARTS - 1),
-	start: z.number().int().nonnegative(),
-	length: z.number().int().positive(),
-}).strict();
-export type QuoteRange = z.infer<typeof quoteRangeSchema>;
 export interface EditorialCandidate {
 	version: typeof EDITORIAL_VERSION;
 	evidenceId: string;
 	id: string;
 	draft: EditorialDraft;
 	parts: string[];
-	quoteRange?: QuoteRange;
+	quoteRange?: EditorialTextRange;
+	boldRanges?: EditorialTextRange[];
 }
 export type EditorialCandidateResult
 	= | { status: 'candidate'; candidate: EditorialCandidate }
@@ -392,7 +388,18 @@ export function buildEditorialCandidate(packet: RecapEvidencePacket, raw: unknow
 	const parts = groups.map((group, index) => `${header(index + 1, groups.length)}${group}`);
 	let groupIndex = 0;
 	let offset = 0;
-	let quoteRange: QuoteRange | undefined;
+	let quoteRange: EditorialTextRange | undefined;
+	const boldRanges: EditorialTextRange[] = parts.map((_, part) => ({
+		part,
+		start: 0,
+		length: header(part + 1, parts.length).length - 2,
+	}));
+	const headingLabels: Record<string, string> = {
+		manager: 'Manager of the Week:',
+		loser: 'Loser of the Week:',
+		match: 'Match of the Week:',
+		quote: `Quote of the Week${draft.quote ? ':' : ''}`,
+	};
 	for (const [path, block] of blocks) {
 		if (offset && offset + 2 + block.length > groups[groupIndex]!.length) {
 			groupIndex++;
@@ -400,13 +407,23 @@ export function buildEditorialCandidate(packet: RecapEvidencePacket, raw: unknow
 		}
 		if (offset)
 			offset += 2;
+		const start = header(groupIndex + 1, groups.length).length + offset;
+		const headingLength = headingLabels[path]?.length ?? block.indexOf('\n\n');
+		if (path === 'manager' || path === 'stories.0') {
+			const sectionLength = block.indexOf('\n\n');
+			boldRanges.push({ part: groupIndex, start, length: sectionLength });
+			const headingStart = sectionLength + 2;
+			boldRanges.push({ part: groupIndex, start: start + headingStart, length: path === 'manager' ? headingLength : block.indexOf('\n\n', headingStart) - headingStart });
+		} else {
+			boldRanges.push({ part: groupIndex, start, length: headingLength });
+		}
 		if (path === 'quote' && draft.quote) {
 			const source = resolveChatSource(packet, draft.quote.messageId)!;
 			quoteRange = { part: groupIndex, start: header(groupIndex + 1, groups.length).length + offset + `Quote of the Week: ${source.sender}\n\n`.length, length: source.text.length + 2 };
 		}
 		offset += block.length;
 	}
-	const artifact: Omit<EditorialCandidate, 'id'> = { version: EDITORIAL_VERSION, evidenceId: packet.id, draft, parts, ...(quoteRange?.length ? { quoteRange } : {}) };
+	const artifact: Omit<EditorialCandidate, 'id'> = { version: EDITORIAL_VERSION, evidenceId: packet.id, draft, parts, ...(quoteRange?.length ? { quoteRange } : {}), boldRanges };
 	const id = `candidate-${createHash('sha256').update(JSON.stringify(artifact)).digest('hex')}`;
 	return { status: 'candidate', candidate: freeze({ ...artifact, id }) };
 }

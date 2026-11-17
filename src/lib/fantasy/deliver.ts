@@ -1,7 +1,7 @@
 import { toPlainText } from 'chat-adapter-sendblue';
 import process from 'node:process';
 
-import type { QuoteRange } from './editorial';
+import type { EditorialTextRange } from './editorial-formatting.schema';
 
 import { requireSendbluePostAcceptance, sendblueAdapter } from '../../mastra/channels/sendblue';
 
@@ -37,24 +37,34 @@ class SendblueSendClient implements SendClient {
 		return this.sendContent(groupId, toPlainText(text), false);
 	}
 
-	async sendExactToGroup(groupId: string, text: string, quoteRange?: QuoteRange): Promise<SendOutcome> {
-		return this.sendContent(groupId, text, true, quoteRange);
+	async sendExactToGroup(
+		groupId: string,
+		text: string,
+		quoteRange?: EditorialTextRange,
+		boldRanges?: EditorialTextRange[],
+	): Promise<SendOutcome> {
+		return this.sendContent(groupId, text, true, quoteRange, boldRanges);
 	}
 
 	private async sendContent(
 		groupId: string,
 		text: string,
 		requireAcceptance: boolean,
-		quoteRange?: QuoteRange,
+		quoteRange?: EditorialTextRange,
+		boldRanges?: EditorialTextRange[],
 	): Promise<SendOutcome> {
 		try {
+			const formatting = [
+				...(quoteRange ? [{ start: quoteRange.start, length: quoteRange.length, styles: ['italic'] }] : []),
+				...(boldRanges ?? []).map(range => ({ start: range.start, length: range.length, styles: ['bold'] })),
+			];
 			// The adapter does not expose request options. Its SDK does, which lets this
 			// non-idempotent POST disable retries and keep a deadline through body parsing.
 			const posted = await sendblueAdapter.getSdk().groups.sendMessage({
 				from_number: process.env.SENDBLUE_FROM_NUMBER ?? '',
 				group_id: groupId,
 				content: text,
-				...(quoteRange ? { text_formatting: [{ start: quoteRange.start, length: quoteRange.length, styles: ['italic'] }] } : {}),
+				...(formatting.length ? { text_formatting: formatting } : {}),
 			}, {
 				maxRetries: 0,
 				signal: AbortSignal.timeout(SEND_TIMEOUT_MS),

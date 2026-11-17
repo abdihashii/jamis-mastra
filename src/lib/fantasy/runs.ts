@@ -934,6 +934,7 @@ export async function beginSavedReportPart(
 			attemptId: attempt.id,
 			text: before.report.parts[index]!,
 			quoteRange: before.report.quoteRange?.part === index ? before.report.quoteRange : undefined,
+			boldRanges: before.report.boldRanges?.filter(range => range.part === index),
 		};
 	});
 }

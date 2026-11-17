@@ -3,7 +3,8 @@ import { z } from 'zod';
 import type { EditorialCandidate, EditorialIssue } from './editorial';
 import type { RecapEvidencePacket } from './recap-evidence';
 
-import { buildEditorialCandidate, buildEditorialCatalog, EDITORIAL_MAX_PARTS, EDITORIAL_PART_MAX_LENGTH, EDITORIAL_VERSION, editorialDraftSchema, quoteRangeSchema } from './editorial';
+import { buildEditorialCandidate, buildEditorialCatalog, EDITORIAL_MAX_PARTS, EDITORIAL_PART_MAX_LENGTH, EDITORIAL_VERSION, editorialDraftSchema } from './editorial';
+import { editorialTextRangeSchema } from './editorial-formatting.schema';
 import { FANTASY_EDITORIAL_LIMITS } from './editorial-policy';
 
 export const editorialReviewSchema = z.object({
@@ -43,7 +44,8 @@ export const editorialOutcomeSchema: z.ZodType<EditorialOutcome> = z.discriminat
 			id: z.string(),
 			draft: editorialDraftSchema,
 			parts: z.array(z.string().max(EDITORIAL_PART_MAX_LENGTH)).min(1).max(EDITORIAL_MAX_PARTS),
-			quoteRange: quoteRangeSchema.optional(),
+			quoteRange: editorialTextRangeSchema.optional(),
+			boldRanges: z.array(editorialTextRangeSchema).optional(),
 		}).strict(),
 	}).strict(),
 	z.object({ status: z.literal('blocked'), evidenceId: z.string(), reason: z.string(), candidateId: z.string().nullable(), counts: countsSchema, issues: z.array(z.object({ path: z.string(), code: z.string() }).strict()) }).strict(),

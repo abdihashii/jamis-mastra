@@ -5,7 +5,7 @@ import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 
 import type { SendOutcome } from '../../lib/fantasy/deliver';
-import type { QuoteRange } from '../../lib/fantasy/editorial';
+import type { EditorialTextRange } from '../../lib/fantasy/editorial-formatting.schema';
 import type { SqlLike } from '../../lib/fantasy/recaps';
 import type { SavedReportReference } from '../../lib/fantasy/runs';
 import type { SavedReportReceipt } from '../../lib/fantasy/saved-report-delivery';
@@ -55,7 +55,12 @@ export function createFantasyPublicationProcedure(parent: Mastra, config: {
 	leagueId: string;
 	groupId: string;
 	sql: SqlLike;
-	sendExact: (groupId: string, text: string, quoteRange?: QuoteRange) => Promise<SendOutcome>;
+	sendExact: (
+		groupId: string,
+		text: string,
+		quoteRange?: EditorialTextRange,
+		boldRanges?: EditorialTextRange[],
+	) => Promise<SendOutcome>;
 }) {
 	const mastra = new StorageFreeRuntime(parent);
 	const { leagueId, groupId, sql, sendExact } = config;

@@ -57,6 +57,7 @@ function withDigest(report: SavedReport): SavedReport {
 		counts: { drafts: report.counts.drafts, reviews: report.counts.reviews },
 		parts: report.parts,
 		...(report.quoteRange ? { quoteRange: report.quoteRange } : {}),
+		...(report.boldRanges ? { boldRanges: report.boldRanges } : {}),
 	};
 	return { ...report, id: `report-${createHash('sha256').update(JSON.stringify(content)).digest('hex')}` };
 }
@@ -113,6 +114,7 @@ describe('saved editorial reports (off live path)', () => {
 			counts: { drafts: 1, reviews: 1 },
 			parts: outcome.candidate.parts,
 			quoteRange: outcome.candidate.quoteRange,
+			boldRanges: outcome.candidate.boldRanges,
 		});
 		expect(report.parts).toHaveLength(1);
 		expect(report.editorialVersion).toBe('fantasy-editorial-v2');
@@ -146,6 +148,31 @@ describe('saved editorial reports (off live path)', () => {
 		altered.parts = ['🏈'];
 		altered.quoteRange = { part: 0, start: 1, length: 1 };
 		invalid(() => parseSavedReport(withDigest(altered)));
+	});
+
+	it('preserves saved reports with italic formatting but no bold ranges', async () => {
+		const packet = await frozenEditorialFixture();
+		const legacy = structuredClone(buildSavedReport(packet, approved(packet)));
+		delete legacy.boldRanges;
+		const report = withDigest(legacy);
+		expect(JSON.stringify(parseSavedReport(report))).toBe(JSON.stringify(report));
+	});
+
+	it('binds bold ranges to the saved digest and validates their UTF-16 bounds', async () => {
+		const packet = await frozenEditorialFixture();
+		const report = structuredClone(buildSavedReport(packet, approved(packet)));
+		report.boldRanges![0].start++;
+		invalid(() => parseSavedReport(report));
+		for (const range of [
+			{ part: 1, start: 0, length: 1 },
+			{ part: 0, start: 0, length: 3 },
+			{ part: 0, start: 1, length: 1 },
+		]) {
+			report.parts = ['🏈'];
+			delete report.quoteRange;
+			report.boldRanges = [range];
+			invalid(() => parseSavedReport(withDigest(report)));
+		}
 	});
 
 	it('preserves three ordered complete parts and stable versioned digests', async () => {
@@ -341,6 +368,7 @@ describe('saved editorial reports (off live path)', () => {
 			input.scope = { leagueId: 'x'.repeat(500), groupId: ' private-group ', season, week };
 			input.parts = ['🏈'.repeat(9_000)];
 			delete input.quoteRange;
+			delete input.boldRanges;
 			expect(parseSavedReport(withDigest(input))).toEqual(withDigest(input));
 		}
 	});
@@ -407,6 +435,8 @@ describe('saved editorial reports (off live path)', () => {
 		}],
 		['changed part bytes', (outcome) => { outcome.candidate.parts[0] += ' '; }],
 		['changed part order', (outcome) => { outcome.candidate.parts.reverse(); }],
+		['changed bold range', (outcome) => { outcome.candidate.boldRanges![0].length++; }],
+		['removed bold ranges', (outcome) => { delete outcome.candidate.boldRanges; }],
 		['changed raw draft', (outcome) => { outcome.candidate.draft.manager.body = 'Changed after review.'; }],
 		['nonrendering draft change', (outcome) => { outcome.candidate.draft.manager.supportIds.push('scope'); }],
 		['invalid draft', (outcome) => { outcome.candidate.draft.manager.body = 'Invented 999 points.'; }],
