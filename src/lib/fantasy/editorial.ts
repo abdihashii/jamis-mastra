@@ -47,12 +47,19 @@ export interface EditorialCatalog {
 	limitations: string[];
 }
 export interface EditorialIssue { path: string; code: string }
+export const quoteRangeSchema = z.object({
+	part: z.number().int().min(0).max(EDITORIAL_MAX_PARTS - 1),
+	start: z.number().int().nonnegative(),
+	length: z.number().int().positive(),
+}).strict();
+export type QuoteRange = z.infer<typeof quoteRangeSchema>;
 export interface EditorialCandidate {
 	version: typeof EDITORIAL_VERSION;
 	evidenceId: string;
 	id: string;
 	draft: EditorialDraft;
 	parts: string[];
+	quoteRange?: QuoteRange;
 }
 export type EditorialCandidateResult
 	= | { status: 'candidate'; candidate: EditorialCandidate }
@@ -383,7 +390,23 @@ export function buildEditorialCandidate(packet: RecapEvidencePacket, raw: unknow
 	if (groups.length > EDITORIAL_MAX_PARTS)
 		return { status: 'invalid', issues: [{ path: '', code: 'report_parts_overflow' }] };
 	const parts = groups.map((group, index) => `${header(index + 1, groups.length)}${group}`);
-	const artifact: Omit<EditorialCandidate, 'id'> = { version: EDITORIAL_VERSION, evidenceId: packet.id, draft, parts };
+	let groupIndex = 0;
+	let offset = 0;
+	let quoteRange: QuoteRange | undefined;
+	for (const [path, block] of blocks) {
+		if (offset && offset + 2 + block.length > groups[groupIndex]!.length) {
+			groupIndex++;
+			offset = 0;
+		}
+		if (offset)
+			offset += 2;
+		if (path === 'quote' && draft.quote) {
+			const source = resolveChatSource(packet, draft.quote.messageId)!;
+			quoteRange = { part: groupIndex, start: header(groupIndex + 1, groups.length).length + offset + `Quote of the Week: ${source.sender}\n\n`.length, length: source.text.length + 2 };
+		}
+		offset += block.length;
+	}
+	const artifact: Omit<EditorialCandidate, 'id'> = { version: EDITORIAL_VERSION, evidenceId: packet.id, draft, parts, ...(quoteRange?.length ? { quoteRange } : {}) };
 	const id = `candidate-${createHash('sha256').update(JSON.stringify(artifact)).digest('hex')}`;
 	return { status: 'candidate', candidate: freeze({ ...artifact, id }) };
 }

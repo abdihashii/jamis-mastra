@@ -7,6 +7,7 @@ import process from 'node:process';
 import type { FantasyConfig } from './config';
 import type { CoordinatorDeps } from './coordinator';
 import type { SendClient } from './deliver';
+import type { QuoteRange } from './editorial';
 import type { PipelineDeps, PipelineResult } from './pipeline';
 import type { EvidenceOptions } from './recap-evidence';
 import type { SqlLike } from './recaps';
@@ -22,7 +23,7 @@ import { getLeague, getNflSchedule, getNflState, getWinnersBracket, latestComple
 
 export type DailyOutcome = Omit<PipelineResult, 'outcome'> & { outcome: PipelineResult['outcome'] | 'skipped-unconfigured' | 'error' };
 export interface DailyOverrides {
-	send?: SendClient & { sendExactToGroup?: (groupId: string, text: string) => ReturnType<SendClient['sendToGroup']> };
+	send?: SendClient & { sendExactToGroup?: (groupId: string, text: string, quoteRange?: QuoteRange) => ReturnType<SendClient['sendToGroup']> };
 	traceId?: string;
 	tracingContext?: TracingContext;
 	sql?: SqlLike;
@@ -137,7 +138,7 @@ export async function runDailyRecap(
 					leagueId: config.sleeperLeagueId,
 					groupId: config.sendblueGroupId,
 					sql,
-					sendExact: (group, text) => send!.sendExactToGroup!(group, text),
+					sendExact: (group, text, quoteRange) => send!.sendExactToGroup!(group, text, quoteRange),
 				})(reference, token, signal);
 			}),
 		});

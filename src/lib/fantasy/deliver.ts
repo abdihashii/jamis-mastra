@@ -1,6 +1,8 @@
 import { toPlainText } from 'chat-adapter-sendblue';
 import process from 'node:process';
 
+import type { QuoteRange } from './editorial';
+
 import { requireSendbluePostAcceptance, sendblueAdapter } from '../../mastra/channels/sendblue';
 
 /** What one outbound attempt learned. `unknown` = the request's fate is unobservable to us. */
@@ -35,11 +37,16 @@ class SendblueSendClient implements SendClient {
 		return this.sendContent(groupId, toPlainText(text), false);
 	}
 
-	async sendExactToGroup(groupId: string, text: string): Promise<SendOutcome> {
-		return this.sendContent(groupId, text, true);
+	async sendExactToGroup(groupId: string, text: string, quoteRange?: QuoteRange): Promise<SendOutcome> {
+		return this.sendContent(groupId, text, true, quoteRange);
 	}
 
-	private async sendContent(groupId: string, text: string, requireAcceptance: boolean): Promise<SendOutcome> {
+	private async sendContent(
+		groupId: string,
+		text: string,
+		requireAcceptance: boolean,
+		quoteRange?: QuoteRange,
+	): Promise<SendOutcome> {
 		try {
 			// The adapter does not expose request options. Its SDK does, which lets this
 			// non-idempotent POST disable retries and keep a deadline through body parsing.
@@ -47,6 +54,7 @@ class SendblueSendClient implements SendClient {
 				from_number: process.env.SENDBLUE_FROM_NUMBER ?? '',
 				group_id: groupId,
 				content: text,
+				...(quoteRange ? { text_formatting: [{ start: quoteRange.start, length: quoteRange.length, styles: ['italic'] }] } : {}),
 			}, {
 				maxRetries: 0,
 				signal: AbortSignal.timeout(SEND_TIMEOUT_MS),

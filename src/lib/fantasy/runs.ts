@@ -929,7 +929,12 @@ export async function beginSavedReportPart(
 		after.sendAttemptAt = new Date(attempt.atUtc);
 		if (!await replaceSavedReportState(before, after, transaction, true, true))
 			return null;
-		return { part: index + 1, attemptId: attempt.id, text: before.report.parts[index]! };
+		return {
+			part: index + 1,
+			attemptId: attempt.id,
+			text: before.report.parts[index]!,
+			quoteRange: before.report.quoteRange?.part === index ? before.report.quoteRange : undefined,
+		};
 	});
 }
 

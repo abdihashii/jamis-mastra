@@ -49,6 +49,24 @@ describe('sendblueSendClient', () => {
 		}
 	});
 
+	it('sends the quote range as native italic formatting without changing text', async () => {
+		const sendMessage = spyOn(sendblueAdapter.getSdk().groups, 'sendMessage')
+			.mockResolvedValue({ message_handle: 'exact-handle', status: 'SENT' } as never);
+		try {
+			const text = '🏈 "first\n\n\"nested\"" after';
+			const quoteRange = { part: 0, start: 3, length: '"first\n\n"nested""'.length };
+			expect((await sendblueSendClient.sendExactToGroup('group', text, quoteRange)).kind).toBe('sent');
+			expect(sendMessage).toHaveBeenCalledWith({
+				from_number: process.env.SENDBLUE_FROM_NUMBER ?? '',
+				group_id: 'group',
+				content: text,
+				text_formatting: [{ start: quoteRange.start, length: quoteRange.length, styles: ['italic'] }],
+			}, { maxRetries: 0, signal: expect.any(AbortSignal), timeout: 15_000 });
+		} finally {
+			sendMessage.mockRestore();
+		}
+	});
+
 	it.each([
 		{ message_handle: 'handle', status: 'ERROR' },
 		{ message_handle: 'handle', status: 'PENDING' },

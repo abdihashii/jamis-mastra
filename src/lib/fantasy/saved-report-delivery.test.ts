@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 import type { SendOutcome } from './deliver';
+import type { QuoteRange } from './editorial';
 import type { RecapGenerationRecord, SqlLike } from './recaps';
 import type { SavedReportProgress, SavedReportReference } from './runs';
 import type { SavedReport } from './saved-report';
@@ -210,13 +211,14 @@ describe.skipIf(!databaseUrl)('saved-report native PG delivery gates (mock sende
 		const calls: Array<{ groupId: string; text: string }> = [];
 		return {
 			calls,
-			send: async (groupId: string, text: string): Promise<SendOutcome> => {
+			send: async (groupId: string, text: string, quoteRange?: QuoteRange): Promise<SendOutcome> => {
 				const saved = await state(reference(report));
 				const index = saved.progress.parts.findIndex(attempts => savedPartStatus(attempts) === 'sending');
 				expect(index).toBeGreaterThanOrEqual(0);
 				expect(saved.report).toEqual(report);
 				expect(groupId).toBe(report.scope.groupId);
 				expect(Buffer.from(text)).toEqual(Buffer.from(report.parts[index]!));
+				expect(quoteRange).toEqual(report.quoteRange?.part === index ? report.quoteRange : undefined);
 				expect(saved.progress.parts[index]!.at(-1)).toMatchObject({
 					claimToken: saved.claimToken,
 					operationId: saved.progress.operationId,

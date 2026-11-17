@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { EditorialOutcome } from './editorial-loop';
 import type { RecapEvidencePacket } from './recap-evidence';
 
-import { buildEditorialCandidate, EDITORIAL_MAX_PARTS, EDITORIAL_PART_MAX_LENGTH, EDITORIAL_VERSION } from './editorial';
+import { buildEditorialCandidate, EDITORIAL_MAX_PARTS, EDITORIAL_PART_MAX_LENGTH, EDITORIAL_VERSION, quoteRangeSchema } from './editorial';
 import { editorialOutcomeSchema } from './editorial-loop';
 import { FANTASY_EDITORIAL_MODEL } from './editorial-policy';
 
@@ -34,6 +34,7 @@ const savedReportSchema = z.object({
 	parts: z.array(z.string().max(EDITORIAL_PART_MAX_LENGTH).refine(value => value.trim().length > 0))
 		.min(1)
 		.max(EDITORIAL_MAX_PARTS),
+	quoteRange: quoteRangeSchema.optional(),
 }).strict();
 const savedReportContentSchema = savedReportSchema.omit({ id: true });
 export type SavedReport = z.infer<typeof savedReportSchema>;
@@ -60,6 +61,15 @@ export function parseSavedReport(value: unknown): SavedReport {
 	try {
 		const report = savedReportSchema.parse(value);
 		const { id, ...content } = report;
+		const range = report.quoteRange;
+		if (range) {
+			const part = report.parts[range.part];
+			const end = range.start + range.length;
+			const splitsPair = (index: number) => index > 0 && index < part!.length
+				&& /[\uD800-\uDBFF]/u.test(part![index - 1]!) && /[\uDC00-\uDFFF]/u.test(part![index]!);
+			if (!part || end > part.length || splitsPair(range.start) || splitsPair(end))
+				throw new Error('invalid_saved_report');
+		}
 		if (id !== reportId(content))
 			throw new Error('invalid_saved_report');
 		// Zod detached every retained object/array before any freeze touches it.
@@ -92,7 +102,8 @@ export function buildSavedReport(packet: RecapEvidencePacket, outcome: Editorial
 		const rebuilt = buildEditorialCandidate(packet, candidate.draft);
 		if (rebuilt.status !== 'candidate' || candidate.id !== rebuilt.candidate.id
 			|| candidate.version !== rebuilt.candidate.version || candidate.evidenceId !== rebuilt.candidate.evidenceId
-			|| JSON.stringify(candidate.parts) !== JSON.stringify(rebuilt.candidate.parts)) {
+			|| JSON.stringify(candidate.parts) !== JSON.stringify(rebuilt.candidate.parts)
+			|| JSON.stringify(candidate.quoteRange) !== JSON.stringify(rebuilt.candidate.quoteRange)) {
 			throw new Error('invalid_saved_report');
 		}
 		const content = savedReportContentSchema.parse({
@@ -110,6 +121,7 @@ export function buildSavedReport(packet: RecapEvidencePacket, outcome: Editorial
 			reviewer: { model: FANTASY_EDITORIAL_MODEL, effort: 'xhigh' },
 			counts: approved.counts,
 			parts: candidate.parts,
+			...(candidate.quoteRange ? { quoteRange: candidate.quoteRange } : {}),
 		});
 		return parseSavedReport({ ...content, id: reportId(content) });
 	} catch {

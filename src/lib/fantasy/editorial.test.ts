@@ -474,6 +474,7 @@ describe('deterministic editorial candidates (off live path)', () => {
 		input.manager.body = `Opening ${'a'.repeat(10_000)}`;
 		input.loser.body = `Middle ${'b'.repeat(10_000)}`;
 		input.match.body = `Closing ${'c'.repeat(10_000)}`;
+		packet.chat!.sources[0].text = '🏈 "nested"\n\nlast line';
 		const out = candidate(packet, input);
 		expect(out.parts).toHaveLength(3);
 		out.parts.forEach((part, index) => {
@@ -483,7 +484,11 @@ describe('deterministic editorial candidates (off live path)', () => {
 		expect(out.parts[0]).toContain(input.manager.body);
 		expect(out.parts[1]).toContain(input.loser.body);
 		expect(out.parts[2]).toContain(input.match.body);
-		expect(out.parts[2]).toContain(quoteText);
+		const range = out.quoteRange!;
+		expect(range.part).toBe(2);
+		expect(out.parts[2].slice(range.start, range.start + range.length)).toBe(`"${packet.chat!.sources[0].text}"`);
+		expect(out.parts[2][range.start]).toBe('"');
+		expect(out.parts[2][range.start + range.length - 1]).toBe('"');
 		expect(out.parts[2]).toContain(input.stories[0].body);
 	});
 

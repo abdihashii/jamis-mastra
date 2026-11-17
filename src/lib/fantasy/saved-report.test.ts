@@ -56,6 +56,7 @@ function withDigest(report: SavedReport): SavedReport {
 		reviewer: { model: report.reviewer.model, effort: report.reviewer.effort },
 		counts: { drafts: report.counts.drafts, reviews: report.counts.reviews },
 		parts: report.parts,
+		...(report.quoteRange ? { quoteRange: report.quoteRange } : {}),
 	};
 	return { ...report, id: `report-${createHash('sha256').update(JSON.stringify(content)).digest('hex')}` };
 }
@@ -111,12 +112,14 @@ describe('saved editorial reports (off live path)', () => {
 			reviewer: { model: FANTASY_EDITORIAL_MODEL, effort: 'xhigh' },
 			counts: { drafts: 1, reviews: 1 },
 			parts: outcome.candidate.parts,
+			quoteRange: outcome.candidate.quoteRange,
 		});
 		expect(report.parts).toHaveLength(1);
 		expect(report.editorialVersion).toBe('fantasy-editorial-v2');
 		expect(report.parts[0]).not.toContain('Basis:');
 		const start = report.parts[0].indexOf(editorialFixtureQuote);
 		expect(start).toBeGreaterThan(-1);
+		expect(report.quoteRange).toEqual({ part: 0, start: start - 1, length: editorialFixtureQuote.length + 2 });
 		expect(Buffer.from(report.parts[0].slice(start, start + editorialFixtureQuote.length)))
 			.toEqual(Buffer.from(editorialFixtureQuote));
 		expect(JSON.stringify(parseSavedReport(JSON.parse(JSON.stringify(report))))).toBe(JSON.stringify(report));
@@ -133,11 +136,25 @@ describe('saved editorial reports (off live path)', () => {
 		expect(JSON.stringify(parsed)).toBe(before);
 	});
 
+	it('rejects altered or invalid quote ranges even with a recomputed report digest', async () => {
+		const report = buildSavedReport(await frozenEditorialFixture(), approved(await frozenEditorialFixture()));
+		const altered = structuredClone(report);
+		altered.quoteRange!.start++;
+		invalid(() => parseSavedReport(altered));
+		altered.quoteRange = { part: 0, start: 1, length: report.parts[0].length };
+		invalid(() => parseSavedReport(withDigest(altered)));
+		altered.parts = ['🏈'];
+		altered.quoteRange = { part: 0, start: 1, length: 1 };
+		invalid(() => parseSavedReport(withDigest(altered)));
+	});
+
 	it('preserves three ordered complete parts and stable versioned digests', async () => {
 		const packet = await frozenEditorialFixture();
 		const outcome = approved(packet, longDraft(packet));
 		const report = buildSavedReport(packet, outcome);
 		expect(report.parts).toHaveLength(3);
+		const range = report.quoteRange!;
+		expect(report.parts[range.part]!.slice(range.start, range.start + range.length)).toBe(`"${editorialFixtureQuote}"`);
 		report.parts.forEach((part, index) => {
 			expect(part.startsWith(`Week 1 Recap (${index + 1}/3)\n\n`)).toBe(true);
 			expect(part.length).toBeLessThanOrEqual(18_000);
@@ -323,6 +340,7 @@ describe('saved editorial reports (off live path)', () => {
 			const input = structuredClone(report);
 			input.scope = { leagueId: 'x'.repeat(500), groupId: ' private-group ', season, week };
 			input.parts = ['🏈'.repeat(9_000)];
+			delete input.quoteRange;
 			expect(parseSavedReport(withDigest(input))).toEqual(withDigest(input));
 		}
 	});
